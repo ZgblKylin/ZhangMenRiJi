@@ -1,0 +1,1617 @@
+<!--
+  ============================================================================
+   《掌门日记》—— 武侠门派经营模拟器
+  ============================================================================
+  
+  设计思路：
+  
+  1. 核心循环：以"月"为基本时间单位推进，每月玩家做 2~3 个关键决策，门派状态随之演化。
+     每年十二月举行「年终论剑」，是检验门派实力的重要节点。至少可玩 24 个月（两届论剑）。
+  
+  2. 门派属性（去游戏术语，取武侠味）：
+     - 江湖声望：影响弟子慕名来投的概率、论剑排名权重
+     - 库银：门派银两，维持运转之本，枯竭则弟子出走
+     - 门人志气：集体士气，影响弟子修炼效率与外派成功率
+     - 掌门伤势：掌门负伤会影响所有决策效果，重伤需静养
+  
+  3. 弟子系统：
+     - 每位弟子有：姓名、资质（1-100）、内力（1-100）、武学专精、忠诚度（1-100）
+     - 每月自动成长（内力微增，忠诚度随门派状态浮动）
+     - 忠诚度低于阈值可能叛逃
+     - 可招募新弟子（需消耗库银）
+     - 可外派执行任务（获得库银/声望/武学残卷）
+  
+  4. 武学体系（5 门自创武功）：
+     - 太虚剑法：攻守兼备，普适性强
+     - 九阳烈掌：至刚至猛，刚猛路子
+     - 玄冰心经：以柔克刚，内功深厚
+     - 追风步：轻功绝伦，闪避见长
+     - 混元功：浑厚绵长，根基扎实
+  
+  5. 随机事件系统：
+     分「江湖风云」与「门中生息」两大类，每月至少触发一件。
+     江湖风云：邻派挑衅、朝廷封赏、豪杰来投、山贼扰民、秘笈出世……
+     门中生息：米价上涨、练功场损毁、弟子口角、掌门染恙、奇遇顿悟……
+  
+  6. 年终论剑：
+     每年十二月自动触发。各弟子以四项属性加权评分，与江湖各派同台竞技。
+     论剑结果影响来年声望与弟子成长。
+  
+  7. 存档系统：
+     - LocalStorage 自动存档（每月推进后自动保存）
+     - 保留最近三个月的存档快照，可供回档
+     - JSON 导出/导入功能
+  
+  8. UI 设计：
+     - 宣纸底色（泛黄）、竖排标题、行楷风字体栈
+     - 配色取水墨丹青：墨色为主，朱砂点缀
+     - 文字用半文半白语气，合乎武侠小说行文习惯
+     - 所有交互在主界面完成，避免弹窗过多
+  
+  技术选型：纯 HTML/CSS/JS，零外部依赖，打开即玩。
+  ============================================================================
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌门日记 — 武侠门派经营模拟器</title>
+<style>
+/* ============================================================
+   CSS — 武侠宣纸风主题
+   ============================================================ */
+/* 自包含：使用系统自带字体，不依赖外部资源 */
+/* 字体优先级：行楷 → 楷体 → 宋体 → 衬线 */
+:root {
+  --paper: #f5e6c8;
+  --paper-dark: #e8d5a8;
+  --paper-light: #faf3e4;
+  --ink: #2c1810;
+  --ink-light: #5c3d2e;
+  --ink-fade: #8b7355;
+  --cinnabar: #c43a31;
+  --cinnabar-light: #e05a50;
+  --jade: #4a7c59;
+  --jade-light: #6ba37a;
+  --gold: #b8860b;
+  --gold-light: #daa520;
+  --border: #c4a87c;
+  --shadow: rgba(44, 24, 16, 0.15);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'STSong', 'SimSun', 'Noto Serif SC', serif;
+  background: #3c2415;
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(139, 115, 85, 0.3) 0%, transparent 60%),
+    radial-gradient(ellipse at 20% 80%, rgba(196, 58, 49, 0.05) 0%, transparent 50%);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 2rem 1rem;
+  color: var(--ink);
+}
+
+/* 宣纸容器 */
+.scroll-container {
+  width: 100%;
+  max-width: 800px;
+  background: var(--paper);
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  border: 3px solid var(--border);
+  border-radius: 2px;
+  box-shadow:
+    0 2px 20px var(--shadow),
+    0 0 0 8px var(--paper-dark),
+    0 0 0 11px var(--border),
+    0 0 0 12px var(--paper-dark),
+    inset 0 0 80px rgba(139, 115, 85, 0.1);
+  position: relative;
+  min-height: 600px;
+}
+
+/* 宣纸纹理纹理叠加 */
+.scroll-container::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 28px,
+    rgba(139, 115, 85, 0.06) 28px,
+    rgba(139, 115, 85, 0.06) 29px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 竖排装饰条 */
+.scroll-container::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 36px;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, rgba(196, 58, 49, 0.3), transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.content-area {
+  position: relative;
+  z-index: 1;
+  padding: 2rem 2.5rem 2rem 3.5rem;
+}
+
+/* 标题区 */
+.title-section {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--border);
+  position: relative;
+}
+
+.title-section h1 {
+  font-family: 'Ma Shan Zheng', 'STKaiti', 'KaiTi', cursive;
+  font-size: 2.8rem;
+  color: var(--ink);
+  letter-spacing: 0.3em;
+  writing-mode: horizontal-tb;
+  margin-bottom: 0.3rem;
+  text-shadow: 2px 2px 0 rgba(196, 58, 49, 0.1);
+}
+
+.title-section .subtitle {
+  font-size: 0.9rem;
+  color: var(--ink-fade);
+  letter-spacing: 0.15em;
+}
+
+/* 信息面板 */
+.info-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.info-item {
+  background: var(--paper-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.6rem 0.5rem;
+  text-align: center;
+  position: relative;
+}
+
+.info-item .label {
+  font-size: 0.7rem;
+  color: var(--ink-fade);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.2rem;
+}
+
+.info-item .value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.info-item .value.warn { color: var(--cinnabar); }
+.info-item .value.good { color: var(--jade); }
+.info-item .value.gold { color: var(--gold); }
+
+/* 时间指示 */
+.month-indicator {
+  text-align: center;
+  font-size: 1.1rem;
+  color: var(--ink-light);
+  margin-bottom: 1.2rem;
+  letter-spacing: 0.2em;
+}
+
+.month-indicator strong {
+  color: var(--cinnabar);
+  font-size: 1.3rem;
+}
+
+/* 面板通用 */
+.panel {
+  background: var(--paper-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.panel-title {
+  font-family: 'ZCOOL XiaoWei', 'STKaiti', 'KaiTi', serif;
+  font-size: 1.2rem;
+  color: var(--ink);
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.8rem;
+  letter-spacing: 0.15em;
+}
+
+.panel-title::before {
+  content: '◆ ';
+  color: var(--cinnabar);
+  font-size: 0.6rem;
+  vertical-align: middle;
+}
+
+/* 按钮 */
+.btn {
+  font-family: 'ZCOOL XiaoWei', 'STKaiti', 'KaiTi', serif;
+  font-size: 0.9rem;
+  padding: 0.45rem 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.08em;
+  background: var(--paper-light);
+  color: var(--ink);
+}
+
+.btn:hover { background: var(--paper-dark); transform: translateY(-1px); box-shadow: 0 2px 8px var(--shadow); }
+.btn:active { transform: translateY(0); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-primary {
+  background: var(--cinnabar);
+  color: #fff;
+  border-color: var(--cinnabar);
+}
+.btn-primary:hover { background: var(--cinnabar-light); }
+
+.btn-jade {
+  background: var(--jade);
+  color: #fff;
+  border-color: var(--jade);
+}
+.btn-jade:hover { background: var(--jade-light); }
+
+.btn-gold {
+  background: var(--gold);
+  color: #fff;
+  border-color: var(--gold);
+}
+.btn-gold:hover { background: var(--gold-light); }
+
+.btn-sm {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.7rem;
+}
+
+.btn-group {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* 决策区 */
+.decision-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.decision-card {
+  background: var(--paper-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.decision-card:hover {
+  border-color: var(--cinnabar);
+  background: #fff;
+  box-shadow: 0 2px 12px var(--shadow);
+}
+
+.decision-card .card-title {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 0.95rem;
+  margin-bottom: 0.2rem;
+}
+
+.decision-card .card-cost {
+  font-size: 0.75rem;
+  color: var(--cinnabar);
+}
+
+.decision-card .card-desc {
+  font-size: 0.8rem;
+  color: var(--ink-fade);
+  margin-top: 0.3rem;
+  line-height: 1.4;
+}
+
+.decision-card.used {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.decision-card.used::after {
+  content: '已决';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.5rem;
+  color: var(--cinnabar);
+  opacity: 0.6;
+  font-family: 'Ma Shan Zheng', cursive;
+}
+
+/* 弟子列表 */
+.disciple-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.disciple-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.8rem;
+  background: var(--paper-light);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 0.85rem;
+}
+
+.disciple-info { flex: 1; }
+.disciple-name {
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 1rem;
+}
+.disciple-stats {
+  color: var(--ink-fade);
+  font-size: 0.75rem;
+  margin-top: 0.1rem;
+}
+.disciple-stats span { margin-right: 0.6rem; }
+.disciple-stats .stat-low { color: var(--cinnabar); }
+
+.disciple-card .btn-sm { flex-shrink: 0; margin-left: 0.5rem; }
+
+/* 事件日志 */
+.event-log {
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.event-entry {
+  padding: 0.3rem 0;
+  border-bottom: 1px dotted var(--border);
+}
+
+.event-entry:last-child { border-bottom: none; }
+
+.event-month {
+  color: var(--cinnabar);
+  font-weight: 700;
+  margin-right: 0.5em;
+}
+
+.event-good { color: var(--jade); }
+.event-bad { color: var(--cinnabar); }
+.event-neutral { color: var(--ink-light); }
+
+/* 开始画面 */
+.start-screen {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.start-screen h1 {
+  font-family: 'Ma Shan Zheng', cursive;
+  font-size: 3.5rem;
+  color: var(--ink);
+  letter-spacing: 0.4em;
+  margin-bottom: 0.5rem;
+}
+
+.start-screen .poem {
+  writing-mode: vertical-rl;
+  display: inline-block;
+  font-size: 1rem;
+  color: var(--ink-fade);
+  letter-spacing: 0.3em;
+  line-height: 2.5;
+  margin: 1.5rem 0;
+  height: 200px;
+}
+
+.start-input {
+  margin: 1.5rem 0;
+}
+
+.start-input label {
+  font-size: 1.1rem;
+  color: var(--ink-light);
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.start-input input {
+  font-family: 'ZCOOL XiaoWei', 'STKaiti', 'KaiTi', serif;
+  font-size: 1.3rem;
+  padding: 0.5rem 1rem;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  background: var(--paper-light);
+  color: var(--ink);
+  text-align: center;
+  width: 280px;
+  letter-spacing: 0.2em;
+}
+
+.start-input input:focus {
+  outline: none;
+  border-color: var(--cinnabar);
+}
+
+/* 论剑面板 */
+.tournament-panel {
+  text-align: center;
+  background: linear-gradient(135deg, var(--paper-light), #fff8e7);
+  border: 2px solid var(--gold);
+}
+
+.tournament-panel .panel-title {
+  font-size: 1.5rem;
+  color: var(--cinnabar);
+  border-bottom-color: var(--gold);
+}
+
+.tournament-result {
+  font-size: 1rem;
+  line-height: 1.8;
+  margin: 1rem 0;
+}
+
+.rank-display {
+  font-size: 3rem;
+  font-family: 'Ma Shan Zheng', cursive;
+  color: var(--gold);
+  margin: 0.5rem 0;
+}
+
+/* 存档面板 */
+.save-panel {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(44, 24, 16, 0.7);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+}
+
+.save-panel.show { display: flex; }
+
+.save-dialog {
+  background: var(--paper);
+  border: 3px solid var(--border);
+  border-radius: 2px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+
+.save-slot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  margin-bottom: 0.4rem;
+  background: var(--paper-light);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.save-slot:hover { background: #fff; border-color: var(--cinnabar); }
+.save-slot .slot-time { color: var(--ink-fade); font-size: 0.8rem; }
+.save-slot .slot-info { font-weight: 700; }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--paper-dark); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .scroll-container { margin: 0; }
+  .content-area { padding: 1rem 1.2rem 1rem 2rem; }
+  .scroll-container::after { left: 20px; }
+  .info-bar { grid-template-columns: repeat(2, 1fr); }
+  .decision-grid { grid-template-columns: 1fr; }
+  .start-screen h1 { font-size: 2.5rem; }
+  .title-section h1 { font-size: 2rem; }
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* 提示工具 */
+.tooltip {
+  position: relative;
+  cursor: help;
+  border-bottom: 1px dotted var(--ink-fade);
+}
+
+/* 隐藏界面 */
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="scroll-container" id="app">
+  <div class="content-area" id="content"></div>
+</div>
+
+<!-- 存档对话框 -->
+<div class="save-panel" id="savePanel">
+  <div class="save-dialog" id="saveDialog"></div>
+</div>
+
+<script>
+// ============================================================
+// 《掌门日记》— 游戏核心逻辑
+// ============================================================
+
+// ========== 数据定义 ==========
+
+const MARTIAL_ARTS = [
+  { id: 'taixu', name: '太虚剑法', type: '剑法', desc: '攻守兼备，虚实相生，乃本派镇山之绝学。', atk: 3, def: 3, spd: 2, reqTalent: 30 },
+  { id: 'jiuyang', name: '九阳烈掌', type: '掌法', desc: '至刚至猛，掌风所至，金石俱裂。刚猛路子，威力绝伦。', atk: 5, def: 1, spd: 2, reqTalent: 40 },
+  { id: 'xuanbing', name: '玄冰心经', type: '内功', desc: '以柔克刚，心如寒冰。内力深厚者修之，可御万般攻势。', atk: 1, def: 5, spd: 2, reqTalent: 35 },
+  { id: 'zhuifeng', name: '追风步', type: '轻功', desc: '踏雪无痕，追风逐电。临敌之际，先机在握。', atk: 2, def: 2, spd: 5, reqTalent: 25 },
+  { id: 'hunyuan', name: '混元功', type: '内功', desc: '浑厚绵长，根基扎实。修至大成，内力如长江大河，绵绵不绝。', atk: 3, def: 3, spd: 2, reqTalent: 20 },
+];
+
+const SURNAMES = ['风','云','萧','柳','慕容','上官','南宫','令狐','沈','陆','叶','林','楚','苏','燕','秦','白','莫','顾','谢'];
+const GIVEN_NAMES_MALE = ['清扬','无忌','破军','铁心','孤鸿','凌霄','子陵','天行','断水','逐云','惊鸿','寒江','远山','行空','九渊','纯钧','赤霄','湛卢','承影','泰阿'];
+const GIVEN_NAMES_FEMALE = ['若兰','灵素','紫烟','幽月','凝霜','凤歌','雪晴','梦蝶','碧落','紫菱','冰雁','霜华','念慈','倚天','芷若','飞燕','语嫣','龙儿','莫愁','秋水'];
+
+const EVENT_POOLS = {
+  jianghu: [
+    { id: 'jh_01', text: '邻派遣使来谒，言语间颇有试探之意。掌门好言相待，使者惭而退。', effect: { prestige: 3, morale: 2 }, good: true },
+    { id: 'jh_02', text: '邻派率众来犯，声称本派侵占了他们的采药之地。一场恶斗，各有损伤。', effect: { prestige: -2, morale: -3, silver: -30, injury: 8 }, good: false },
+    { id: 'jh_03', text: '朝廷特使到访，说圣上听闻本派侠名，特赐「侠义之门」匾额一面，并赏银百两。', effect: { prestige: 8, silver: 100, morale: 5 }, good: true },
+    { id: 'jh_04', text: '江湖豪杰数人慕名来投，愿意拜入本派门下。掌门大喜，设宴款待。', effect: { prestige: 2, morale: 3, freeRecruit: 2 }, good: true },
+    { id: 'jh_05', text: '山贼下山劫掠，洗了山脚的村子。掌门率弟子连夜追击，剿灭匪首。', effect: { prestige: 5, silver: 40, morale: 2 }, good: true },
+    { id: 'jh_06', text: '江湖传言本派藏有上古秘笈，各路宵小蠢蠢欲动。掌门连夜布防，一夜不得安寝。', effect: { prestige: -1, morale: -2, injury: 5 }, good: false },
+    { id: 'jh_07', text: '一位云游僧人在山门盘桓数日，临行前留下一卷残缺心法。', effect: { prestige: 1, silver: 0, morale: 1, special: 'manual' }, good: true },
+    { id: 'jh_08', text: '魔教余孽在附近作乱，各大派约请本派共商讨魔大计。掌门率精锐前往会盟。', effect: { prestige: 6, morale: 3, silver: -20, injury: 10 }, good: true },
+    { id: 'jh_09', text: '本派弟子在镇上酒楼与人争执，失手伤了人。掌门亲赴赔礼，花费不少。', effect: { prestige: -3, silver: -50, morale: -1 }, good: false },
+    { id: 'jh_10', text: '官府张榜悬赏江洋大盗，掌门遣弟子前往缉拿。苦战三日，终将贼人擒获。', effect: { prestige: 4, silver: 80, morale: 4, injury: 8 }, good: true },
+    { id: 'jh_11', text: '邻派掌门暴毙，其门下弟子怀疑是本派所为。江湖上议论纷纷。', effect: { prestige: -5, morale: -3 }, good: false },
+    { id: 'jh_12', text: '西域异人携奇珍异宝路过本地，掌门以礼相待，宾主尽欢。异人临别赠以珍奇药材。', effect: { silver: 60, prestige: 2, morale: 1 }, good: true },
+  ],
+  mensheng: [
+    { id: 'ms_01', text: '近日米价飞涨，厨房采买耗费甚巨。管事来报，本月开销比往常多了三成。', effect: { silver: -40 }, good: false },
+    { id: 'ms_02', text: '掌门晨起练功，不慎扭了腰。敷了药膏，将养数日方见好转。', effect: { injury: 5, morale: -1 }, good: false },
+    { id: 'ms_03', text: '连日暴雨，练功场的木桩被大水冲毁大半。弟子们只好在室内演练，颇为憋闷。', effect: { silver: -30, morale: -2 }, good: false },
+    { id: 'ms_04', text: '掌门半夜观星，忽有所悟，对武学之道有了新的理解。当夜挥毫写下一篇心法。', effect: { prestige: 1, morale: 3, special: 'epiphany' }, good: true },
+    { id: 'ms_05', text: '厨房大娘告老还乡，新来的厨子手艺极差，弟子们怨声载道。掌门只好亲自下厨半月。', effect: { morale: -2, injury: 3 }, good: false },
+    { id: 'ms_06', text: '山后竹林里冒出了一眼温泉，弟子们轮流泡汤，个个神清气爽。', effect: { morale: 5, injury: -5 }, good: true },
+    { id: 'ms_07', text: '两个弟子为了一件小事大打出手，掌门罚二人挑水三月，门派上下引以为戒。', effect: { morale: -3, loyaltyLoss: true }, good: false },
+    { id: 'ms_08', text: '掌门生日，弟子们凑银两买了一坛好酒。月下共饮，其乐融融。', effect: { morale: 4, silver: -10 }, good: true },
+    { id: 'ms_09', text: '库房闹了鼠患，不少药材被啃坏了。管库弟子自责不已，掌门好言宽慰。', effect: { silver: -20, morale: 1 }, good: false },
+    { id: 'ms_10', text: '山下镇子里来了个老郎中，掌门请他上山给弟子们调理身体。众人药后精神焕发。', effect: { morale: 3, silver: -25, injury: -8 }, good: true },
+    { id: 'ms_11', text: '一位弟子的家人来山探望，掌门准了半月探亲假。门中上下颇有归家之思。', effect: { morale: -1, loyaltyChange: true }, good: false },
+    { id: 'ms_12', text: '掌门整理旧物，从师父遗留的木箱中发现一封书信，内附银票若干。师父在天之灵，仍挂念着本派。', effect: { silver: 150, morale: 6, prestige: 1 }, good: true },
+  ],
+};
+
+// ========== 游戏状态 ==========
+
+const DEFAULT_STATE = {
+  sectName: '',
+  year: 1,
+  month: 1,
+  prestige: 45,      // 江湖声望
+  silver: 500,       // 库银
+  morale: 55,        // 门人志气
+  injury: 0,         // 掌门伤势
+  disciples: [],
+  martialArtsLearned: ['hunyuan'], // 初始只掌握混元功
+  eventLog: [],
+  decisionsUsed: 0,
+  maxDecisions: 3,
+  totalDisciplesRecruited: 0,
+  gameOver: false,
+  gameOverReason: '',
+  tournamentHistory: [],
+  pendingEvent: null,
+};
+
+let G = null;        // 当前游戏状态
+let usedDecisions = [];  // 本月已用决策 ID
+let saveSlots = [];      // 存档槽
+
+// ========== 工具函数 ==========
+
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function pick(arr) { return arr[rand(0, arr.length - 1)]; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function fmtSilver(n) { return n >= 0 ? '银' + n + '两' : '欠' + Math.abs(n) + '两'; }
+
+function generateDiscipleName() {
+  const surname = pick(SURNAMES);
+  const given = pick(Math.random() < 0.5 ? GIVEN_NAMES_MALE : GIVEN_NAMES_FEMALE);
+  return surname + given;
+}
+
+function generateDisciple(baseTalentBonus = 0) {
+  const talent = clamp(rand(20, 70) + baseTalentBonus, 10, 95);
+  const innerPower = rand(10, 30);
+  const art = pick(MARTIAL_ARTS.filter(a => a.reqTalent <= talent + 10));
+  return {
+    id: 'd' + Date.now() + '_' + rand(1000, 9999),
+    name: generateDiscipleName(),
+    talent,
+    innerPower,
+    martialArt: art.id,
+    loyalty: rand(40, 70),
+    monthsInSect: 0,
+    alive: true,
+  };
+}
+
+function getDiscipleCombatScore(d) {
+  const art = MARTIAL_ARTS.find(a => a.id === d.martialArt) || MARTIAL_ARTS[4];
+  return Math.floor(
+    d.talent * 0.3 + d.innerPower * 0.3 + (art.atk + art.def + art.spd) * 3 + d.loyalty * 0.1
+  );
+}
+
+function getSectCombatPower() {
+  if (G.disciples.length === 0) return 10;
+  const scores = G.disciples.filter(d => d.alive).map(getDiscipleCombatScore);
+  return Math.floor(scores.reduce((a, b) => a + b, 0) / scores.length) + scores.length * 5;
+}
+
+// ========== 初始弟子 ==========
+
+function generateStartingDisciples() {
+  const d1 = generateDisciple(15);
+  d1.loyalty = rand(60, 80);
+  d1.innerPower = rand(25, 40);
+  d1.name = pick(SURNAMES) + pick(GIVEN_NAMES_MALE);
+  const d2 = generateDisciple(10);
+  d2.loyalty = rand(55, 75);
+  d2.innerPower = rand(20, 35);
+  d2.name = pick(SURNAMES) + pick(GIVEN_NAMES_FEMALE);
+  return [d1, d2];
+}
+
+// ========== 存档系统 ==========
+
+function getSaveKey(slot) { return 'zmnrj_save_' + slot; }
+function getSlotsKey() { return 'zmnrj_slots'; }
+
+function saveGame(slot) {
+  const data = JSON.parse(JSON.stringify(G));
+  data._timestamp = new Date().toISOString();
+  data._sectName = G.sectName;
+  data._year = G.year;
+  data._month = G.month;
+  try {
+    localStorage.setItem(getSaveKey(slot), JSON.stringify(data));
+    updateSaveSlots();
+  } catch(e) {
+    console.warn('存档失败：', e);
+  }
+}
+
+function loadGame(slot) {
+  try {
+    const raw = localStorage.getItem(getSaveKey(slot));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) {
+    return null;
+  }
+}
+
+function deleteSave(slot) {
+  localStorage.removeItem(getSaveKey(slot));
+  updateSaveSlots();
+}
+
+function updateSaveSlots() {
+  saveSlots = [];
+  for (let i = 0; i < 6; i++) {
+    const data = loadGame(i);
+    if (data) saveSlots.push({ slot: i, data });
+  }
+  saveSlots.sort((a, b) => new Date(b.data._timestamp) - new Date(a.data._timestamp));
+}
+
+function autoSave() {
+  // 轮转存储在槽 0-2（最近三个月）
+  const slot = ((G.year - 1) * 12 + G.month) % 3;
+  saveGame(slot);
+  // 同时在槽 3 存最新进度
+  saveGame(3);
+}
+
+function exportSave() {
+  const data = JSON.parse(JSON.stringify(G));
+  data._exportTime = new Date().toISOString();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${G.sectName}_掌门日记_第${G.year}年${G.month}月.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addEvent('已导出存档至本地文件。', 'neutral');
+}
+
+function importSave(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.sectName || !data.disciples) throw new Error('存档格式不符');
+      G = data;
+      usedDecisions = [];
+      updateSaveSlots();
+      autoSave();
+      renderGame();
+      addEvent('已从外部文件载入存档。掌门，欢迎归来。', 'good');
+    } catch(err) {
+      alert('存档文件无效，无法读取。');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function rollbackToSlot(slot) {
+  const data = loadGame(slot);
+  if (!data) return;
+  if (!confirm(`确定回档至「${data._sectName}」第${data._year}年${data._month}月？当前进度将丢失。`)) return;
+  G = data;
+  usedDecisions = [];
+  delete G._timestamp;
+  delete G._sectName;
+  delete G._year;
+  delete G._month;
+  delete G._exportTime;
+  autoSave();
+  renderGame();
+  addEvent('已回档至历史记录。', 'neutral');
+}
+
+// ========== 事件系统 ==========
+
+function addEvent(text, mood) {
+  G.eventLog.unshift({
+    text,
+    mood: mood || 'neutral',
+    year: G.year,
+    month: G.month,
+  });
+  if (G.eventLog.length > 100) G.eventLog.length = 100;
+}
+
+function triggerRandomEvent() {
+  // 50% 江湖事件，50% 门中生息
+  const pool = Math.random() < 0.5 ? 'jianghu' : 'mensheng';
+  const event = pick(EVENT_POOLS[pool]);
+  G.pendingEvent = event;
+  applyEventEffect(event);
+  addEvent(event.text, event.good ? 'good' : 'bad');
+  return event;
+}
+
+function applyEventEffect(event) {
+  const e = event.effect;
+  if (e.prestige) G.prestige = clamp(G.prestige + e.prestige, 0, 100);
+  if (e.silver) G.silver = Math.max(0, G.silver + e.silver);
+  if (e.morale) G.morale = clamp(G.morale + e.morale, 0, 100);
+  if (e.injury) G.injury = clamp(G.injury + e.injury, 0, 100);
+  if (e.freeRecruit) {
+    for (let i = 0; i < e.freeRecruit; i++) {
+      G.disciples.push(generateDisciple(10));
+    }
+    addEvent(`${e.freeRecruit}名江湖人士加入本派！`, 'good');
+  }
+  if (e.special === 'manual') {
+    // 随机学会一门未掌握的武功
+    const unlearned = MARTIAL_ARTS.filter(a => !G.martialArtsLearned.includes(a.id));
+    if (unlearned.length > 0) {
+      const art = pick(unlearned);
+      G.martialArtsLearned.push(art.id);
+      addEvent(`获得武学残卷，参悟《${art.name}》！`, 'good');
+    }
+  }
+  if (e.special === 'epiphany') {
+    G.prestige = clamp(G.prestige + 3, 0, 100);
+    // 随机一名弟子内力大增
+    const alive = G.disciples.filter(d => d.alive);
+    if (alive.length > 0) {
+      const d = pick(alive);
+      d.innerPower = clamp(d.innerPower + rand(8, 20), 10, 100);
+      addEvent(`${d.name}听掌门讲道，若有所悟，内力精进！`, 'good');
+    }
+  }
+  if (e.loyaltyLoss) {
+    G.disciples.forEach(d => {
+      if (d.alive && Math.random() < 0.3) d.loyalty = clamp(d.loyalty - rand(5, 15), 0, 100);
+    });
+  }
+  if (e.loyaltyChange) {
+    G.disciples.forEach(d => {
+      if (d.alive) d.loyalty = clamp(d.loyalty + rand(-5, 10), 0, 100);
+    });
+  }
+}
+
+// ========== 月度推进 ==========
+
+function advanceMonth() {
+  // 弟子成长
+  G.disciples.forEach(d => {
+    if (!d.alive) return;
+    d.monthsInSect++;
+    d.innerPower = clamp(d.innerPower + rand(0, 3) + Math.floor((G.morale / 100) * 2), 10, 100);
+    // 忠诚度受门派状态影响
+    const loyaltyDelta = Math.floor((G.morale - 50) / 20) + rand(-2, 2);
+    d.loyalty = clamp(d.loyalty + loyaltyDelta, 0, 100);
+  });
+
+  // 掌门伤势自然恢复
+  G.injury = clamp(G.injury - rand(2, 5), 0, 100);
+
+  // 被动收入/支出
+  const passiveIncome = Math.floor(G.prestige * 0.3) + G.disciples.filter(d => d.alive).length * 3;
+  const passiveExpense = G.disciples.filter(d => d.alive).length * 5 + 20;
+  G.silver = Math.max(0, G.silver + passiveIncome - passiveExpense);
+
+  // 志气自然浮动
+  G.morale = clamp(G.morale + rand(-3, 3), 0, 100);
+
+  // 低忠诚度弟子叛逃检查
+  const beforeCount = G.disciples.filter(d => d.alive).length;
+  G.disciples = G.disciples.filter(d => {
+    if (!d.alive) return false;
+    if (d.loyalty < 15 && Math.random() < 0.25) {
+      addEvent(`${d.name}叛出师门，不知所踪！`, 'bad');
+      G.morale = clamp(G.morale - 5, 0, 100);
+      return false;
+    }
+    return true;
+  });
+
+  // 库银枯竭
+  if (G.silver <= 0 && G.disciples.filter(d => d.alive).length > 2) {
+    G.morale = clamp(G.morale - 10, 0, 100);
+    const leavers = G.disciples.filter(d => d.alive).slice(0, Math.ceil(G.disciples.length / 3));
+    leavers.forEach(d => { d.alive = false; });
+    G.disciples = G.disciples.filter(d => d.alive);
+    addEvent('库银见底，数名弟子辞别而去……', 'bad');
+  }
+
+  // 检查游戏结束
+  if (G.disciples.filter(d => d.alive).length === 0 && G.silver < 20) {
+    G.gameOver = true;
+    G.gameOverReason = '门中无弟子，库银枯竭。山门冷落，掌门黯然隐退……';
+  }
+  if (G.prestige <= 0 && G.morale <= 0) {
+    G.gameOver = true;
+    G.gameOverReason = '江湖声望尽失，门人志气消沉。本派终究未能撑过难关。';
+  }
+
+  // 推进时间
+  G.month++;
+  if (G.month > 12) {
+    G.month = 1;
+    G.year++;
+  }
+
+  // 重置决策
+  usedDecisions = [];
+  G.decisionsUsed = 0;
+  G.pendingEvent = null;
+
+  // 年份更新
+  if (G.month === 1) {
+    addEvent(`———— 第${G.year}年 ————`, 'neutral');
+  }
+
+  // 自动存档
+  if (!G.gameOver) autoSave();
+}
+
+// ========== 决策执行 ==========
+
+const DECISIONS = [
+  {
+    id: 'recruit',
+    title: '张贴招贤榜',
+    desc: '遣人在山下城镇张贴招贤榜文，吸引江湖人士前来投奔。花费库银五十两。',
+    cost: 50,
+    costType: 'silver',
+    req: () => G.silver >= 50,
+    effect: function() {
+      G.silver -= 50;
+      const count = rand(1, 2);
+      for (let i = 0; i < count; i++) {
+        G.disciples.push(generateDisciple(G.prestige > 50 ? 10 : 0));
+      }
+      G.totalDisciplesRecruited += count;
+      addEvent(`招贤榜贴出，${count}人前来拜山投师。`, 'good');
+    },
+  },
+  {
+    id: 'train',
+    title: '闭关练功',
+    desc: '掌门亲自督导，率众弟子闭关苦练武学。可提升弟子内力与忠诚。',
+    cost: 0,
+    costType: 'none',
+    req: () => G.injury < 30,
+    effect: function() {
+      const alive = G.disciples.filter(d => d.alive);
+      alive.forEach(d => {
+        const gain = rand(2, 6) - Math.floor(G.injury / 20);
+        d.innerPower = clamp(d.innerPower + Math.max(1, gain), 10, 100);
+        d.loyalty = clamp(d.loyalty + rand(1, 4), 0, 100);
+      });
+      const injuryGain = rand(3, 8);
+      G.injury = clamp(G.injury + injuryGain, 0, 100);
+      G.morale = clamp(G.morale + 2, 0, 100);
+      addEvent(`掌门率众苦练一月，弟子内力均有所长。掌门略感疲惫。`, 'good');
+    },
+  },
+  {
+    id: 'mission',
+    title: '遣弟子行侠',
+    desc: '派遣弟子下山行侠仗义，或可赚取银两与声望。成败视弟子武艺而定。',
+    cost: 0,
+    costType: 'none',
+    req: () => G.disciples.filter(d => d.alive).length >= 1,
+    effect: function() {
+      const available = G.disciples.filter(d => d.alive);
+      if (available.length === 0) return;
+      const d = pick(available);
+      const score = getDiscipleCombatScore(d);
+      if (score > 25) {
+        const silverGain = rand(20, 80) + Math.floor(score / 2);
+        const prestigeGain = rand(1, 4);
+        G.silver += silverGain;
+        G.prestige = clamp(G.prestige + prestigeGain, 0, 100);
+        d.loyalty = clamp(d.loyalty + rand(1, 5), 0, 100);
+        addEvent(`${d.name}下山行侠，仗剑惩恶，带回${fmtSilver(silverGain)}，乡民称颂。`, 'good');
+      } else {
+        const injuryAmt = rand(10, 25);
+        d.innerPower = clamp(d.innerPower - 5, 5, 100);
+        d.loyalty = clamp(d.loyalty - rand(3, 8), 0, 100);
+        G.injury = clamp(G.injury + rand(3, 8), 0, 100);
+        addEvent(`${d.name}下山行侠，不料遭遇强敌！弟子受伤，掌门亲赴接应。`, 'bad');
+      }
+    },
+  },
+  {
+    id: 'repair',
+    title: '修缮山门',
+    desc: '拨银修缮门派建筑，改善弟子起居环境。花费库银六十两。',
+    cost: 60,
+    costType: 'silver',
+    req: () => G.silver >= 60,
+    effect: function() {
+      G.silver -= 60;
+      G.morale = clamp(G.morale + rand(5, 10), 0, 100);
+      // 减少来月不利事件概率（由士气提高间接实现）
+      addEvent('山门修缮一新，弟子们很是高兴，练功也格外卖力。', 'good');
+    },
+  },
+  {
+    id: 'diplomacy',
+    title: '拜会邻派',
+    desc: '携礼拜访周边门派，修睦关系增声望。花费库银四十两。',
+    cost: 40,
+    costType: 'silver',
+    req: () => G.silver >= 40,
+    effect: function() {
+      G.silver -= 40;
+      const prestigeGain = rand(2, 6);
+      const silverGain = rand(0, 30); // 可能收到回礼
+      G.prestige = clamp(G.prestige + prestigeGain, 0, 100);
+      G.silver += silverGain;
+      G.morale = clamp(G.morale + 1, 0, 100);
+      addEvent(`掌门携礼拜访邻派，相谈甚欢。${silverGain > 0 ? '对方回赠了薄礼。' : ''}`, 'good');
+    },
+  },
+  {
+    id: 'rest',
+    title: '静养疗伤',
+    desc: '掌门暂歇俗务，闭关静养以疗伤势。可显著恢复掌门伤势。',
+    cost: 0,
+    costType: 'none',
+    req: () => G.injury > 5,
+    effect: function() {
+      const heal = rand(15, 30);
+      G.injury = clamp(G.injury - heal, 0, 100);
+      G.morale = clamp(G.morale - 1, 0, 100); // 掌门不管事，士气微降
+      addEvent(`掌门闭门静养月余，伤势大有好转。`, 'good');
+    },
+  },
+  {
+    id: 'study',
+    title: '研习武功',
+    desc: '掌门闭关钻研，试图领悟新的武学。花费库银三十两购置药材辅助。',
+    cost: 30,
+    costType: 'silver',
+    req: () => G.silver >= 30 && G.martialArtsLearned.length < MARTIAL_ARTS.length,
+    effect: function() {
+      G.silver -= 30;
+      G.injury = clamp(G.injury + rand(5, 12), 0, 100);
+      const unlearned = MARTIAL_ARTS.filter(a => !G.martialArtsLearned.includes(a.id));
+      if (unlearned.length > 0 && Math.random() < 0.5) {
+        const art = pick(unlearned);
+        G.martialArtsLearned.push(art.id);
+        G.prestige = clamp(G.prestige + 3, 0, 100);
+        addEvent(`苦心孤诣，终有所成！掌门创出《${art.name}》，本派武学再添一门绝技！`, 'good');
+      } else {
+        addEvent(`掌门闭关苦思，虽未创出新招，但对武学之理解更深了一层。`, 'neutral');
+      }
+    },
+  },
+  {
+    id: 'teach',
+    title: '传功授艺',
+    desc: '掌门亲自为弟子传授武艺，可令数名弟子武学精进。花费库银二十两备办药材。',
+    cost: 20,
+    costType: 'silver',
+    req: () => G.silver >= 20 && G.disciples.filter(d => d.alive).length >= 1,
+    effect: function() {
+      G.silver -= 20;
+      G.injury = clamp(G.injury + rand(3, 7), 0, 100);
+      const alive = G.disciples.filter(d => d.alive);
+      const targets = alive.slice(0, Math.min(3, alive.length));
+      targets.forEach(d => {
+        d.innerPower = clamp(d.innerPower + rand(3, 10), 10, 100);
+        d.loyalty = clamp(d.loyalty + rand(2, 6), 0, 100);
+        // 可能学会新武功
+        if (Math.random() < 0.3 && G.martialArtsLearned.length > 0) {
+          d.martialArt = pick(G.martialArtsLearned);
+        }
+      });
+      const names = targets.map(d => d.name).join('、');
+      addEvent(`掌门亲自为${names}传功，诸弟子获益良多。`, 'good');
+    },
+  },
+];
+
+// ========== 论剑 ==========
+
+function runTournament() {
+  const power = getSectCombatPower();
+  // 江湖排名：根据战斗力 + 声望随机化
+  const totalSects = 8 + Math.floor(G.year / 2);
+  const rankBase = Math.max(1, Math.floor(totalSects * (1 - (power / 200 + G.prestige / 200))));
+  const rank = clamp(rankBase + rand(-2, 2), 1, totalSects);
+
+  let rewardSilver = 0;
+  let rewardPrestige = 0;
+  let descText = '';
+
+  if (rank === 1) {
+    rewardSilver = 300;
+    rewardPrestige = 15;
+    descText = `本派弟子技压群雄，夺得魁首！一时间名动江湖，四方来贺！`;
+  } else if (rank <= 3) {
+    rewardSilver = 200;
+    rewardPrestige = 10;
+    descText = `本派位列三甲，战绩斐然。门下弟子扬眉吐气，掌门面上有光。`;
+  } else if (rank <= Math.floor(totalSects / 2)) {
+    rewardSilver = 100;
+    rewardPrestige = 5;
+    descText = `本派位列中游，虽未夺魁，亦属不易。弟子们还需勤加修炼。`;
+  } else {
+    rewardSilver = 30;
+    rewardPrestige = 0;
+    descText = `本派成绩不佳，位列末流。掌门面上无光，但来日方长，卧薪尝胆便是。`;
+    G.morale = clamp(G.morale - 5, 0, 100);
+  }
+
+  G.silver += rewardSilver;
+  G.prestige = clamp(G.prestige + rewardPrestige, 0, 100);
+  G.morale = clamp(G.morale + rand(3, 8), 0, 100);
+
+  // 弟子从论剑中成长
+  G.disciples.forEach(d => {
+    if (d.alive) d.innerPower = clamp(d.innerPower + rand(2, 6), 10, 100);
+  });
+
+  G.tournamentHistory.push({
+    year: G.year,
+    rank,
+    totalSects,
+    power,
+  });
+
+  return {
+    rank,
+    totalSects,
+    power,
+    descText,
+    rewardSilver,
+    rewardPrestige,
+    rankNames: ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'],
+  };
+}
+
+// ========== UI 渲染 ==========
+
+function renderApp() {
+  if (!G) {
+    renderStartScreen();
+    return;
+  }
+  if (G.gameOver) {
+    renderGameOver();
+    return;
+  }
+  renderGame();
+}
+
+function renderStartScreen() {
+  const container = document.getElementById('content');
+  container.className = 'start-screen fade-in';
+  container.innerHTML = `
+    <h1>掌 门 日 记</h1>
+    <div class="subtitle">武侠门派经营模拟器</div>
+    <div class="poem">
+      白手起家开山门<br>
+      招贤纳士聚英魂<br>
+      江湖风云多变幻<br>
+      论剑之日定乾坤
+    </div>
+    <div class="start-input">
+      <label>请为山门赐名：</label>
+      <input type="text" id="sectNameInput" placeholder="如：青云门" maxlength="10" autocomplete="off">
+    </div>
+    <div style="margin-top: 1.5rem;">
+      <button class="btn btn-primary" onclick="startGame()" style="font-size:1.1rem;padding:0.6rem 2.5rem;">
+        开 山 立 派
+      </button>
+    </div>
+    <div style="margin-top: 1.5rem; font-size: 0.8rem; color: var(--ink-fade);">
+      已有存档？<a href="javascript:void(0)" onclick="showLoadScreen()" style="color:var(--cinnabar);">载入进度</a>
+    </div>
+    <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--ink-fade);">
+      <label style="cursor:pointer;color:var(--cinnabar);">
+        从文件导入存档
+        <input type="file" accept=".json" onchange="importSave(this.files[0])" style="display:none;">
+      </label>
+    </div>
+  `;
+  updateSaveSlots();
+  // 回车也可开始
+  setTimeout(() => {
+    const inp = document.getElementById('sectNameInput');
+    if (inp) {
+      inp.focus();
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') startGame(); });
+    }
+  }, 100);
+}
+
+function showLoadScreen() {
+  updateSaveSlots();
+  if (saveSlots.length === 0) {
+    alert('尚无存档记录。');
+    return;
+  }
+  const panel = document.getElementById('savePanel');
+  const dialog = document.getElementById('saveDialog');
+  dialog.innerHTML = `
+    <div class="panel-title">载入存档</div>
+    <div style="max-height:350px;overflow-y:auto;margin-bottom:1rem;">
+      ${saveSlots.map(s => `
+        <div class="save-slot" onclick="loadGameAndStart(${s.slot})">
+          <div>
+            <div class="slot-info">${s.data._sectName || '未命名'} — 第${s.data._year}年第${s.data._month}月</div>
+            <div class="slot-time">声望${s.data.prestige} · 库银${s.data.silver}两 · ${s.data.disciples.filter(d=>d.alive).length}名弟子</div>
+          </div>
+          <button class="btn btn-sm" onclick="event.stopPropagation();deleteSaveSlot(${s.slot})">删除</button>
+        </div>
+      `).join('')}
+    </div>
+    <button class="btn" onclick="hideSavePanel()">返回</button>
+  `;
+  panel.classList.add('show');
+}
+
+function deleteSaveSlot(slot) {
+  if (!confirm('确定删除此存档？')) return;
+  deleteSave(slot);
+  showLoadScreen();
+}
+
+function loadGameAndStart(slot) {
+  const data = loadGame(slot);
+  if (!data) return;
+  G = data;
+  usedDecisions = [];
+  delete G._timestamp;
+  delete G._sectName;
+  delete G._year;
+  delete G._month;
+  delete G._exportTime;
+  hideSavePanel();
+  renderGame();
+  addEvent('掌门归来，山门依旧。', 'neutral');
+}
+
+function hideSavePanel() {
+  document.getElementById('savePanel').classList.remove('show');
+}
+
+function startGame() {
+  const input = document.getElementById('sectNameInput');
+  const name = (input ? input.value.trim() : '') || '无名派';
+  G = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  G.sectName = name;
+  G.disciples = generateStartingDisciples();
+  G.martialArtsLearned = ['hunyuan'];
+  usedDecisions = [];
+  addEvent(`掌门于山下立旗，${name}今日开山！门下已有弟子${G.disciples.length}人。`, 'good');
+  autoSave();
+  renderGame();
+}
+
+function renderGameOver() {
+  const container = document.getElementById('content');
+  container.innerHTML = `
+    <div class="start-screen fade-in" style="padding:2rem;">
+      <h1 style="font-size:2.2rem;color:var(--cinnabar);">山 门 落 幕</h1>
+      <div style="font-size:1.1rem;color:var(--ink-light);margin:1.5rem 0;line-height:2;">
+        ${G.sectName}<br>
+        第${G.year}年${G.month}月<br><br>
+        ${G.gameOverReason}
+      </div>
+      <div style="color:var(--ink-fade);margin-bottom:1rem;">
+        声望：${G.prestige} · 库银：${G.silver}两 · 弟子：${G.disciples.filter(d=>d.alive).length}人
+      </div>
+      <button class="btn btn-primary" onclick="G=null;renderStartScreen();" style="font-size:1.1rem;padding:0.6rem 2rem;">
+        重 头 再 来
+      </button>
+      <div style="margin-top:1rem;">
+        <button class="btn btn-sm" onclick="showSavePanel()">查看存档 / 回档</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderGame() {
+  const container = document.getElementById('content');
+  container.className = 'fade-in';
+
+  const isDecember = G.month === 12;
+  const aliveDisciples = G.disciples.filter(d => d.alive);
+  const currentMartialArts = MARTIAL_ARTS.filter(a => G.martialArtsLearned.includes(a.id));
+
+  let html = '';
+
+  // 标题
+  html += `
+    <div class="title-section">
+      <h1>${G.sectName}</h1>
+      <div class="subtitle">掌门日记</div>
+    </div>
+  `;
+
+  // 时间与状态
+  html += `
+    <div class="month-indicator">
+      第 <strong>${G.year}</strong> 年 · <strong>${G.month}</strong> 月
+      ${G.injury > 30 ? '<span style="color:var(--cinnabar);">（掌门负伤中）</span>' : ''}
+    </div>
+  `;
+
+  // 四维属性
+  html += `
+    <div class="info-bar">
+      <div class="info-item">
+        <div class="label">江湖声望</div>
+        <div class="value ${G.prestige >= 70 ? 'good' : G.prestige <= 20 ? 'warn' : ''}">${G.prestige}</div>
+      </div>
+      <div class="info-item">
+        <div class="label">库银</div>
+        <div class="value ${G.silver >= 200 ? 'gold' : G.silver <= 30 ? 'warn' : ''}">${G.silver}两</div>
+      </div>
+      <div class="info-item">
+        <div class="label">门人志气</div>
+        <div class="value ${G.morale >= 70 ? 'good' : G.morale <= 20 ? 'warn' : ''}">${G.morale}</div>
+      </div>
+      <div class="info-item">
+        <div class="label">掌门伤势</div>
+        <div class="value ${G.injury >= 50 ? 'warn' : G.injury <= 10 ? 'good' : ''}">${G.injury}</div>
+      </div>
+    </div>
+  `;
+
+  // 十二月 — 论剑
+  if (isDecember) {
+    const result = runTournament();
+    addEvent(`年终论剑！本派在${result.totalSects}派中位列第${result.rank}名。${result.descText}`, 'good');
+    html += `
+      <div class="panel tournament-panel">
+        <div class="panel-title">年 终 论 剑</div>
+        <div class="rank-display">第 ${result.rankNames[Math.min(result.rank, 10)] || result.rank} 名</div>
+        <div class="tournament-result">
+          天下共 <strong>${result.totalSects}</strong> 派与会<br>
+          本派战力：${result.power} 点<br>
+          ${result.descText}<br>
+          <span style="color:var(--gold);">赏银 ${result.rewardSilver} 两</span> · 
+          <span style="color:var(--jade);">声望 +${result.rewardPrestige}</span>
+        </div>
+        <button class="btn btn-primary" onclick="advanceAndRender()">辞旧迎新，进入${G.year + 1}年</button>
+      </div>
+    `;
+  }
+
+  // 决策区
+  const decisionsLeft = G.maxDecisions - usedDecisions.length;
+  if (decisionsLeft > 0 && !isDecember) {
+    html += `<div class="panel"><div class="panel-title">本月决策（尚余 ${decisionsLeft} 次）</div>`;
+    html += `<div class="decision-grid">`;
+    DECISIONS.forEach(dec => {
+      const used = usedDecisions.includes(dec.id);
+      const available = !used && dec.req();
+      const costText = dec.costType === 'silver' ? `花费：${fmtSilver(dec.cost)}` : '无需银两';
+      html += `
+        <div class="decision-card ${used ? 'used' : ''}" 
+             ${available ? `onclick="executeDecision('${dec.id}')"` : ''}
+             style="${!available && !used ? 'opacity:0.5;cursor:not-allowed;' : ''}">
+          <div class="card-title">${dec.title}</div>
+          <div class="card-cost">${costText}</div>
+          <div class="card-desc">${dec.desc}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+    // 推进时间按钮
+    html += `
+      <div style="text-align:center;margin-top:0.8rem;">
+        <button class="btn btn-gold" onclick="advanceAndRender()" ${usedDecisions.length === 0 ? 'disabled' : ''}>
+          ${usedDecisions.length > 0 ? '本月事毕，推进时日' : '请至少做一项决策'}
+        </button>
+      </div>
+    `;
+    html += `</div>`;
+  }
+
+  // 弟子面板
+  html += `<div class="panel"><div class="panel-title">门下弟子（${aliveDisciples.length}人）</div>`;
+  if (aliveDisciples.length === 0) {
+    html += `<div style="text-align:center;color:var(--ink-fade);padding:1rem;">山门冷清，尚无弟子。</div>`;
+  } else {
+    html += `<div class="disciple-list">`;
+    aliveDisciples.forEach(d => {
+      const art = MARTIAL_ARTS.find(a => a.id === d.martialArt);
+      html += `
+        <div class="disciple-card">
+          <div class="disciple-info">
+            <div class="disciple-name">
+              ${d.name}
+              ${d.loyalty < 25 ? '<span style="color:var(--cinnabar);font-size:0.7rem;">（心思浮动）</span>' : ''}
+            </div>
+            <div class="disciple-stats">
+              <span>资质 <strong>${d.talent}</strong></span>
+              <span>内力 <strong class="${d.innerPower < 20 ? 'stat-low' : ''}">${d.innerPower}</strong></span>
+              <span>武学 <strong>${art ? art.name : '无'}</strong></span>
+              <span>忠诚 <strong class="${d.loyalty < 25 ? 'stat-low' : ''}">${d.loyalty}</strong></span>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  // 武学面板
+  html += `<div class="panel"><div class="panel-title">本派武学（${currentMartialArts.length}/${MARTIAL_ARTS.length}）</div>`;
+  html += `<div style="display:flex;flex-wrap:wrap;gap:0.4rem;">`;
+  MARTIAL_ARTS.forEach(art => {
+    const learned = G.martialArtsLearned.includes(art.id);
+    html += `
+      <span style="padding:0.3rem 0.7rem;border:1px solid var(--border);border-radius:2px;
+        font-size:0.8rem;background:${learned ? 'var(--paper-light)' : '#f0f0f0'};
+        color:${learned ? 'var(--ink)' : 'var(--ink-fade)'};">
+        ${art.name} <span style="font-size:0.65rem;">(${art.type})</span>
+        ${learned ? '' : '<span style="color:var(--cinnabar);">未习得</span>'}
+      </span>
+    `;
+  });
+  html += `</div></div>`;
+
+  // 事件日志
+  html += `<div class="panel"><div class="panel-title">门中纪事</div>`;
+  html += `<div class="event-log">`;
+  if (G.eventLog.length === 0) {
+    html += `<div style="color:var(--ink-fade);text-align:center;">山门初立，尚无纪事。</div>`;
+  } else {
+    G.eventLog.slice(0, 20).forEach(ev => {
+      const dateStr = ev.year ? `第${ev.year}年${ev.month}月` : '';
+      html += `
+        <div class="event-entry">
+          ${dateStr ? `<span class="event-month">${dateStr}</span>` : ''}
+          <span class="event-${ev.mood}">${ev.text}</span>
+        </div>
+      `;
+    });
+    if (G.eventLog.length > 20) html += `<div style="text-align:center;color:var(--ink-fade);">…… 仅显示近期纪事 ……</div>`;
+  }
+  html += `</div></div>`;
+
+  // 操作栏
+  html += `
+    <div style="display:flex;justify-content:center;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;">
+      <button class="btn btn-sm" onclick="showSavePanel()">存档管理</button>
+      <button class="btn btn-sm" onclick="exportSave()">导出存档</button>
+      <button class="btn btn-sm" onclick="autoSave();alert('已保存当前进度。')">快速存档</button>
+      <button class="btn btn-sm btn-jade" onclick="confirmNewGame()">重开山门</button>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+function showSavePanel() {
+  updateSaveSlots();
+  const panel = document.getElementById('savePanel');
+  const dialog = document.getElementById('saveDialog');
+  const currentSlot = ((G.year - 1) * 12 + G.month) % 3;
+  dialog.innerHTML = `
+    <div class="panel-title">存档管理</div>
+    <div style="margin-bottom:0.8rem;font-size:0.85rem;color:var(--ink-fade);">
+      当前进度：${G.sectName} — 第${G.year}年${G.month}月
+    </div>
+    <div style="font-size:0.8rem;color:var(--ink-light);margin-bottom:0.5rem;">📜 自动存档（最近三月）：</div>
+    ${[0,1,2].map(i => {
+      const data = loadGame(i);
+      if (data) {
+        return `
+          <div class="save-slot" style="${i === currentSlot ? 'border-color:var(--cinnabar);' : ''}">
+            <div>
+              <div class="slot-info">
+                ${i === currentSlot ? '● ' : ''}第${data._year}年${data._month}月
+                ${i === currentSlot ? '<span style="color:var(--cinnabar);font-size:0.7rem;">（当前）</span>' : ''}
+              </div>
+              <div class="slot-time">声望${data.prestige} · 银${data.silver}两 · ${data.disciples.filter(d=>d.alive).length}弟子</div>
+            </div>
+            <button class="btn btn-sm" onclick="rollbackToSlot(${i})">回档</button>
+          </div>
+        `;
+      }
+      return `<div class="save-slot" style="opacity:0.4;"><div class="slot-info">空位</div></div>`;
+    }).join('')}
+    <div style="margin:1rem 0 0.5rem;font-size:0.8rem;color:var(--ink-light);">💾 手动存档：</div>
+    ${[4,5].map(i => {
+      const data = loadGame(i);
+      if (data) {
+        return `
+          <div class="save-slot">
+            <div>
+              <div class="slot-info">存档 ${i-3} — 第${data._year}年${data._month}月</div>
+              <div class="slot-time">声望${data.prestige} · 银${data.silver}两 · ${data.disciples.filter(d=>d.alive).length}弟子</div>
+            </div>
+            <div>
+              <button class="btn btn-sm" onclick="rollbackToSlot(${i})">回档</button>
+              <button class="btn btn-sm" onclick="deleteSaveSlotFromPanel(${i})">删</button>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="save-slot" onclick="saveGame(${i});updateSaveSlotsInPanel();" style="cursor:pointer;">
+          <div class="slot-info">存档 ${i-3} — 空位（点击存入）</div>
+        </div>
+      `;
+    }).join('')}
+    <div style="margin-top:1rem;display:flex;gap:0.5rem;">
+      <button class="btn btn-sm" onclick="exportSave();hideSavePanel();">导出 JSON</button>
+      <label class="btn btn-sm" style="cursor:pointer;">
+        导入存档
+        <input type="file" accept=".json" onchange="importSave(this.files[0]);hideSavePanel();" style="display:none;">
+      </label>
+      <button class="btn btn-sm" onclick="hideSavePanel()" style="margin-left:auto;">关闭</button>
+    </div>
+  `;
+  panel.classList.add('show');
+}
+
+function updateSaveSlotsInPanel() {
+  updateSaveSlots();
+  showSavePanel();
+}
+
+function deleteSaveSlotFromPanel(slot) {
+  if (!confirm('确定删除此存档？')) return;
+  deleteSave(slot);
+  showSavePanel();
+}
+
+function confirmNewGame() {
+  if (confirm('确定重开山门？当前进度将丢失。建议先存档。')) {
+    G = null;
+    renderStartScreen();
+  }
+}
+
+function executeDecision(decisionId) {
+  if (usedDecisions.includes(decisionId)) return;
+  const dec = DECISIONS.find(d => d.id === decisionId);
+  if (!dec || !dec.req()) return;
+  usedDecisions.push(decisionId);
+  G.decisionsUsed++;
+  dec.effect();
+  if (G.gameOver) {
+    renderGameOver();
+    return;
+  }
+  renderGame();
+}
+
+function advanceAndRender() {
+  // 触发随机事件
+  const event = triggerRandomEvent();
+
+  // 推进时间
+  advanceMonth();
+
+  if (G.gameOver) {
+    renderGameOver();
+    return;
+  }
+
+  renderGame();
+}
+
+// ========== 键盘快捷键 ==========
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') hideSavePanel();
+});
+
+// ========== 初始化 ==========
+updateSaveSlots();
+renderStartScreen();
+
+// 如果有存档，显示提示
+if (saveSlots.length > 0) {
+  console.log('检测到已有存档，可在开始画面选择载入。');
+}
+</script>
+</body>
+</html>

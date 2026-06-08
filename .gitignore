@@ -1,0 +1,16 @@
+# 浏览器 LocalStorage 数据
+*.localstorage
+
+# 编辑器
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 导出存档
+*.json.bak
