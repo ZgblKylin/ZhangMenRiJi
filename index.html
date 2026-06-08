@@ -1399,16 +1399,19 @@ function renderGame() {
         </div>
       `;
     });
-    html += `</div>`;
-    // 推进时间按钮
+    html += `</div></div>`;
+  }
+
+  // 推进时间按钮（独立于决策面板，做完决策后始终可见）
+  if (!isDecember) {
     html += `
-      <div style="text-align:center;margin-top:0.8rem;">
-        <button class="btn btn-gold" onclick="advanceAndRender()" ${usedDecisions.length === 0 ? 'disabled' : ''}>
-          ${usedDecisions.length > 0 ? '本月事毕，推进时日' : '请至少做一项决策'}
+      <div class="panel" style="text-align:center;padding:0.6rem;">
+        <button class="btn btn-gold" onclick="advanceAndRender()" ${usedDecisions.length === 0 ? 'disabled' : ''} style="font-size:1rem;padding:0.5rem 2rem;">
+          ${usedDecisions.length > 0 ? '本月事毕，推进时日 →' : '请至少做一项决策'}
         </button>
+        ${usedDecisions.length === 0 ? '<div style="font-size:0.75rem;color:var(--ink-fade);margin-top:0.3rem;">点击上方决策卡片以处理本月事务</div>' : ''}
       </div>
     `;
-    html += `</div>`;
   }
 
   // 弟子面板
