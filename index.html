@@ -183,7 +183,7 @@ body {
 .decision-card.used { opacity: 0.3; pointer-events: none; }
 .decision-card.used::after { content: '已决'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.2rem; color: var(--cinnabar); opacity: 0.5; font-family: 'STKaiti', 'KaiTi', cursive; }
 
-.disciple-list { display: flex; flex-direction: column; gap: 0.2rem; }
+.disciple-list { display: flex; flex-direction: column; gap: 0.2rem; max-height: 300px; overflow-y: auto; }
 .disciple-card { display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0.4rem; background: var(--paper-light); border: 1px solid var(--border); border-radius: 2px; font-size: 0.75rem; }
 .disciple-info { flex: 1; }
 .disciple-name { font-weight: 700; color: var(--ink); font-size: 0.85rem; }
