@@ -253,9 +253,10 @@ body {
 .event-dialog .event-item.neutral { color: var(--ink-light); }
 .event-dialog .event-dismiss { display: block; margin: 0.8rem auto 0; }
 
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar { width: 7px; }
+::-webkit-scrollbar-track { background: rgba(196, 168, 124, 0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--ink-fade); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-light); }
 
 @media (max-width: 750px) {
   .book-layout { grid-template-columns: 1fr; }
@@ -820,6 +821,12 @@ function renderGame() {
   html += '</div>';
 
   container.innerHTML = html;
+
+  // ★ 纪事栏自动滚到最新消息
+  setTimeout(() => {
+    const chronicles = document.querySelector('.chronicles-bar');
+    if (chronicles) chronicles.scrollTop = chronicles.scrollHeight;
+  }, 50);
 }
 
 function confirmNewGame() {
