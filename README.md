@@ -1,36 +1,64 @@
-# 《掌门日记》— 武侠门派经营模拟器
+# 《掌门日记》— 武侠门派经营模拟器 v2.0
 
-自包含 HTML 单页应用，打开即玩，无需后端。
+前后端分离架构，Rust 后端 + 纯 HTML/CSS/JS 前端，PostgreSQL 持久化。
 
 ## 玩法简介
 
-- **核心循环**：以月为单位推进时间，每月做 2~3 项决策
+- **核心循环**：以月为单位推进时间，每月做决策
 - **经营目标**：将三流山寨经营成名震江湖的大派
 - **年终论剑**：每年十二月举行，检验门派实力
-- **存档系统**：LocalStorage 自动存档 + JSON 导出导入
 
-## 门派属性
+## 技术架构
 
-| 属性 | 说明 |
-|------|------|
-| 江湖声望 | 影响弟子来投、论剑排名 |
-| 库银 | 门派运转之本 |
-| 门人志气 | 影响修炼效率与事件走向 |
-| 掌门伤势 | 负伤影响所有决策效果 |
+| 层 | 技术 |
+|----|------|
+| 前端 | 纯 HTML/CSS/JS（武侠宣纸风） |
+| 后端 | Rust + axum 0.8 |
+| 数据库 | PostgreSQL 18 |
+| ORM | sqlx 0.8 |
 
-## 武学体系
+## 快速启动
 
-1. 太虚剑法 — 攻守兼备
-2. 九阳烈掌 — 至刚至猛
-3. 玄冰心经 — 以柔克刚
-4. 追风步 — 轻功绝伦
-5. 混元功 — 根基扎实（初始掌握）
+### 1. 数据库
 
-## 打开方式
+```bash
+# 在 PostgreSQL 中创建数据库（已建则跳过）
+createdb -U ruoruo -h 192.168.50.150 zhangmenriji
+```
 
-- 方式一：直接用浏览器打开 `index.html`
-- 方式二：`python3 -m http.server 8080` 后访问 `http://localhost:8080`（推荐，LocalStorage origin 稳定）
+### 2. 后端
+
+```bash
+cd backend
+cp ../.env.template .env
+# 编辑 .env 填入实际数据库连接信息
+cargo run
+# 监听 http://0.0.0.0:3000
+```
+
+### 3. 前端
+
+浏览器直接打开 `index.html`，API 自动指向 `localhost:3000`。
+
+## API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/games` | 创建新游戏 |
+| GET | `/api/games` | 列出存档 |
+| GET | `/api/games/:id` | 获取游戏状态 |
+| DELETE | `/api/games/:id` | 删除存档 |
+| POST | `/api/games/:id/decisions/:decision_id` | 执行决策 |
+| POST | `/api/games/:id/advance` | 推进月份 |
 
 ## 设计文档
 
-详见 `index.html` 顶部注释。
+- [架构设计](doc/ARCHITECTURE.md)
+- [数据库设计](doc/DATABASE.md)
+
+## 版本历史
+
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| v2.0 | 2026-06 | 前后端分离，Rust 后端，PostgreSQL 持久化 |
+| v1.0 | 2026-06 | 纯前端 HTML 单文件，LocalStorage 存档 |
