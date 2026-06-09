@@ -6,6 +6,42 @@ pub async fn init_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
     PgPool::connect(database_url).await
 }
 
+/// 启动时自动建表（幂等）
+pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS games (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            sect_name   TEXT NOT NULL,
+            state       JSONB NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS events (
+            id          BIGSERIAL PRIMARY KEY,
+            game_id     UUID NOT NULL,
+            year        INT NOT NULL,
+            month       INT NOT NULL,
+            mood        TEXT NOT NULL,
+            text        TEXT NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )"
+    ).execute(pool).await?;
+
+    // 索引（幂等）
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_games_updated_at ON games (updated_at DESC)")
+        .execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_events_game_id ON events (game_id)")
+        .execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_events_game_time ON events (game_id, year DESC, month DESC)")
+        .execute(pool).await?;
+
+    tracing::info!("数据库迁移完成");
+    Ok(())
+}
+
 pub async fn create_game(
     pool: &PgPool,
     req: &CreateGameRequest,

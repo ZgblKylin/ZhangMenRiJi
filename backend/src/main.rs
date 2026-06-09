@@ -29,6 +29,9 @@ async fn main() {
     let pool = PgPool::connect(&cfg.database_url).await.expect("数据库连接失败");
     tracing::info!("数据库连接成功");
 
+    // 自动建表
+    db::run_migrations(&pool).await.expect("数据库迁移失败");
+
     // 构建路由
     let state = AppState { pool };
     let app = router::create_router(state);
