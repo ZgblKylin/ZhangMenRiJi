@@ -87,6 +87,9 @@ body {
   pointer-events: none; z-index: 0;
 }
 
+/* 透传 #content，让子元素直接参与 .scroll-container 的 flex 布局 */
+#content { display: contents; }
+
 .top-bar {
   position: relative; z-index: 1;
   display: flex; align-items: center; justify-content: center;
@@ -539,8 +542,7 @@ function renderApp() {
 
 function renderStartScreen() {
   const container = document.getElementById('content');
-  container.className = 'start-screen fade-in';
-  container.innerHTML = `
+  container.innerHTML = `<div class="start-screen fade-in">
     <h1>掌 门 日 记</h1>
     <div class="subtitle">武侠门派经营模拟器 · v2.0</div>
     <div class="poem">
@@ -564,7 +566,7 @@ function renderStartScreen() {
     <div style="margin-top: 0.6rem; font-size: 0.7rem; color: var(--ink-fade);">
       后端: <code id="apiStatus">${API_BASE}</code>
     </div>
-  `;
+  </div>`;
   setTimeout(() => {
     const inp = document.getElementById('sectNameInput');
     if (inp) {
@@ -652,7 +654,6 @@ function renderGameOver() {
 
 function renderGame() {
   const container = document.getElementById('content');
-  container.className = 'fade-in';
 
   const isDecember = G.month === 12;
   const aliveDisciples = G.disciples?.filter(d => d.alive) || [];
@@ -805,7 +806,7 @@ function renderGame() {
   }
   html += '</div>';
 
-  container.innerHTML = html;
+  container.innerHTML = `<div class="fade-in">${html}</div>`;
 
   // ★ 纪事栏自动滚到最新消息
   setTimeout(() => {
