@@ -806,7 +806,7 @@ function renderGame() {
   }
   html += '</div>';
 
-  container.innerHTML = `<div class="fade-in">${html}</div>`;
+  container.innerHTML = html;
 
   // ★ 纪事栏自动滚到最新消息
   setTimeout(() => {
