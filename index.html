@@ -216,6 +216,18 @@ body {
 .loading-overlay.show { display: flex; }
 .loading-spinner { font-size: 2rem; color: var(--cinnabar); animation: fadeIn 0.3s ease-out; }
 
+/* 事件弹窗 */
+.event-popup { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(44, 24, 16, 0.75); z-index: 150; justify-content: center; align-items: center; }
+.event-popup.show { display: flex; }
+.event-dialog { background: var(--paper); border: 3px solid var(--cinnabar); border-radius: 2px; padding: 1.2rem 1.5rem; max-width: 520px; width: 90%; max-height: 70vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+.event-dialog .event-title { font-family: 'STKaiti', 'KaiTi', cursive; font-size: 1.1rem; color: var(--cinnabar); text-align: center; margin-bottom: 0.8rem; }
+.event-dialog .event-item { padding: 0.35rem 0; border-bottom: 1px dotted var(--border); line-height: 1.5; font-size: 0.85rem; }
+.event-dialog .event-item:last-child { border-bottom: none; }
+.event-dialog .event-item.good { color: var(--jade); }
+.event-dialog .event-item.bad { color: var(--cinnabar); }
+.event-dialog .event-item.neutral { color: var(--ink-light); }
+.event-dialog .event-dismiss { display: block; margin: 0.8rem auto 0; }
+
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -249,6 +261,11 @@ body {
 <!-- 加载遮罩 -->
 <div class="loading-overlay" id="loadingOverlay">
   <div class="loading-spinner">⏳ 静待片刻...</div>
+</div>
+
+<!-- 事件弹窗 -->
+<div class="event-popup" id="eventPopup">
+  <div class="event-dialog" id="eventDialog"></div>
 </div>
 
 <script>
@@ -397,6 +414,13 @@ async function executeDecision(decisionId) {
     G = data.state;
     G.sect_name = G.sect_name || '';
     usedDecisions.push(decisionId);
+
+    // ★ 展示决策事件弹窗
+    if (data.events?.length > 0) {
+      showEventPopup(data.events, null);
+      return;
+    }
+
     if (G.game_over) {
       renderGameOver();
     } else {
@@ -417,12 +441,14 @@ async function advanceAndRender() {
     G = data.state;
     G.sect_name = G.sect_name || '';
 
-    // 展示推进后的事件和论剑结果
-    if (data.tournament) {
-      // 论剑结果已在 state 中，直接渲染
+    usedDecisions = [];
+
+    // ★ 展示事件弹窗
+    if (data.events?.length > 0 || data.tournament) {
+      showEventPopup(data.events || [], data.tournament);
+      return; // 等用户关闭弹窗后再渲染
     }
 
-    usedDecisions = [];
     if (G.game_over) {
       renderGameOver();
     } else {
@@ -432,6 +458,47 @@ async function advanceAndRender() {
     alert('推进失败: ' + e.message);
   } finally {
     hideLoading();
+  }
+}
+
+// ★ 事件弹窗
+function showEventPopup(events, tournament) {
+  const dialog = document.getElementById('eventDialog');
+  let html = '';
+
+  if (tournament) {
+    const rankNames = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+    html += `<div class="event-title">🏆 年 终 论 剑</div>
+      <div style="text-align:center;font-size:2rem;color:var(--gold);margin:0.5rem 0;">第 ${rankNames[Math.min(tournament.rank, 10)] || tournament.rank} 名</div>
+      <div style="text-align:center;font-size:0.85rem;color:var(--ink-light);margin-bottom:0.8rem;">
+        天下共 <strong>${tournament.total_sects}</strong> 派与会 · 战力：${tournament.power}<br>
+        ${tournament.desc_text}
+      </div>`;
+    if (events.length > 0) {
+      html += '<div style="border-top:1px dashed var(--border);margin:0.6rem 0;"></div>';
+    }
+  }
+
+  if (events.length > 0) {
+    html += `<div class="event-title">📜 本月纪事</div>`;
+    events.forEach(ev => {
+      const moodClass = ev.mood === 'good' ? 'good' : ev.mood === 'bad' ? 'bad' : 'neutral';
+      html += `<div class="event-item ${moodClass}">${ev.text}</div>`;
+    });
+  }
+
+  html += `<button class="btn btn-primary event-dismiss" onclick="closeEventPopup()">知道了</button>`;
+  dialog.innerHTML = html;
+  document.getElementById('eventPopup').classList.add('show');
+}
+
+function closeEventPopup() {
+  document.getElementById('eventPopup').classList.remove('show');
+  // 弹窗关闭后重新渲染游戏界面
+  if (G && !G.game_over) {
+    renderGame();
+  } else if (G && G.game_over) {
+    renderGameOver();
   }
 }
 
@@ -632,7 +699,7 @@ function renderGame() {
   if (log.length === 0) {
     html += '<div style="color:var(--ink-fade);text-align:center;font-size:0.75rem;">山门初立，尚无纪事。</div>';
   } else {
-    log.slice(0, 15).forEach(ev => {
+    log.slice(-15).forEach(ev => {
       const dateStr = ev.year ? `第${ev.year}年${ev.month}月` : '';
       html += `<div class="event-entry">${dateStr?`<span class="event-month">${dateStr}</span>`:''}<span class="event-${ev.mood}">${ev.text}</span></div>`;
     });
@@ -737,7 +804,13 @@ function confirmNewGame() {
 
 // ========== 键盘快捷键 ==========
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') hideSavePanel();
+  if (e.key === 'Escape') {
+    if (document.getElementById('eventPopup').classList.contains('show')) {
+      closeEventPopup();
+    } else {
+      hideSavePanel();
+    }
+  }
 });
 
 // ========== 自适应全屏缩放 ==========

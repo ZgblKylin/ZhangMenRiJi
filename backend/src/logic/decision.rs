@@ -114,5 +114,15 @@ pub fn execute_decision(rng: &mut impl Rng, state: &mut GameState, decision_id: 
     }
 
     state.decisions_used += 1;
+
+    // ★ 将决策事件写入 state.event_log（保留最近 50 条）
+    for ev in &events {
+        state.event_log.push(ev.clone());
+    }
+    if state.event_log.len() > 50 {
+        let excess = state.event_log.len() - 50;
+        state.event_log.drain(0..excess);
+    }
+
     events
 }

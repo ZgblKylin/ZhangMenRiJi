@@ -110,6 +110,15 @@ pub fn advance_month(
         });
     }
 
+    // ★ 将本轮事件追加到 state.event_log（保留最近 50 条）
+    for ev in &events {
+        state.event_log.push(ev.clone());
+    }
+    if state.event_log.len() > 50 {
+        let excess = state.event_log.len() - 50;
+        state.event_log.drain(0..excess);
+    }
+
     // 11. 重置决策
     state.decisions_used = 0;
     state.pending_event = None;
