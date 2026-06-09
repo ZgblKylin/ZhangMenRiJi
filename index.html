@@ -507,9 +507,15 @@ function showEventPopup(events, tournament) {
     });
   }
 
-  html += `<button class="btn btn-primary event-dismiss" onclick="closeEventPopup()">知道了</button>`;
+  html += `<button class="btn btn-primary event-dismiss" id="eventDismissBtn" onclick="closeEventPopup()">知道了</button>`;
   dialog.innerHTML = html;
   document.getElementById('eventPopup').classList.add('show');
+  // ★ 弹窗弹出后：blur 掉底层按钮焦点，聚焦弹窗按钮，防止空格/回车误触推进
+  if (document.activeElement) document.activeElement.blur();
+  setTimeout(() => {
+    const btn = document.getElementById('eventDismissBtn');
+    if (btn) btn.focus();
+  }, 50);
 }
 
 function closeEventPopup() {
@@ -826,12 +832,17 @@ function confirmNewGame() {
 
 // ========== 键盘快捷键 ==========
 document.addEventListener('keydown', function(e) {
+  const popup = document.getElementById('eventPopup');
+  const popupVisible = popup && popup.classList.contains('show');
   if (e.key === 'Escape') {
-    if (document.getElementById('eventPopup').classList.contains('show')) {
-      closeEventPopup();
-    } else {
-      hideSavePanel();
-    }
+    if (popupVisible) { closeEventPopup(); }
+    else { hideSavePanel(); }
+    return;
+  }
+  // 弹窗可见时，Enter/Space 关闭弹窗（防止误触底层按钮）
+  if (popupVisible && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    closeEventPopup();
   }
 });
 
