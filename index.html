@@ -89,24 +89,27 @@ body {
 
 .top-bar {
   position: relative; z-index: 1;
-  text-align: center;
-  padding: 0.5rem 1.5rem 0.3rem;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0.4rem 1rem;
   border-bottom: 2px solid var(--border);
   flex-shrink: 0;
   background: linear-gradient(to bottom, rgba(250, 243, 228, 0.6), transparent);
 }
-.top-bar h1 { font-family: 'STKaiti', 'KaiTi', cursive; font-size: 1.8rem; color: var(--ink); letter-spacing: 0.25em; margin: 0; }
+.top-bar .title-block { text-align: center; flex: 1; }
+.top-bar .title-block h1 { font-family: 'STKaiti', 'KaiTi', cursive; font-size: 1.8rem; color: var(--ink); letter-spacing: 0.25em; margin: 0; }
 .top-bar .subtitle { font-size: 0.72rem; color: var(--ink-fade); letter-spacing: 0.2em; }
 .top-bar .month-text { font-size: 0.95rem; color: var(--ink-light); letter-spacing: 0.15em; margin-top: 0.15rem; }
 .top-bar .month-text strong { color: var(--cinnabar); font-size: 1.1rem; }
 .top-bar .injured-tag { color: var(--cinnabar); font-size: 0.7rem; }
+.top-bar .nav-btns { display: flex; flex-direction: column; gap: 0.25rem; flex-shrink: 0; }
 
 .book-layout {
   position: relative; z-index: 1;
   display: grid;
   grid-template-columns: 2fr 3fr;
-  flex: 1;
+  flex: 4;
   overflow: hidden;
+  min-height: 0;
 }
 
 .book-layout::after {
@@ -121,22 +124,13 @@ body {
 .left-page { padding-right: 1.2rem; }
 .right-page { padding-left: 1.2rem; }
 
-.bottom-bar {
-  position: relative; z-index: 1;
-  display: flex; justify-content: center; gap: 0.4rem;
-  padding: 0.4rem 1rem;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0; flex-wrap: wrap;
-  background: linear-gradient(to top, rgba(250, 243, 228, 0.4), transparent);
-}
-
 /* 底部纪事横栏 */
 .chronicles-bar {
   position: relative; z-index: 1;
   border-top: 2px solid var(--border);
   padding: 0.35rem 1rem;
-  flex-shrink: 0;
-  max-height: 82px;
+  flex: 1;
+  min-height: 60px;
   overflow-y: auto;
   background: linear-gradient(to bottom, rgba(250, 243, 228, 0.3), transparent);
 }
@@ -144,20 +138,22 @@ body {
   font-family: 'STKaiti', 'KaiTi', serif;
   font-size: 0.75rem;
   color: var(--cinnabar);
-  display: inline;
-  margin-right: 0.6rem;
+  display: block;
+  margin-bottom: 0.25rem;
 }
 .chronicles-bar .chr-entry {
-  display: inline;
+  display: block;
   font-size: 0.72rem;
-  line-height: 1.6;
-  margin-right: 1rem;
+  line-height: 1.5;
+  padding: 0.1rem 0;
+  border-bottom: 1px dotted rgba(196, 168, 124, 0.3);
 }
+.chronicles-bar .chr-entry:last-child { border-bottom: none; }
 .chronicles-bar .chr-date { color: var(--ink-fade); font-size: 0.65rem; }
 .chronicles-bar .chr-good { color: var(--jade); }
 .chronicles-bar .chr-bad { color: var(--cinnabar); }
 .chronicles-bar .chr-neutral { color: var(--ink-light); }
-.chronicles-bar .chr-empty { color: var(--ink-fade); font-size: 0.72rem; }
+.chronicles-bar .chr-empty { color: var(--ink-fade); font-size: 0.72rem; display: block; }
 
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin-bottom: 0.5rem; }
 .stat-card { background: var(--paper-light); border: 1px solid var(--border); border-radius: 2px; padding: 0.3rem 0.4rem; text-align: center; }
@@ -674,10 +670,16 @@ function renderGame() {
 
   // ===== 顶部标题栏 =====
   html += `<div class="top-bar">
-    <h1>${G.sect_name}<span class="subtitle"> · 掌门日记</span></h1>
-    <div class="month-text">
-      第 <strong>${G.year}</strong> 年 · <strong>${G.month}</strong> 月
-      ${G.injury > 30 ? '<span class="injured-tag">（掌门负伤中）</span>' : ''}
+    <div class="nav-btns">
+      <button class="btn btn-sm" onclick="showSavePanel()">存档</button>
+      <button class="btn btn-sm btn-jade" onclick="confirmNewGame()">重开</button>
+    </div>
+    <div class="title-block">
+      <h1>${G.sect_name}<span class="subtitle"> · 掌门日记</span></h1>
+      <div class="month-text">
+        第 <strong>${G.year}</strong> 年 · <strong>${G.month}</strong> 月
+        ${G.injury > 30 ? '<span class="injured-tag">（掌门负伤中）</span>' : ''}
+      </div>
     </div>
   </div>`;
 
@@ -810,12 +812,6 @@ function renderGame() {
     if (log.length > 15) html += '<span style="color:var(--ink-fade);font-size:0.65rem;">……</span>';
   }
   html += '</div>';
-
-  // ===== 底部操作栏 =====
-  html += `<div class="bottom-bar">
-    <button class="btn btn-sm" onclick="showSavePanel()">存档管理</button>
-    <button class="btn btn-sm btn-jade" onclick="confirmNewGame()">重开山门</button>
-  </div>`;
 
   container.innerHTML = html;
 }
