@@ -2,10 +2,6 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use crate::models::game::{GameState, GameSummary, CreateGameRequest};
 
-pub async fn init_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
-    PgPool::connect(database_url).await
-}
-
 /// 启动时自动建表（幂等）
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(

@@ -312,24 +312,10 @@ const API_BASE = (() => {
 
 // ========== 静态数据（与后端保持同步）==========
 
-const MARTIAL_ARTS = [
-  { id: 'taixu', name: '太虚剑法', type: '剑法', desc: '攻守兼备，虚实相生，乃本派镇山之绝学。', atk: 3, def: 3, spd: 2, req_talent: 30 },
-  { id: 'jiuyang', name: '九阳烈掌', type: '掌法', desc: '至刚至猛，掌风所至，金石俱裂。刚猛路子，威力绝伦。', atk: 5, def: 1, spd: 2, req_talent: 40 },
-  { id: 'xuanbing', name: '玄冰心经', type: '内功', desc: '以柔克刚，心如寒冰。内力深厚者修之，可御万般攻势。', atk: 1, def: 5, spd: 2, req_talent: 35 },
-  { id: 'zhuifeng', name: '追风步', type: '轻功', desc: '踏雪无痕，追风逐电。临敌之际，先机在握。', atk: 2, def: 2, spd: 5, req_talent: 25 },
-  { id: 'hunyuan', name: '混元功', type: '内功', desc: '浑厚绵长，根基扎实。修至大成，内力如长江大河，绵绵不绝。', atk: 3, def: 3, spd: 2, req_talent: 20 },
-];
 
-const DECISIONS = [
-  { id: 'recruit', title: '张贴招贤榜', desc: '遣人在山下城镇张贴招贤榜文，吸引江湖人士前来投奔。花费库银五十两。', cost: 50, costType: 'silver' },
-  { id: 'train', title: '闭关练功', desc: '掌门亲自督导，率众弟子闭关苦练武学。可提升弟子内力与忠诚。', cost: 0, costType: 'none' },
-  { id: 'mission', title: '遣弟子行侠', desc: '派遣弟子下山行侠仗义，或可赚取银两与声望。成败视弟子武艺而定。', cost: 0, costType: 'none' },
-  { id: 'repair', title: '修缮山门', desc: '拨银修缮门派建筑，改善弟子起居环境。花费库银六十两。', cost: 60, costType: 'silver' },
-  { id: 'diplomacy', title: '拜会邻派', desc: '携礼拜访周边门派，修睦关系增声望。花费库银四十两。', cost: 40, costType: 'silver' },
-  { id: 'rest', title: '静养疗伤', desc: '掌门暂歇俗务，闭关静养以疗伤势。可显著恢复掌门伤势。', cost: 0, costType: 'none' },
-  { id: 'study', title: '研习武功', desc: '掌门闭关钻研，试图领悟新的武学。花费库银三十两购置药材辅助。', cost: 30, costType: 'silver' },
-  { id: 'teach', title: '传功授艺', desc: '掌门亲自为弟子传授武艺，可令数名弟子武学精进。花费库银二十两备办药材。', cost: 20, costType: 'silver' },
-];
+
+let DECISIONS = [];  // 从后端 API 获取
+let MARTIAL_ARTS = [];  // 从后端 API 获取
 
 // ========== 游戏状态 ==========
 
@@ -885,8 +871,28 @@ window.addEventListener('resize', updateScale);
 window.addEventListener('load', updateScale);
 updateScale();
 
+// ========== 数据初始化（从后端加载静态资源）==========
+async function loadStaticData() {
+  try {
+    const [decRes, artRes] = await Promise.all([
+      api('GET', '/decisions'),
+      api('GET', '/martial-arts'),
+    ]);
+    DECISIONS = decRes.decisions || [];
+    // 后端字段 art_type → 前端期望 type
+    MARTIAL_ARTS = (artRes.arts || []).map(a => ({ ...a, type: a.art_type || a.type }));
+    // 为非十二月渲染准备决策描述：适配后端字段名
+    DECISIONS.forEach(d => { d.costType = d.cost_type || d.costType; });
+  } catch (e) {
+    console.warn('加载静态数据失败，使用默认:', e);
+  }
+}
+
 // ========== 初始化 ==========
-renderStartScreen();
+(async () => {
+  await loadStaticData();
+  renderStartScreen();
+})();
 
 </script>
 </body>

@@ -1,6 +1,6 @@
 use axum::{routing::{get, post, delete}, Router};
 use tower_http::cors::{CorsLayer, Any};
-use crate::handlers::{games, decisions, advance};
+use crate::handlers::{games, decisions, advance, static_data};
 use crate::handlers::games::AppState;
 
 pub fn create_router(state: AppState) -> Router {
@@ -16,6 +16,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/games/{id}", delete(games::delete_game))
         .route("/api/games/{id}/decisions/{decision_id}", post(decisions::execute_decision))
         .route("/api/games/{id}/advance", post(advance::advance_month))
+        .route("/api/decisions", get(static_data::list_decisions))
+        .route("/api/martial-arts", get(static_data::list_martial_arts))
         .layer(cors)
         .with_state(state)
 }
