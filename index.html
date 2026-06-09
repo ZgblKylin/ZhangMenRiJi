@@ -742,7 +742,8 @@ document.addEventListener('keydown', function(e) {
 
 // ========== 自适应全屏缩放 ==========
 // 基准尺寸 1020×780，窗口大于基准时等比放大填满，小于时不缩小
-const BASE_W = 1020, BASE_H = 780;
+// BORDER_ALLOWANCE = 外层 box-shadow 装饰框宽度（12px 每侧 × 2）
+const BASE_W = 1020, BASE_H = 780, BORDER = 28;
 
 function updateScale() {
   const container = document.querySelector('.scroll-container');
@@ -755,8 +756,14 @@ function updateScale() {
     return;
   }
 
-  const scaleX = vw / BASE_W;
-  const scaleY = vh / BASE_H;
+  // 扣除 body padding，确保外层装饰框不被视口裁剪
+  const bodyStyle = getComputedStyle(document.body);
+  const padX = parseFloat(bodyStyle.paddingLeft) + parseFloat(bodyStyle.paddingRight);
+  const padY = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
+  const availW = vw - padX;
+  const availH = vh - padY;
+  const scaleX = availW / (BASE_W + BORDER);
+  const scaleY = availH / (BASE_H + BORDER);
   const scale = Math.max(1, Math.min(scaleX, scaleY));
   container.style.transform = scale > 1 ? `scale(${scale})` : '';
 }
