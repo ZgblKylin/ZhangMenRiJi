@@ -110,7 +110,7 @@ body {
   position: relative; z-index: 1;
   display: grid;
   grid-template-columns: 2fr 3fr;
-  flex: 1;
+  flex: 3;
   overflow: hidden;
   min-height: 0;
 }
@@ -132,25 +132,32 @@ body {
   position: relative; z-index: 1;
   border-top: 2px solid var(--border);
   padding: 0.35rem 1rem;
-  flex: 0 0 130px;
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(to bottom, rgba(250, 243, 228, 0.3), transparent);
 }
 .chronicles-bar .chronicles-title {
   font-family: 'STKaiti', 'KaiTi', serif;
   font-size: 0.75rem;
   color: var(--cinnabar);
-  display: block;
-  margin-bottom: 0.25rem;
+  flex-shrink: 0;
+  margin-bottom: 0.2rem;
 }
-.chronicles-bar .chr-entry {
+.chronicles-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.chronicles-scroll .chr-entry {
   display: block;
   font-size: 0.72rem;
   line-height: 1.5;
   padding: 0.1rem 0;
   border-bottom: 1px dotted rgba(196, 168, 124, 0.3);
 }
-.chronicles-bar .chr-entry:last-child { border-bottom: none; }
+.chronicles-scroll .chr-entry:last-child { border-bottom: none; }
 .chronicles-bar .chr-date { color: var(--ink-fade); font-size: 0.65rem; }
 .chronicles-bar .chr-good { color: var(--jade); }
 .chronicles-bar .chr-bad { color: var(--cinnabar); }
@@ -795,23 +802,26 @@ function renderGame() {
   const log = G.event_log || [];
   html += '<div class="chronicles-bar">';
   html += '<span class="chronicles-title">◆ 门中纪事</span>';
+  html += '<div class="chronicles-scroll">';
   if (log.length === 0) {
     html += '<span class="chr-empty">山门初立，尚无纪事。</span>';
   } else {
-    log.slice(-15).forEach(ev => {
+    // 降序排列：最新的在最上面
+    const recent = log.slice(-15).reverse();
+    recent.forEach(ev => {
       const dateStr = ev.year ? `第${ev.year}年${ev.month}月` : '';
       html += `<span class="chr-entry">${dateStr ? `<span class="chr-date">${dateStr}</span> ` : ''}<span class="chr-${ev.mood}">${ev.text}</span></span>`;
     });
-    if (log.length > 15) html += '<span style="color:var(--ink-fade);font-size:0.65rem;">……</span>';
+    if (log.length > 15) html += '<span style="color:var(--ink-fade);font-size:0.65rem;">…… 更早的纪事 ……</span>';
   }
-  html += '</div>';
+  html += '</div></div>';
 
   container.innerHTML = html;
 
-  // ★ 纪事栏自动滚到最新消息
+  // ★ 纪事栏自动滚到顶部（最新消息在最上面）
   setTimeout(() => {
-    const chronicles = document.querySelector('.chronicles-bar');
-    if (chronicles) chronicles.scrollTop = chronicles.scrollHeight;
+    const scroll = document.querySelector('.chronicles-scroll');
+    if (scroll) scroll.scrollTop = 0;
   }, 50);
 }
 
