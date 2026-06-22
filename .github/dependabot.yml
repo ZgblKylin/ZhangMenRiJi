@@ -1,0 +1,19 @@
+# Dependabot configuration for ZhangMenRiJi
+# 《掌门日记》— 武侠门派经营模拟器 · Rust 后端
+
+version: 2
+updates:
+  # Cargo — 监控 Rust 依赖（backend/Cargo.toml）
+  - package-ecosystem: "cargo"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    labels:
+      - "rust"
+      - "dependencies"
+    commit-message:
+      prefix: "cargo"
+      include: "scope"
