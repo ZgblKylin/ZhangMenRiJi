@@ -56,6 +56,13 @@ cargo run
 - [架构设计](doc/ARCHITECTURE.md)
 - [数据库设计](doc/DATABASE.md)
 
+## 📦 仓库地址
+
+| 平台 | 地址 |
+|------|------|
+| 🏠 Gitea（主） | http://192.168.50.150:33000/RuoRuo/ZhangMenRiJi |
+| ☁️ GitHub（镜像） | https://github.com/ZgblKylin/ZhangMenRiJi |
+
 ## 版本历史
 
 | 版本 | 日期 | 变更 |
