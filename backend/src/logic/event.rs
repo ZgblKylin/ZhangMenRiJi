@@ -22,6 +22,359 @@ pub struct RandomEvent {
     pub good: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventChoice {
+    pub id: String,
+    pub label: String,
+    pub result_text: String,
+    pub effect: EventEffect,
+    pub good: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingWorldEvent {
+    pub id: String,
+    pub category: String,
+    pub title: String,
+    pub text: String,
+    pub choices: Vec<EventChoice>,
+}
+
+fn effect(
+    prestige: i32,
+    silver: i32,
+    morale: i32,
+    injury: i32,
+    special: Option<&str>,
+) -> EventEffect {
+    EventEffect {
+        prestige: (prestige != 0).then_some(prestige),
+        silver: (silver != 0).then_some(silver),
+        morale: (morale != 0).then_some(morale),
+        injury: (injury != 0).then_some(injury),
+        free_recruit: None,
+        special: special.map(str::to_owned),
+        loyalty_loss: None,
+        loyalty_change: None,
+    }
+}
+
+pub fn interactive_events() -> Vec<PendingWorldEvent> {
+    vec![
+        PendingWorldEvent {
+            id: "choice_provocation".into(),
+            category: "江湖".into(),
+            title: "山门问剑".into(),
+            text: "邻派少侠在山门外连败三名外门弟子，扬言要请掌门赐教。如何处置？".into(),
+            choices: vec![
+                EventChoice {
+                    id: "fight".into(),
+                    label: "亲自应战".into(),
+                    result_text: "掌门亲自下场，以三招定胜负。来客抱拳服输，江湖为之侧目。".into(),
+                    effect: effect(6, 0, 4, 8, None),
+                    good: true,
+                },
+                EventChoice {
+                    id: "talk".into(),
+                    label: "以茶论武".into(),
+                    result_text: "掌门不动刀兵，只在茶席间点破对方招式破绽，来客心悦诚服。".into(),
+                    effect: effect(3, -20, 2, 0, Some("improve_relation")),
+                    good: true,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_rice".into(),
+            category: "生计".into(),
+            title: "米珠薪桂".into(),
+            text: "山下歉收，米行一夜三次涨价。司库问，是趁早囤粮，还是紧一紧各房用度？".into(),
+            choices: vec![
+                EventChoice {
+                    id: "stock".into(),
+                    label: "拨银囤粮".into(),
+                    result_text: "数车新粮运入外门仓库，虽费银钱，众弟子心里安定。".into(),
+                    effect: effect(0, -80, 4, 0, Some("stock_grain")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "ration".into(),
+                    label: "减省口粮".into(),
+                    result_text: "厨房改作稀粥，银钱省下了，演武场上的抱怨却多了。".into(),
+                    effect: effect(0, 20, -5, 0, Some("lose_loyalty")),
+                    good: false,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_deviation".into(),
+            category: "门内".into(),
+            title: "走火入魔".into(),
+            text: "一名弟子强练内功，真气岔入经脉，眼下昏迷不醒。药师称尚有两法可救。".into(),
+            choices: vec![
+                EventChoice {
+                    id: "medicine".into(),
+                    label: "重金延医".into(),
+                    result_text: "名医以金针导气，终于将人从鬼门关拉了回来。".into(),
+                    effect: effect(0, -70, 3, 0, Some("heal_disciple")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "transfer".into(),
+                    label: "掌门渡气".into(),
+                    result_text: "掌门耗费真气替弟子续脉，人救回了，自己却伤了元气。".into(),
+                    effect: effect(1, 0, 5, 14, Some("heal_disciple")),
+                    good: true,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_court".into(),
+            category: "朝廷".into(),
+            title: "征召文书".into(),
+            text: "朝廷下文，欲借本派高手护送一批军饷。应下此差，难免卷入庙堂是非。".into(),
+            choices: vec![
+                EventChoice {
+                    id: "accept".into(),
+                    label: "领命护送".into(),
+                    result_text: "军饷平安抵达，朝廷赏赐丰厚，只是江湖同道颇有微词。".into(),
+                    effect: effect(7, 140, -1, 0, Some("court_service")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "decline".into(),
+                    label: "称病推辞".into(),
+                    result_text: "使者冷脸而去。门派保住了清静，也失了几分官面人情。".into(),
+                    effect: effect(-3, 0, 2, 0, Some("uphold_morality")),
+                    good: false,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_refugees".into(),
+            category: "乡里".into(),
+            title: "流民叩山".into(),
+            text: "百余流民扶老携幼来到山下，求一处避雨与几日口粮。外门仓储并不宽裕。".into(),
+            choices: vec![
+                EventChoice {
+                    id: "shelter".into(),
+                    label: "开仓赈济".into(),
+                    result_text: "山门内外架起粥棚，乡民感恩，侠义之名传遍数县。".into(),
+                    effect: effect(8, -65, 5, 0, Some("charity")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "refuse".into(),
+                    label: "给路费劝返".into(),
+                    result_text: "司库给了些散碎银钱，流民沉默着转下山去。".into(),
+                    effect: effect(-2, -15, -2, 0, None),
+                    good: false,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_cave".into(),
+            category: "奇遇".into(),
+            title: "后山石室".into(),
+            text: "暴雨冲开后山崖壁，露出一扇刻满剑痕的石门。门缝里隐有寒气透出。".into(),
+            choices: vec![
+                EventChoice {
+                    id: "explore".into(),
+                    label: "入内探查".into(),
+                    result_text: "石室机关重重，众人带伤而返，却从壁刻中拓下一篇失传心法。".into(),
+                    effect: effect(4, 0, 3, 6, Some("manual")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "seal".into(),
+                    label: "封门待后".into(),
+                    result_text: "掌门命人封存石门，待门中高手足备再来探查。".into(),
+                    effect: effect(0, -10, 1, 0, None),
+                    good: true,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_herbs".into(),
+            category: "生计".into(),
+            title: "西域药商".into(),
+            text: "西域药商携来一批上好雪莲，索价不菲。药师连称此物可遇不可求。".into(),
+            choices: vec![
+                EventChoice {
+                    id: "buy".into(),
+                    label: "买下雪莲".into(),
+                    result_text: "雪莲收入药库，药香数日不散。".into(),
+                    effect: effect(0, -90, 2, 0, Some("stock_herbs")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "decline".into(),
+                    label: "婉言谢绝".into(),
+                    result_text: "药商收起木匣，转投别派去了。".into(),
+                    effect: effect(0, 0, -1, 0, None),
+                    good: false,
+                },
+            ],
+        },
+        PendingWorldEvent {
+            id: "choice_alliance".into(),
+            category: "江湖".into(),
+            title: "会盟请帖".into(),
+            text: "数家正道门派邀本派共赴会盟，商议清剿盘踞官道的绿林悍匪。".into(),
+            choices: vec![
+                EventChoice {
+                    id: "join".into(),
+                    label: "赴会相助".into(),
+                    result_text: "诸派合力荡平匪寨，本派弟子也在群雄面前露了脸。".into(),
+                    effect: effect(7, 35, 4, 5, Some("improve_relation")),
+                    good: true,
+                },
+                EventChoice {
+                    id: "stay".into(),
+                    label: "留守山门".into(),
+                    result_text: "本派闭门不出，避开了伤亡，却也错过一场江湖盛会。".into(),
+                    effect: effect(-2, 0, 0, 0, None),
+                    good: false,
+                },
+            ],
+        },
+    ]
+}
+
+pub fn trigger_interactive_event(rng: &mut impl Rng) -> PendingWorldEvent {
+    let pool = interactive_events();
+    pool[rng.gen_range(0..pool.len())].clone()
+}
+
+fn expanded_events() -> Vec<RandomEvent> {
+    vec![
+        simple(
+            "ex_01",
+            "药圃丰收，药师拣出不少上品草药，门中伤病有了着落。",
+            0,
+            20,
+            3,
+            -3,
+            true,
+        ),
+        simple(
+            "ex_02",
+            "藏经阁返潮，数卷抄本生了霉斑，掌书弟子连夜晾晒修补。",
+            0,
+            -25,
+            -2,
+            0,
+            false,
+        ),
+        simple(
+            "ex_03",
+            "一队镖师借宿山门，临行留下谢银，又将沿途见闻说与外务弟子。",
+            2,
+            45,
+            2,
+            0,
+            true,
+        ),
+        simple(
+            "ex_04",
+            "练武场地砖年久松动，一名弟子踏空扭伤，众人只得暂缓切磋。",
+            0,
+            -20,
+            -2,
+            3,
+            false,
+        ),
+        simple(
+            "ex_05",
+            "乡民送来新酿与腊肉，谢本派去年驱走山贼，山门里热闹了一晚。",
+            3,
+            15,
+            5,
+            0,
+            true,
+        ),
+        simple(
+            "ex_06",
+            "官差误将本派弟子当作逃犯扣押，外务房奔走数日才将人领回。",
+            -2,
+            -35,
+            -2,
+            0,
+            false,
+        ),
+        simple(
+            "ex_07",
+            "两派弟子在渡口相遇，先是斗嘴，后来以武会友，竟结下一段交情。",
+            2,
+            0,
+            3,
+            1,
+            true,
+        ),
+        simple(
+            "ex_08",
+            "夜里一声雷劈倒山门古松，幸未伤人，内勤房忙了整整三日。",
+            0,
+            -30,
+            -1,
+            0,
+            false,
+        ),
+        simple(
+            "ex_09",
+            "掌门腰疾又犯，议事时只得倚着软垫，弟子们说话也轻了三分。",
+            0,
+            0,
+            -1,
+            4,
+            false,
+        ),
+        simple(
+            "ex_10",
+            "一名杂役在溪边捡到碎银，原封不动交给司库，掌门当众嘉许。",
+            1,
+            18,
+            4,
+            0,
+            true,
+        ),
+        simple(
+            "ex_11",
+            "附近州县开庙会，弟子们轮流下山采买，外门仓库添了不少日用之物。",
+            1,
+            -20,
+            4,
+            0,
+            true,
+        ),
+        simple(
+            "ex_12",
+            "江湖小报误传掌门闭关仙逝，山门前竟来了几拨吊客，令人哭笑不得。",
+            -1,
+            12,
+            2,
+            0,
+            false,
+        ),
+    ]
+}
+
+fn simple(
+    id: &str,
+    text: &str,
+    prestige: i32,
+    silver: i32,
+    morale: i32,
+    injury: i32,
+    good: bool,
+) -> RandomEvent {
+    RandomEvent {
+        id: id.into(),
+        text: text.into(),
+        effect: effect(prestige, silver, morale, injury, None),
+        good,
+    }
+}
+
 /// 江湖风云事件池
 fn jianghu_events() -> Vec<RandomEvent> {
     vec![
@@ -227,13 +580,17 @@ fn mensheng_events() -> Vec<RandomEvent> {
     ]
 }
 
-/// 触发随机事件（50% 江湖 / 50% 门中）
+/// 触发普通月闻：江湖、门内与生活杂闻各占一部分。
 pub fn trigger_random_event(rng: &mut impl Rng) -> RandomEvent {
-    if rng.gen_bool(0.5) {
+    let roll = rng.gen_range(0..100);
+    if roll < 40 {
         let pool = jianghu_events();
         pool[rng.gen_range(0..pool.len())].clone()
-    } else {
+    } else if roll < 75 {
         let pool = mensheng_events();
+        pool[rng.gen_range(0..pool.len())].clone()
+    } else {
+        let pool = expanded_events();
         pool[rng.gen_range(0..pool.len())].clone()
     }
 }
@@ -251,7 +608,7 @@ pub fn apply_event_effect(
     let e = &event.effect;
 
     if let Some(v) = e.prestige {
-        state.prestige = disc::clamp(state.prestige + v, 0, 100);
+        state.prestige = disc::clamp(state.prestige + v, 0, 1000);
     }
     if let Some(v) = e.silver {
         state.silver = (state.silver + v).max(0);
@@ -276,13 +633,56 @@ pub fn apply_event_effect(
                 let learned = &state.martial_arts_learned;
                 let arts = all_martial_arts();
                 let unlearned: Vec<_> = arts.iter().filter(|a| !learned.contains(&a.id)).collect();
-                if let Some(art) = unlearned.get(rng.gen_range(0..unlearned.len())) {
+                if !unlearned.is_empty() {
+                    let art = unlearned[rng.gen_range(0..unlearned.len())];
                     state.martial_arts_learned.push(art.id.clone());
+                    state.sect.public_books.push(art.id.clone());
                     extra_events.push(format!("获得武学残卷，参悟《{}》！", art.name));
                 }
             }
+            "stock_grain" => *state.sect.inventory.entry("粮秣".into()).or_default() += 60,
+            "stock_herbs" => *state.sect.inventory.entry("草药".into()).or_default() += 18,
+            "lose_loyalty" => {
+                for disciple in &mut state.disciples {
+                    disciple.loyalty = (disciple.loyalty - 5).max(0);
+                }
+            }
+            "heal_disciple" => {
+                if let Some(disciple) = state
+                    .disciples
+                    .iter_mut()
+                    .min_by_key(|disciple| disciple.attributes.qi.current)
+                {
+                    disciple.attributes.qi.current = disciple.attributes.qi.maximum / 2;
+                    disciple.attributes.spirit.current = disciple.attributes.spirit.maximum / 2;
+                    disc::refresh_condition(disciple);
+                }
+            }
+            "court_service" => {
+                state.sect.attributes.morality = (state.sect.attributes.morality - 5).max(0);
+            }
+            "uphold_morality" => {
+                state.sect.attributes.morality = (state.sect.attributes.morality + 3).min(100);
+            }
+            "charity" => {
+                state.sect.attributes.morality = (state.sect.attributes.morality + 8).min(100);
+                let grain = state
+                    .sect
+                    .inventory
+                    .get("粮秣")
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_sub(30);
+                state.sect.inventory.insert("粮秣".into(), grain);
+            }
+            "improve_relation" => {
+                if !state.npc_sects.is_empty() {
+                    let other = &state.npc_sects[rng.gen_range(0..state.npc_sects.len())];
+                    *state.sect.relations.entry(other.id.clone()).or_default() += 8;
+                }
+            }
             "epiphany" => {
-                state.prestige = disc::clamp(state.prestige + 3, 0, 100);
+                state.prestige = disc::clamp(state.prestige + 3, 0, 1000);
                 let alive_count = state.disciples.iter().filter(|d| d.alive).count();
                 if alive_count > 0 {
                     let idx = rng.gen_range(0..alive_count);
@@ -314,4 +714,19 @@ pub fn apply_event_effect(
     }
 
     extra_events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interactive_pool_has_multiple_wuxia_categories_and_choices() {
+        let events = interactive_events();
+        assert!(events.len() >= 8);
+        let categories: std::collections::BTreeSet<_> =
+            events.iter().map(|event| event.category.as_str()).collect();
+        assert!(categories.len() >= 5);
+        assert!(events.iter().all(|event| event.choices.len() >= 2));
+    }
 }

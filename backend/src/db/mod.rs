@@ -160,13 +160,16 @@ pub async fn append_events(
 ) -> Result<(), sqlx::Error> {
     for ev in events {
         sqlx::query(
-            "INSERT INTO events (game_id, year, month, mood, text) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO events (game_id, year, month, mood, text, category, payload)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(game_id)
         .bind(ev.year)
         .bind(ev.month)
         .bind(&ev.mood)
         .bind(&ev.text)
+        .bind("chronicle")
+        .bind(serde_json::json!({ "mood": ev.mood }))
         .execute(pool)
         .await?;
     }
