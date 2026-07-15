@@ -20,91 +20,34 @@
 
 ## 快速启动
 
-### 环境准备
-
-#### 1. 安装系统依赖（仅 Tauri 桌面模式需要）
-
-Linux (Debian/Ubuntu)：
-```bash
-sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev \
-  libayatana-appindicator3-dev librsvg2-dev
-```
-
-Windows / macOS：无需额外系统依赖，Tauri 会自动处理。
-
-#### 2. 安装 Node.js 依赖
+只需两条命令：
 
 ```bash
-# 前端依赖（Vue / Vite / Tailwind）
-cd frontend && npm install
+# 1. 安装所有依赖（根目录 + 前端，约 30 秒）
+npm run setup
 
-# 根目录依赖（Tauri CLI）
-cd .. && npm install
+# 2. 启动桌面应用（自动编译前端 + Rust 后端 + 打开窗口）
+npm run dev
 ```
 
-> `npx tauri` 会自动使用根目录 `node_modules` 中的 `@tauri-apps/cli`。
+> `npm run dev` 等同于 `npx tauri dev`，会自动：前端构建 → Rust 编译 → 后端启动 → 打开桌面窗口。
+> 首次编译约 2-5 分钟，后续增量编译很快。
 
-#### 3. 数据库
+### 配置数据库
+
+**桌面应用**：启动后点击开始画面的 ⚙️ 按钮，在弹出的设置面板中填入数据库连接信息。
+
+**Web 开发模式**（浏览器调试，无需 Tauri）：
+```bash
+cp .env.template backend/.env   # 编辑填入数据库信息
+npm run web-backend             # 终端 1：后端 → http://localhost:3000
+npm run web-frontend            # 终端 2：前端 → http://localhost:5173
+```
+
+### 构建安装包
 
 ```bash
-# 在 PostgreSQL 中创建数据库（已建则跳过）
-createdb -U ruoruo -h 192.168.50.150 zhangmenriji
-```
-
-### 2. 配置环境变量
-
-```bash
-# 复制模板并填入实际值
-cp .env.template backend/.env
-```
-
-编辑 `backend/.env`，填入数据库连接信息：
-
-```env
-PG_HOST=192.168.50.150
-PG_PORT=5432
-PG_USER=ruoruo
-PG_PASSWORD=你的密码
-PG_DATABASE=zhangmenriji
-SERVER_HOST=0.0.0.0
-SERVER_PORT=3000
-RUST_LOG=info
-```
-
-### 3. 启动开发环境
-
-#### 方式 A：Web 开发（推荐调试时使用）
-
-```bash
-# 终端 1：启动后端
-cd backend && cargo run
-# 监听 http://0.0.0.0:3000
-
-# 终端 2：启动前端（热更新）
-cd frontend && npm run dev
-# 浏览器打开 http://localhost:5173（Vite 代理至后端）
-```
-
-#### 方式 B：Tauri 桌面应用
-
-```bash
-# 首次需要编译 src-tauri（约 2-5 分钟），后续增量编译很快
-npx tauri dev
-```
-
-> **常见问题**：
-> - 命令是 `tauri` 不是 `tarui`（注意拼写）
-> - 如果报 `cargo` 找不到：安装 [Rust](https://rustup.rs)
-> - 如果报 `libgtk-3` 找不到：回到「环境准备 → 系统依赖」安装
-
-### 4. 构建
-
-```bash
-# 构建前端
-cd frontend && npm run build
-
-# 构建桌面应用
-npx tauri build
+npm run build   # 等同于 npx tauri build
 ```
 
 构建产物位于 `src-tauri/target/release/bundle/`。
