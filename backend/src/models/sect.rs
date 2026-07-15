@@ -21,21 +21,16 @@ impl Default for SectAttributes {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SectPolicy {
+    #[default]
     Balanced,
     Martial,
     Scholarly,
     Chivalrous,
     Mercantile,
     Reclusive,
-}
-
-impl Default for SectPolicy {
-    fn default() -> Self {
-        Self::Balanced
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +55,7 @@ impl Default for Building {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SectOrder {
     pub id: String,
@@ -68,18 +63,6 @@ pub struct SectOrder {
     pub remaining_months: i32,
     pub silver_cost: i32,
     pub effect: BTreeMap<String, i32>,
-}
-
-impl Default for SectOrder {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            name: String::new(),
-            remaining_months: 0,
-            silver_cost: 0,
-            effect: BTreeMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

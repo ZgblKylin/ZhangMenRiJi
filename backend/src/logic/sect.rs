@@ -107,10 +107,12 @@ mod tests {
 
     #[test]
     fn legacy_and_v3_sect_attributes_stay_in_step() {
-        let mut state = GameState::default();
-        state.prestige = 88;
-        state.silver = 321;
-        state.morale = 67;
+        let mut state = GameState {
+            prestige: 88,
+            silver: 321,
+            morale: 67,
+            ..GameState::default()
+        };
         absorb_legacy_fields(&mut state);
         assert_eq!(state.sect.attributes.prestige, 88);
         assert_eq!(state.sect.attributes.silver, 321);

@@ -75,9 +75,10 @@ impl Default for AcquiredAttributes {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscipleCondition {
+    #[default]
     Healthy,
     Exhausted,
     Unconscious,
@@ -85,25 +86,14 @@ pub enum DiscipleCondition {
     Dead,
 }
 
-impl Default for DiscipleCondition {
-    fn default() -> Self {
-        Self::Healthy
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscipleRank {
     Chore,
+    #[default]
     Outer,
     Inner,
     Elder,
-}
-
-impl Default for DiscipleRank {
-    fn default() -> Self {
-        Self::Outer
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -117,13 +107,14 @@ pub enum Department {
     ExternalAffairs,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
     Read,
     Teach,
     Spar,
     TemperBody,
+    #[default]
     CultivateNeili,
     Meditate,
     SectMission,
@@ -131,13 +122,7 @@ pub enum ActionKind {
     Recover,
 }
 
-impl Default for ActionKind {
-    fn default() -> Self {
-        Self::CultivateNeili
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ActionPlan {
     pub kind: ActionKind,
@@ -145,18 +130,6 @@ pub struct ActionPlan {
     pub martial_art_id: Option<String>,
     pub assigned_by: Option<String>,
     pub remaining_months: i32,
-}
-
-impl Default for ActionPlan {
-    fn default() -> Self {
-        Self {
-            kind: ActionKind::default(),
-            target_id: None,
-            martial_art_id: None,
-            assigned_by: None,
-            remaining_months: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -280,4 +280,38 @@ mod tests {
         assert!(state.pending_event.is_none());
         assert!(!result.0.is_empty());
     }
+
+    #[test]
+    fn complete_playthrough_reaches_two_tournaments_in_24_months() {
+        let mut rng = StdRng::seed_from_u64(20260716);
+        let mut state = GameState {
+            world_seed: 20260716,
+            ..GameState::default()
+        };
+        let (sects, npc_disciples) = world::generate_npc_world(state.world_seed);
+        state.npc_sects = sects;
+        state.npc_disciples = npc_disciples;
+        state.disciples = disc::generate_starting_disciples(&mut rng);
+
+        let mut elapsed = 0;
+        while elapsed < 24 {
+            let before = (state.year, state.month);
+            advance_month(&mut rng, &mut state);
+            if let Some(value) = state.pending_event.clone() {
+                let pending: event::PendingWorldEvent = serde_json::from_value(value).unwrap();
+                resolve_pending_event(&mut rng, &mut state, &pending.choices[0].id).unwrap();
+            }
+            if (state.year, state.month) != before {
+                elapsed += 1;
+            }
+            assert!(!state.game_over, "第{elapsed}个月意外散伙");
+        }
+
+        assert_eq!((state.year, state.month), (3, 1));
+        assert_eq!(state.tournament_history.len(), 2);
+        assert!(state
+            .event_log
+            .iter()
+            .any(|event| event.text.contains("年终论剑")));
+    }
 }

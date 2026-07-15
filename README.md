@@ -1,4 +1,4 @@
-# 《掌门日记》— 武侠门派经营模拟器 v2.0
+# 《掌门日记》— 武侠门派经营模拟器 v3.0
 
 前后端分离架构，Rust 后端 + Vue 3 前端，PostgreSQL 持久化，Tauri 桌面应用打包。
 
@@ -7,6 +7,10 @@
 - **核心循环**：以月为单位推进时间，每月做决策
 - **经营目标**：将三流山寨经营成名震江湖的大派
 - **年终论剑**：每年十二月举行，检验门派实力
+- **侠客行式修行**：膂力、悟性、根骨、身法、福源，以及气血、精神、内力、精力与造诣
+- **江湖大势**：四国二十三派同步行动，弟子每月依快照并行推演
+- **山门经营**：营造、人事、门派令、物资、藏经研究、门派交流皆可由掌门定夺
+- **交互事件**：江湖、生计、门内、朝廷与奇遇事件会暂缓月令，待掌门选策后续行
 
 ## 技术架构
 
@@ -19,6 +23,14 @@
 | 桌面 | Tauri 2.x |
 
 ## 快速启动
+
+Linux 桌面端须先备齐 [Tauri 2 官方系统依赖](https://v2.tauri.app/zh-cn/start/prerequisites/)。Debian/Ubuntu 可执行：
+
+```bash
+sudo apt update
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
 只需两条命令：
 
@@ -89,6 +101,8 @@ ZhangMenRiJi/
 | DELETE | `/api/games/:id` | 删除存档 |
 | POST | `/api/games/:id/decisions/:decision_id` | 执行决策 |
 | POST | `/api/games/:id/advance` | 推进月份 |
+| POST | `/api/games/:id/manage` | 执行门派经营 |
+| POST | `/api/games/:id/events/resolve` | 处置交互事件并续行月份 |
 | GET | `/api/decisions` | 决策静态数据 |
 | GET | `/api/martial-arts` | 武学静态数据 |
 
@@ -109,6 +123,7 @@ ZhangMenRiJi/
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v3.0 | 2026-07 | 侠客行式属性、二十三派世界、并行行动、完整经营与交互事件 |
 | v2.1 | 2026-07 | Tauri 桌面应用迁移，后端拆分为 lib/bin 双 target |
 | v2.0 | 2026-07 | Vue 3 + Vite + Tailwind 前端重构，后端添加静态文件服务 |
 | v1.1 | 2026-06 | 前后端分离，Rust 后端，PostgreSQL 持久化 |

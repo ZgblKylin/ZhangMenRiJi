@@ -18,6 +18,7 @@ pub struct MartialArt {
     pub difficulty: i32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn art(
     id: &str,
     name: &str,

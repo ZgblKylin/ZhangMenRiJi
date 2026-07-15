@@ -27,7 +27,7 @@ pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
     let cfg = config::Config::load(config_path);
     tracing::info!(
         "数据库: {}",
-        cfg.database_url.split('@').last().unwrap_or("?")
+        cfg.database_url.split('@').next_back().unwrap_or("?")
     );
 
     // 连接数据库
