@@ -22,12 +22,29 @@
 
 ### 环境准备
 
+#### 1. 安装系统依赖（仅 Tauri 桌面模式需要）
+
+Linux (Debian/Ubuntu)：
 ```bash
-# 安装依赖（仅首次）
-cd frontend && npm install
+sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev \
+  libayatana-appindicator3-dev librsvg2-dev
 ```
 
-### 1. 数据库
+Windows / macOS：无需额外系统依赖，Tauri 会自动处理。
+
+#### 2. 安装 Node.js 依赖
+
+```bash
+# 前端依赖（Vue / Vite / Tailwind）
+cd frontend && npm install
+
+# 根目录依赖（Tauri CLI）
+cd .. && npm install
+```
+
+> `npx tauri` 会自动使用根目录 `node_modules` 中的 `@tauri-apps/cli`。
+
+#### 3. 数据库
 
 ```bash
 # 在 PostgreSQL 中创建数据库（已建则跳过）
@@ -71,9 +88,14 @@ cd frontend && npm run dev
 #### 方式 B：Tauri 桌面应用
 
 ```bash
-# 一键启动（自动编译后端 + 启动前端 + 打开桌面窗口）
+# 首次需要编译 src-tauri（约 2-5 分钟），后续增量编译很快
 npx tauri dev
 ```
+
+> **常见问题**：
+> - 命令是 `tauri` 不是 `tarui`（注意拼写）
+> - 如果报 `cargo` 找不到：安装 [Rust](https://rustup.rs)
+> - 如果报 `libgtk-3` 找不到：回到「环境准备 → 系统依赖」安装
 
 ### 4. 构建
 
