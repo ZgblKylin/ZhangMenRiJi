@@ -1,4 +1,4 @@
-mod config;
+pub mod config;
 mod db;
 mod handlers;
 mod logic;
@@ -9,8 +9,10 @@ use handlers::games::AppState;
 use sqlx::PgPool;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub async fn run_server() -> anyhow::Result<()> {
-    // 加载 .env（开发环境）
+use std::path::Path;
+
+pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
+    // 加载 .env（开发/Web 模式回退）
     dotenvy::dotenv().ok();
 
     // 初始化日志
@@ -21,8 +23,8 @@ pub async fn run_server() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // 加载配置
-    let cfg = config::Config::from_env();
+    // 加载配置（文件优先 → 环境变量 → 默认值）
+    let cfg = config::Config::load(config_path);
     tracing::info!(
         "数据库: {}",
         cfg.database_url.split('@').last().unwrap_or("?")

@@ -5503,6 +5503,7 @@ dependencies = [
 name = "zhangmenriji-desktop"
 version = "2.0.0"
 dependencies = [
+ "serde_json",
  "tauri",
  "tauri-build",
  "tokio",

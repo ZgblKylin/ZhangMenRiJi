@@ -10,6 +10,8 @@ import SavePanel from './components/SavePanel.vue'
 import EventPopup from './components/EventPopup.vue'
 import LoadingOverlay from './components/LoadingOverlay.vue'
 
+import SettingsPanel from './components/SettingsPanel.vue'
+
 const report = (prefix: string, error: unknown) => alert(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
 const loading = async (task: () => Promise<void>) => { ui.loading = true; try { await task() } finally { ui.loading = false } }
 
@@ -42,5 +44,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', keyboard))
   </ScrollContainer>
   <SavePanel :open="ui.savePanel" :mode="ui.saveMode" :slots="saveSlots" :current-id="gameId" @close="ui.savePanel = false" @load="loadGame" @remove="removeSave" />
   <EventPopup :open="ui.popup" :events="ui.popupEvents" :tournament="ui.tournament" @close="closePopup" />
+  <SettingsPanel :open="ui.settingsOpen" @close="ui.settingsOpen = false" />
   <LoadingOverlay :show="ui.loading" />
 </template>

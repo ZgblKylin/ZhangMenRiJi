@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue'
 import { API_BASE } from '../api'
+import { ui } from '../store'
 const emit = defineEmits<{ start: [name: string]; load: [] }>()
 const name = ref('')
 const input = ref<HTMLInputElement>()
@@ -14,7 +15,9 @@ onMounted(() => nextTick(() => input.value?.focus()))
     <div class="start-input"><label>请为山门赐名：</label><input ref="input" v-model="name" maxlength="10" placeholder="如：青云门" autocomplete="off" @keydown.enter="start"></div>
     <div class="mt-6"><button class="btn btn-primary px-10 py-2.5 text-lg" @click="start">开 山 立 派</button></div>
     <div class="mt-6 text-sm text-ink-fade">已有存档？<button class="text-cinnabar hover:underline" @click="emit('load')">载入进度</button></div>
-    <div class="mt-2 text-xs text-ink-fade">后端: <code>{{ API_BASE }}</code></div>
+    <div class="mt-2 text-xs text-ink-fade">
+      后端: <code>{{ API_BASE }}</code>
+      <button class="ml-2 text-ink-fade hover:text-cinnabar" title="数据库设置" @click="ui.settingsOpen = true">⚙</button>
+    </div>
   </section>
 </template>
-

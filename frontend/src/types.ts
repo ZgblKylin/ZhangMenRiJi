@@ -74,3 +74,14 @@ export interface SaveSlot {
   updated_at?: string
 }
 
+/** Tauri 桌面端 — 应用配置（与 Rust AppConfig 对应） */
+export interface AppConfig {
+  pg_host: string
+  pg_port: string
+  pg_user: string
+  pg_password: string
+  pg_database: string
+  server_host: string
+  server_port: string
+}
+
