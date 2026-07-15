@@ -11,6 +11,7 @@ struct Actor {
     sect_id: String,
     player: bool,
     public_books: Vec<String>,
+    recovery_bonus: i32,
 }
 
 #[derive(Clone)]
@@ -81,6 +82,8 @@ pub fn run_auto_actions(state: &mut GameState) -> Vec<GameEvent> {
 }
 
 fn collect_actors(state: &GameState) -> Vec<Actor> {
+    let player_recovery =
+        sect::policy_bonus(&state.sect, "recovery") + sect::order_bonus(&state.sect, "recovery");
     state
         .disciples
         .iter()
@@ -89,18 +92,25 @@ fn collect_actors(state: &GameState) -> Vec<Actor> {
             sect_id: "player".into(),
             player: true,
             public_books: state.sect.public_books.clone(),
+            recovery_bonus: player_recovery,
         })
         .chain(state.npc_disciples.iter().map(|d| {
+            let npc_sect = d
+                .sect_id
+                .as_ref()
+                .and_then(|id| state.npc_sects.iter().find(|sect| &sect.id == id));
             Actor {
                 disciple: d.clone(),
                 sect_id: d.sect_id.clone().unwrap_or_else(|| "wanderer".into()),
                 player: false,
-                public_books: d
-                    .sect_id
-                    .as_ref()
-                    .and_then(|id| state.npc_sects.iter().find(|sect| &sect.id == id))
+                public_books: npc_sect
                     .map(|sect| sect.public_books.clone())
                     .unwrap_or_default(),
+                recovery_bonus: npc_sect
+                    .map(|sect| {
+                        sect::policy_bonus(sect, "recovery") + sect::order_bonus(sect, "recovery")
+                    })
+                    .unwrap_or(0),
             }
         }))
         .collect()
@@ -118,7 +128,17 @@ fn plan_actions(state: &GameState, actors: &[Actor]) -> Vec<PlannedAction> {
             );
             let kind = choose_action(state, actor, &mut rng);
             let target = if matches!(kind, ActionKind::Teach | ActionKind::Spar) {
-                choose_partner(index, &actor.sect_id, actors, &mut rng)
+                actor
+                    .disciple
+                    .action
+                    .as_ref()
+                    .and_then(|plan| plan.target_id.as_ref())
+                    .and_then(|id| actors.iter().position(|other| &other.disciple.id == id))
+                    .filter(|target| {
+                        actors[*target].sect_id == actor.sect_id
+                            && disciple::can_act(&actors[*target].disciple)
+                    })
+                    .or_else(|| choose_partner(index, &actor.sect_id, actors, &mut rng))
             } else {
                 None
             };
@@ -160,24 +180,27 @@ fn choose_action(state: &GameState, actor: &Actor, rng: &mut StdRng) -> ActionKi
             .unwrap_or(&state.sect)
     };
     let mut choices = vec![
-        (ActionKind::Read, 12 + sect::policy_bonus(policy, "study")),
+        (
+            ActionKind::Read,
+            12 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
+        ),
         (ActionKind::Teach, 8),
         (ActionKind::Spar, 12 + sect::policy_bonus(policy, "martial")),
         (
             ActionKind::TemperBody,
-            13 + sect::policy_bonus(policy, "martial"),
+            13 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
         ),
         (
             ActionKind::CultivateNeili,
-            15 + sect::policy_bonus(policy, "martial"),
+            15 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
         ),
         (
             ActionKind::Meditate,
-            9 + sect::policy_bonus(policy, "study"),
+            9 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
         ),
         (
             ActionKind::SectMission,
-            9 + sect::policy_bonus(policy, "income"),
+            9 + sect::policy_bonus(policy, "income") + sect::order_bonus(policy, "income"),
         ),
         (ActionKind::Wander, 8 + d.aptitudes.fortune / 5),
     ];
@@ -207,7 +230,7 @@ fn choose_partner(
         .iter()
         .enumerate()
         .filter(|(index, other)| {
-            *index != actor && other.sect_id == sect_id && other.disciple.alive
+            *index != actor && other.sect_id == sect_id && disciple::can_act(&other.disciple)
         })
         .map(|(index, _)| index)
         .collect();
@@ -437,10 +460,11 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             log = format!("{}负笈游历江湖，预备{}个月后归山。", d.name, duration);
         }
         ActionKind::Recover => {
-            delta.qi += 16 + d.aptitudes.constitution / 3;
-            delta.spirit += 16 + d.aptitudes.intelligence / 3;
-            delta.neili += 6;
-            delta.energy += 8;
+            let multiplier = 100 + actor.recovery_bonus;
+            delta.qi += (16 + d.aptitudes.constitution / 3) * multiplier / 100;
+            delta.spirit += (16 + d.aptitudes.intelligence / 3) * multiplier / 100;
+            delta.neili += 6 * multiplier / 100;
+            delta.energy += 8 * multiplier / 100;
             log = format!("{}在门中调息静养，气色渐复。", d.name);
         }
         ActionKind::Teach | ActionKind::Spar => unreachable!("独行任务已回退为研读"),
@@ -462,6 +486,13 @@ fn base_delta(actor: &Actor) -> DiscipleDelta {
 
 fn preferred_book(actor: &Actor) -> String {
     let d = &actor.disciple;
+    if let Some(book) = d
+        .action
+        .as_ref()
+        .and_then(|plan| plan.martial_art_id.clone())
+    {
+        return book;
+    }
     if let Some(book) = d.martial_progress.private_books.first().cloned() {
         return book;
     }

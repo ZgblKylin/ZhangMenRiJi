@@ -27,6 +27,9 @@ pub async fn execute_decision(
         let mut rng = rand::thread_rng();
         crate::logic::decision::execute_decision(&mut rng, &mut game_state, &decision_id)
     };
+    for disciple in &mut game_state.disciples {
+        crate::logic::disciple::absorb_legacy_attributes(disciple);
+    }
     crate::logic::sect::absorb_legacy_fields(&mut game_state);
 
     if let Err(e) = crate::db::update_game(&state.pool, id, &sect_name, &game_state).await {

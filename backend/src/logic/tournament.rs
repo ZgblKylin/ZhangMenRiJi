@@ -44,6 +44,7 @@ pub fn run_tournament(rng: &mut impl Rng, state: &mut GameState) -> TournamentRe
 
     for d in state.disciples.iter_mut().filter(|d| d.alive) {
         d.inner_power = disc::clamp(d.inner_power + disc::rand_range(rng, 2, 6), 10, 100);
+        disc::absorb_legacy_attributes(d);
     }
 
     state.tournament_history.push(TournamentRecord {

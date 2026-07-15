@@ -43,12 +43,27 @@ pub fn policy_bonus(sect: &SectState, key: &str) -> i32 {
     }
 }
 
+pub fn order_bonus(sect: &SectState, key: &str) -> i32 {
+    sect.active_orders
+        .iter()
+        .filter(|order| order.remaining_months > 0)
+        .filter_map(|order| order.effect.get(key))
+        .sum()
+}
+
 pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32) {
     let prosperity = sect.attributes.prestige / 10;
     let treasury = building_level(sect, "treasury");
-    let income = prosperity + disciples as i32 * 3 + treasury * 4;
-    let expense = 20 + disciples as i32 * 5 + sect.buildings.len() as i32 * 2;
+    let base_income = prosperity + disciples as i32 * 3 + treasury * 4;
+    let income_bonus = policy_bonus(sect, "income") + order_bonus(sect, "income");
+    let income = base_income * (100 + income_bonus) / 100;
+    let frugal = order_bonus(sect, "income") / 2;
+    let expense = (20 + disciples as i32 * 5 + sect.buildings.len() as i32 * 2)
+        * (100 - frugal.clamp(0, 40))
+        / 100;
     sect.attributes.silver = (sect.attributes.silver + income - expense).max(0);
+    sect.attributes.morality =
+        (sect.attributes.morality + order_bonus(sect, "morality") / 6).clamp(0, 100);
 
     for building in &mut sect.buildings {
         if building.upgrading_months > 0 {

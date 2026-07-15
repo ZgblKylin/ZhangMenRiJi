@@ -1,5 +1,5 @@
 use crate::handlers::games::AppState;
-use crate::handlers::{advance, decisions, games, static_data};
+use crate::handlers::{advance, decisions, games, management, static_data};
 use axum::{
     routing::{delete, get, post},
     Router,
@@ -23,6 +23,7 @@ pub fn create_router(state: AppState) -> Router {
             post(decisions::execute_decision),
         )
         .route("/api/games/{id}/advance", post(advance::advance_month))
+        .route("/api/games/{id}/manage", post(management::manage_sect))
         .route("/api/decisions", get(static_data::list_decisions))
         .route("/api/martial-arts", get(static_data::list_martial_arts));
 

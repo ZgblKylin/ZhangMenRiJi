@@ -156,6 +156,24 @@ pub fn sync_legacy_attributes(d: &mut Disciple) {
     d.alive = d.condition != DiscipleCondition::Dead;
 }
 
+/// 将尚沿用 v2 字段的决策与事件效果汇入 v3 属性。
+pub fn absorb_legacy_attributes(d: &mut Disciple) {
+    if !d.alive {
+        d.attributes.qi.maximum = 0;
+        d.attributes.qi.current = 0;
+        d.condition = DiscipleCondition::Dead;
+        sync_legacy_attributes(d);
+        return;
+    }
+    let neili_delta = d.inner_power - d.attributes.neili.maximum;
+    d.attributes.neili.maximum = d.inner_power.max(0);
+    d.attributes.neili.current =
+        (d.attributes.neili.current + neili_delta).clamp(0, d.attributes.neili.maximum);
+    d.attributes.sect_loyalty = d.loyalty.clamp(0, 100);
+    refresh_condition(d);
+    sync_legacy_attributes(d);
+}
+
 pub fn hydrate_v2_disciple(d: &mut Disciple) {
     if d.martial_progress.proficiencies.is_empty() {
         d.attributes.neili = ResourcePool {

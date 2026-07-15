@@ -21,6 +21,9 @@ pub fn advance_month(
     // 2. 触发随机事件
     let random_event: RandomEvent = event::trigger_random_event(rng);
     let extra_events = event::apply_event_effect(rng, state, &random_event);
+    for disciple in &mut state.disciples {
+        disc::absorb_legacy_attributes(disciple);
+    }
     let mood = if random_event.good { "good" } else { "bad" };
     events.push(GameEvent {
         text: random_event.text.clone(),
@@ -36,6 +39,7 @@ pub fn advance_month(
             month: state.month,
         });
     }
+    crate::logic::sect::absorb_legacy_fields(state);
 
     // 3. 弟子月度恢复、年龄与门忠变化
     disc::monthly_growth(rng, &mut state.disciples, state.morale);
@@ -51,13 +55,26 @@ pub fn advance_month(
         }
     }
 
-    // 3. 被动收支
-    let alive_count = state.disciples.iter().filter(|d| d.alive).count() as i32;
-    let income = state.prestige * 3 / 10 + alive_count * 3;
-    let expense = alive_count * 5 + 20;
-    state.silver = (state.silver + income - expense).max(0);
+    // 4. 各派建筑、门人用度与门派令统一结算
+    let alive_count = state.disciples.iter().filter(|d| d.alive).count();
+    let (income, expense) = crate::logic::sect::apply_monthly_upkeep(&mut state.sect, alive_count);
+    events.push(GameEvent {
+        text: format!("司库月结：进项{}两，用度{}两。", income, expense),
+        mood: if income >= expense { "good" } else { "neutral" }.into(),
+        year: state.year,
+        month: state.month,
+    });
+    for npc_sect in &mut state.npc_sects {
+        let members = state
+            .npc_disciples
+            .iter()
+            .filter(|d| d.alive && d.sect_id.as_deref() == Some(npc_sect.id.as_str()))
+            .count();
+        crate::logic::sect::apply_monthly_upkeep(npc_sect, members);
+    }
+    crate::logic::sect::sync_legacy_fields(state);
 
-    // 4. 志气自然浮动
+    // 5. 志气自然浮动
     state.morale = disc::clamp(state.morale + disc::rand_range(rng, -3, 3), 0, 100);
 
     // 5. 掌门伤势恢复
