@@ -1,0 +1,3 @@
+<script setup lang="ts">import type { GameState } from '../types'; defineProps<{ game: GameState }>(); defineEmits<{ saves: []; restart: [] }>()</script>
+<template><header class="top-bar"><div class="nav-btns"><button class="btn btn-sm" @click="$emit('saves')">存档</button><button class="btn btn-sm btn-jade" @click="$emit('restart')">重开</button></div><div class="title-block"><h1>{{ game.sect_name }}<span class="subtitle"> · 掌门日记</span></h1><div class="month-text">第 <strong>{{ game.year }}</strong> 年 · <strong>{{ game.month }}</strong> 月 <span v-if="game.injury > 30" class="injured-tag">（掌门负伤中）</span></div></div></header></template>
+

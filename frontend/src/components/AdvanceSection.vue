@@ -1,0 +1,2 @@
+<script setup lang="ts">defineProps<{ used: number; december?: boolean; nextYear?: number }>(); defineEmits<{ advance: [] }>()</script>
+<template><div class="advance-section"><button v-if="december" class="btn btn-primary btn-lg" @click="$emit('advance')">辞旧迎新，进入{{ nextYear }}年</button><template v-else><button class="btn btn-gold btn-lg" :disabled="used === 0" @click="$emit('advance')">{{ used ? '本月事毕，推进时日 →' : '请至少做一项决策' }}</button><div v-if="!used" class="advance-hint">点击上方决策卡片处理本月事务</div></template></div></template>
