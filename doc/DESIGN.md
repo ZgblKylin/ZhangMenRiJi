@@ -1,8 +1,8 @@
 # 《掌门日记》完整设计文档
 
-> 重构版本 v2.0 — 前后端分离 · Rust 后端 · PostgreSQL 持久化
+> 重构版本 v2.1 — Vue 3 前端 · Rust 后端 · Tauri 桌面 · PostgreSQL 持久化
 >
-> 文档修改：整合 ARCHITECTURE.md 与 DATABASE.md，并依据 backend/src/ 实际源码完善细节。
+> 文档修改：整合 ARCHITECTURE.md 与 DATABASE.md，并依据 backend/src/ / frontend/src/ / src-tauri/src/ 实际源码完善细节。
 
 ---
 
@@ -16,16 +16,18 @@
 
 ### 1.2 重构目标
 
-| 维度 | v1（当前） | v2（目标） |
+| 维度 | v1（当前） | v2.1（目标） |
 |------|-----------|----------|
-| 架构 | 纯前端 HTML/JS 单文件 | 前后端分离工程 |
+| 架构 | 纯前端 HTML/JS 单文件 | Vue 3 前端 + Rust 后端 + Tauri 桌面 |
 | 后端语言 | 无 | Rust + axum 0.8 |
 | 运行时 | 浏览器 JavaScript | tokio 异步运行时 |
 | 数据存储 | LocalStorage（JSON 序列化） | PostgreSQL 18（JSONB 列） |
 | 游戏逻辑 | 全部在浏览器执行 | 核心逻辑移至后端 |
-| 配置管理 | 硬编码 | .env 文件 + 环境变量 |
+| 配置管理 | 硬编码 | 双模式：桌面 config.json + Web .env |
 | 数据库连接 | 无 | sqlx 异步连接池（编译期查询校验） |
-| 前端框架 | Vanilla HTML/CSS/JS | 保持不变 |
+| 前端框架 | Vanilla HTML/CSS/JS | Vue 3 + Vite + TypeScript + Tailwind CSS v4 |
+| 桌面应用 | 无 | Tauri 2.x（NSIS 安装包） |
+| 部署方式 | 浏览器打开 index.html | Tauri 桌面 + localhost:3000 Web 双部署 |
 | 并发模型 | 单浏览器 tab | 多游戏存档并行（每个存档 UUID 独立） |
 
 ---
@@ -52,10 +54,13 @@
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Vanilla HTML/CSS/JS** | — | 保持现有 UI，仅替换存储层 |
-| **Fetch API** | 原生 | HTTP 请求后端 REST API |
+| **Vue 3** | 3.x | 渐进式前端框架（Composition API + `<script setup>`） |
+| **Vite** | 6.x | 构建工具 + 开发服务器（HMR） |
+| **TypeScript** | 5.x | 类型安全，接口定义在 `types.ts` |
+| **Tailwind CSS** | v4 | 原子化 CSS 框架，武侠宣纸风主题 |
+| **@tauri-apps/api** | 2.x | Tauri 命令调用（`get_config` / `save_config`） |
 
-> **设计决策**：前端保持纯 HTML/JS 以降低复杂度。武侠宣纸风 UI 已成熟（约 1278 行），无需引入 Vue/React 等重型框架。
+> **设计决策**：v2.0 阶段前端保持 Vanilla JS（约 1278 行单文件），v2.1 迁移至 Vue 3 组件化架构（16 个 `.vue` 组件）。迁移后代码组织清晰，组件可复用，并通过 tower-http ServeDir 内嵌服务 `frontend/dist/`，后端单端口同时提供 API 和前端静态资源。
 
 ### 2.3 数据库
 
@@ -71,11 +76,22 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                       浏览器 (Frontend)                          │
+│                     Tauri 2.x 桌面壳 (src-tauri/)                │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │  index.html  (武侠宣纸风 UI)                                │  │
-│  │  ├─ 内联 CSS  — 保留原有样式                               │  │
-│  │  └─ 内联 JS   — 渲染 + 事件处理 + Fetch API 调用            │  │
+│  │  setup 钩子: 读系统配置目录 config.json → apply_to_env()  │  │
+│  │  → spawn 后端线程 (run_server) → 加载 WebView 前端        │  │
+│  │  Tauri 命令: get_config / save_config                     │  │
+│  └────────────────────────────┬──────────────────────────────┘  │
+└───────────────────────────────┼──────────────────────────────────┘
+                                │
+┌───────────────────────────────┼──────────────────────────────────┐
+│                    浏览器 / WebView (Frontend)                    │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Vue 3 SPA (frontend/src/ → npm run build → dist/)        │  │
+│  │  ├─ TypeScript (types.ts — 类型定义含 AppConfig)          │  │
+│  │  ├─ Tailwind CSS v4 (武侠宣纸风主题)                      │  │
+│  │  ├─ 16 个 .vue 组件                                       │  │
+│  │  └─ API 调用: Fetch (Web) / @tauri-apps/api (桌面)        │  │
 │  └────────────────────────────┬──────────────────────────────┘  │
 │                               │  HTTP REST (JSON)                │
 └───────────────────────────────┼──────────────────────────────────┘
@@ -86,6 +102,7 @@
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  HTTP Layer                                                │  │
 │  │  ├─ tower-http CorsLayer  — CORS 中间件（开发: `*`）       │  │
+│  │  ├─ tower-http ServeDir   — 静态文件服务 (frontend/dist/)  │  │
 │  │  └─ tracing                — 请求日志                      │  │
 │  ├───────────────────────────────────────────────────────────┤  │
 │  │  Router (router.rs)                                        │  │
@@ -181,6 +198,52 @@
   │                          │── append_events() ───────────────────────────────────────────────>│
   │<── {events,tournament,..}│                         │                     │                    │
 ```
+
+### 前端组件架构（16 个 Vue 组件）
+
+```
+App.vue                          # 根组件 — 路由/状态切换
+│
+├─ StartScreen.vue               # 开始界面：新游戏 / 读档选择
+│   └─ SavePanel.vue             #   存档列表 (slot 列表)
+│
+├─ GameView.vue                  # 主游戏视图 — 组织所有子组件
+│   ├─ TitleBar.vue              #   顶部状态栏 (门派名 / 年/月 / 设置入口)
+│   ├─ StatsGrid.vue             #   门派数据指标 (声望/库银/志气/伤势)
+│   ├─ DecisionGrid.vue          #   决策面板 (8 种决策按钮)
+│   ├─ DiscipleList.vue          #   弟子列表 (姓名/资质/内力/武学/忠诚)
+│   ├─ MartialArtsPanel.vue      #   武学面板 (已习得武学一览)
+│   ├─ TournamentPanel.vue       #   论剑战绩面板
+│   ├─ ChroniclesBar.vue         #   事件纪事滚动条
+│   ├─ AdvanceSection.vue        #   推进月份按钮 + 当月事件
+│   └─ EventPopup.vue            #   事件弹窗 (good/bad/neutral)
+│
+├─ GameOverScreen.vue            # 游戏结束画面 + 结局文本
+├─ SettingsPanel.vue             # 设置面板 (数据库连接配置 — Tauri 桌面)
+├─ LoadingOverlay.vue            # 加载遮罩 (API 请求中)
+└─ ScrollContainer.vue           # 可滚动容器 (武侠卷轴风格)
+```
+
+| 组件 | 职责 |
+|------|------|
+| `App.vue` | 根组件，管理系统状态（start/game/game_over/settings），切换视图 |
+| `StartScreen.vue` | 新游戏创建 + 存档列表读写 |
+| `SavePanel.vue` | 存档 CRUD 面板 |
+| `GameView.vue` | 主游戏视图，组合所有游戏子组件 |
+| `TitleBar.vue` | 门派名称 + 年/月 显示 + 设置按钮 |
+| `StatsGrid.vue` | 声望/库银/志气/伤势 四维指标展示 |
+| `DecisionGrid.vue` | 8 种决策按钮，含冷却/禁用态 |
+| `DiscipleList.vue` | 弟子卡片列表，展示属性和武学 |
+| `MartialArtsPanel.vue` | 已习得武学表格 |
+| `TournamentPanel.vue` | 历届论剑成绩展示 |
+| `ChroniclesBar.vue` | 事件纪事滚动时间线 |
+| `AdvanceSection.vue` | 推进月份按钮 + 当前月事件摘要 |
+| `EventPopup.vue` | 模态弹窗，展示事件文本和 mood 情绪 |
+| `GameOverScreen.vue` | 结局画面 |
+| `SettingsPanel.vue` | 数据库连接配置（调用 Tauri `get_config`/`save_config`） |
+| `LoadingOverlay.vue` | 加载状态遮罩 |
+
+类型定义在 `frontend/src/types.ts`，包含 `GameState`、`Disciple`、`Decision`、`MartialArt`、`ChronicleEvent`、`Tournament`、`SaveSlot`、`AppConfig` 等接口。
 
 ---
 
@@ -753,14 +816,15 @@ sect_power = avg(combat_score) + alive_count * 5
 ## 7. 模块代码结构
 
 ```
-backend/
-├── Cargo.toml                    # 依赖声明
+backend/                          # Rust 后端 (lib + bin 双 target)
+├── Cargo.toml                    # [lib] + [[bin]]
 ├── .env                          # 环境配置（不入 git）
 └── src/
-    ├── main.rs                   # 入口：加载 .env → 连接DB → 迁移 → 路由 → 启动
-    ├── config.rs                 # Config 结构体，from_env() 加载
-    ├── router.rs                 # Router 定义（8 个路由 + CORS 中间件）
-    ├── error.rs                  # AppError 统一错误类型（impl IntoResponse）
+    ├── lib.rs                   # pub async fn run_server() — 库入口（供 Tauri 调用）
+    ├── main.rs                  # CLI bin 入口 → run_server(None)
+    ├── config.rs                # Config::load() / AppConfig 结构体
+    ├── router.rs                # Router 定义（8 路由 + CORS + ServeDir）
+    ├── error.rs                 # AppError 统一错误类型（impl IntoResponse）
     │
     ├── models/                   # —— 数据模型层 ——
     │   ├── mod.rs                # 模块导出
@@ -788,29 +852,66 @@ backend/
     │
     └── db/                       # —— 数据访问层 ——
         └── mod.rs                # run_migrations + CRUD 查询函数（7 个）
+
+frontend/                         # Vue 3 前端
+├── package.json                  # npm run dev / build
+├── vite.config.ts
+├── tsconfig.json
+├── index.html                    # SPA 入口
+└── src/
+    ├── main.ts                   # createApp + mount
+    ├── App.vue                   # 根组件
+    ├── types.ts                  # TypeScript 类型定义 (含 AppConfig)
+    ├── style.css                 # Tailwind CSS v4 入口
+    └── components/               # 16 个 .vue 组件
+        ├── StartScreen.vue
+        ├── SettingsPanel.vue     # 数据库配置 UI
+        ├── GameView.vue
+        ├── TitleBar.vue
+        ├── StatsGrid.vue
+        ├── DecisionGrid.vue
+        ├── DiscipleList.vue
+        ├── MartialArtsPanel.vue
+        ├── TournamentPanel.vue
+        ├── ChroniclesBar.vue
+        ├── EventPopup.vue
+        ├── SavePanel.vue
+        ├── AdvanceSection.vue
+        ├── GameOverScreen.vue
+        ├── ScrollContainer.vue
+        └── LoadingOverlay.vue
+
+src-tauri/                        # Tauri 2.x 桌面壳
+├── Cargo.toml                    # 依赖 backend (path = "../backend")
+├── tauri.conf.json               # 窗口 1080×840, targets=["nsis"]
+└── src/
+    ├── lib.rs                    # run() — setup 钩子 + Tauri 命令 (get_config/save_config)
+    └── main.rs                   # 桌面入口
 ```
 
 **分层依赖关系**（自顶向下）：
 
 ```
-main.rs
-  └── router.rs
-        └── handlers/  ──────────────────────────────────┐
-              │                                           │
-              ├── logic/  ←── 决策/事件/弟子/论剑逻辑     │
-              │                                           │
-              ├── db/     ←── PostgreSQL 读写             │
-              │                                           │
-              └── models/ ←── 所有 handler 和 logic 都用   │
+main.rs (CLI)  /  src-tauri/lib.rs (桌面)
+  └── lib.rs::run_server()
+        └── router.rs
+              └── handlers/  ──────────────────────────────────┐
+                    │                                           │
+                    ├── logic/  ←── 决策/事件/弟子/论剑逻辑     │
+                    │                                           │
+                    ├── db/     ←── PostgreSQL 读写             │
+                    │                                           │
+                    └── models/ ←── 所有 handler 和 logic 都用   │
 ```
 
 ### 各模块代码量统计
 
 | 模块 | 文件 | 行数 | 职责 |
 |------|------|------|------|
-| `main.rs` | 1 | 45 | 启动引导 |
-| `config.rs` | 1 | 51 | 环境变量加载 |
-| `router.rs` | 1 | 23 | 路由注册 |
+| `lib.rs` | 1 | 52 | 库入口 (run_server) |
+| `main.rs` | 1 | 4 | CLI bin 入口 |
+| `config.rs` | 1 | 150 | 配置加载 (JSON + env) |
+| `router.rs` | 1 | 32 | 路由注册 + ServeDir |
 | `error.rs` | 1 | 16 | 错误处理 |
 | `models/` | 6 | 150 | 数据结构定义 |
 | `logic/` | 5 | 500+ | 业务逻辑 |
@@ -821,39 +922,44 @@ main.rs
 
 ## 8. 部署方案
 
-### 8.1 开发环境
+### 8.1 桌面应用部署（Tauri 2.x）
+
+```
+cargo tauri build
+  → src-tauri/target/release/bundle/nsis/*.exe (Windows)
+  → 单文件安装包，内嵌 WebView + 后端线程
+  → 窗口 1080×840
+  → 配置持久化到系统目录 config.json
+  → SettingsPanel 组件提供 UI 编辑数据库连接
+```
+
+### 8.2 Web 开发环境
 
 ```
 依赖：
 ├── PostgreSQL 18（已有共享实例 192.168.50.150:5432）
 ├── Rust 1.85+ toolchain
+├── Node.js (npm)
 └── .env 文件配置数据库连接
 
 启动流程：
-1. cargo run             # 后端监听 0.0.0.0:3000
-2. 浏览器打开 index.html # API 指向 http://localhost:3000
-3. CORS 自动允许跨域请求
+1. npm run build          # 构建前端 dist/
+2. cargo run              # 后端监听 0.0.0.0:3000，内嵌服务前端
+3. 浏览器打开 localhost:3000
 ```
 
-### 8.2 生产环境（Docker Compose）
+### 8.3 Web 生产环境（Docker Compose）
 
 ```yaml
-# docker-compose.yml（规划）
+# docker-compose.yml
 services:
   zhangmenriji-backend:
     build: ./backend
     ports: ["3000:3000"]
     environment:
-      - DATABASE_URL=postgres://ruoruo:${PG_PASSWORD}@postgres:5432/zhangmenriji
+      - DATABASE_URL=postgres://ruoruo:***@postgres:5432/zhangmenriji
     depends_on: [postgres]
-
-  zhangmenriji-frontend:
-    image: nginx:alpine
-    ports: ["8080:80"]
-    volumes:
-      - ./frontend:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf
-    # Nginx 反代 /api/* → backend:3000
+    # 后端内嵌 frontend/dist/，单端口即服务完整应用
 
   postgres:
     image: postgres:18-alpine
@@ -865,13 +971,25 @@ services:
       - pgdata:/var/lib/postgresql/data
 ```
 
-前端通过 Nginx 反向代理 `/api/*` 到后端，避免跨域问题。
+> 注意：Web 部署无需独立 Nginx。后端 tower-http ServeDir 已内嵌前端静态文件。
 
-### 8.3 数据库自动迁移
+### 8.4 数据库自动迁移
 
 启动时 `db::run_migrations()` 自动执行 `CREATE TABLE IF NOT EXISTS`，无需手动跑 SQL。索引同样自动创建。
 
-### 8.4 配置管理
+### 8.5 配置管理（双模式）
+
+#### 桌面模式
+
+```
+Tauri setup 钩子
+  → 读系统配置目录 config.json (不存在则创建默认)
+  → AppConfig.apply_to_env() 注入环境变量
+  → 后端线程通过 env::var() 读取
+  → 用户通过 SettingsPanel 编辑（调用 Tauri get_config/save_config 命令）
+```
+
+#### Web 模式
 
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
@@ -884,7 +1002,7 @@ services:
 | `SERVER_HOST` | 后端监听地址 | `0.0.0.0` |
 | `SERVER_PORT` | 后端监听端口 | `3000` |
 
-**加载优先级**：`DATABASE_URL` > 各 `PG_*` 拼合 > `.env` 文件
+**加载优先级**：`Config::load(config_path)` JSON 文件 > `DATABASE_URL` > 各 `PG_*` 拼合 > `.env` 文件
 
 ---
 
@@ -910,17 +1028,33 @@ services:
   3. 未来支持多端（手机/桌面）共享同一逻辑
 - **权衡**：增加了网络往返开销（每次决策/推进需一次 HTTP 请求）
 
-### ADR-003：前端保持 Vanilla JS
+### ADR-003：Vanilla JS → Vue 3 组件化迁移
 
-- **决策**：不引入 Vue/React 等前端框架。
+- **决策**：将前端从纯 HTML/JS 单文件（约 1278 行）迁移至 Vue 3 + Vite + TypeScript + Tailwind CSS v4 组件化架构（16 个 `.vue` 组件）。
 - **理由**：
-  1. 现有 UI 已完成（约 1278 行），迁移框架成本高收益低
-  2. 纯 HTML 打开即用，零构建步骤，无打包器依赖
-  3. 前端仅负责渲染 + API 调用，复杂度完全可控
-  4. 武侠宣纸风 UI 是静态风格，不需要响应式框架
-- **权衡**：大型 UI 更新时缺少组件化抽象，维护成本随规模线性增长
+  1. 原单文件 UI 维护成本随功能增长线性上升，缺乏组件级复用
+  2. Vue 3 Composition API + TypeScript 提供类型安全和更好的代码组织
+  3. Vite 提供极快的 HMR 开发体验和 Tree-shaking 生产构建
+  4. Tailwind CSS v4 原子化样式与 Vue SFC 天然契合，武侠宣纸风主题一致
+  5. 迁移后前端通过 `npm run build` 产出 `frontend/dist/`，由 tower-http ServeDir 内嵌服务
+  6. 为 Tauri 桌面应用提供现代化 WebView 前端基础
+- **权衡**：
+  1. 引入 Node.js 构建工具链（npm + Vite），增加依赖
+  2. 根目录 `package.json` 提供统一脚本入口：`npm run setup/dev/build`
 
-### ADR-004：事件独立存储表
+### ADR-004：Tauri 2.x 桌面集成
+
+- **决策**：引入 Tauri 2.x 桌面壳（`src-tauri/`），通过 `path = "../backend"` 引用 backend lib crate，在 setup 钩子中读取系统配置目录 `config.json`、注入环境变量、启动后端线程。
+- **理由**：
+  1. 提供原生桌面应用体验（NSIS 安装包、窗口管理 1080×840）
+  2. 后端拆为 lib + bin 双 target，lib 可被 Tauri 和 CLI 复用，无重复代码
+  3. 配置持久化到系统标准目录，用户可通过 SettingsPanel UI 编辑数据库连接
+  4. SettingsPanel 调用 Tauri 命令 `get_config` / `save_config` 读写配置
+- **权衡**：
+  1. 增加构建复杂度（Rust 编译 + Tauri 打包）
+  2. 桌面模式下后端作为子线程运行，生命周期受 Tauri 管控
+
+### ADR-005：事件独立存储表
 
 - **决策**：事件日志从 `state.event_log`（JSONB 内嵌）独立为 `events` 表。
 - **理由**：
@@ -929,7 +1063,7 @@ services:
   3. 独立存储便于未来数据分析（统计事件类型分布等）
 - **权衡**：需要维护双写一致性（state.event_log + events 表）
 
-### ADR-005：无用户认证系统
+### ADR-006：无用户认证系统
 
 - **决策**：不引入任何用户认证/授权机制。
 - **理由**：
@@ -938,7 +1072,7 @@ services:
   3. 开发阶段可通过 CORS 和网络隔离控制访问
 - **权衡**：生产部署时如需公网访问，需在前端 Nginx 层加 HTTP Basic Auth
 
-### ADR-006：自动数据库迁移
+### ADR-007：自动数据库迁移
 
 - **决策**：应用启动时通过 `run_migrations()` 自动执行 `CREATE TABLE IF NOT EXISTS`，不依赖外部迁移工具。
 - **理由**：
@@ -947,7 +1081,7 @@ services:
   3. `IF NOT EXISTS` 保证幂等性
 - **权衡**：未来表结构变更需手动编写兼容 SQL
 
-### ADR-007：RNG 与 async 隔离
+### ADR-008：RNG 与 async 隔离
 
 - **决策**：所有 `rand::thread_rng()` 的创建和使用局限在同步代码块内，在调用 `await` 前完成并 drop。
 - **理由**：
@@ -955,7 +1089,7 @@ services:
   2. 在每个 handler 中显式创建 RNG 块，确保编译器满意
 - **实现**：在 `handlers/games.rs`、`handlers/decisions.rs`、`handlers/advance.rs` 中使用 `{ let mut rng = ...; ... }` 代码块模式
 
-### ADR-008：前端后端字段命名约定
+### ADR-009：前端后端字段命名约定
 
 - **决策**：前端使用 camelCase，后端/数据库统一使用 snake_case。
 - **理由**：
@@ -988,7 +1122,7 @@ services:
 
 ---
 
-> 文档版本：v2.0
-> 最后更新：2026-06-16
-> 基于：ARCHITECTURE.md v1.0、DATABASE.md v1.0、backend/src/ 全部源码
-> 架构师：若若 (RuoRuo)
+> 文档版本：v2.1
+> 最后更新：2026-07-16
+> 基于：ARCHITECTURE.md v2.1、DATABASE.md v1.0、backend/src/ + frontend/src/ + src-tauri/src/ 全部源码
+> 架构师：若若 (RuoRuo) 🐱
