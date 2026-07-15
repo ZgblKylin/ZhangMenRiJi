@@ -1,11 +1,11 @@
+use crate::handlers::games::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
     response::IntoResponse,
+    Json,
 };
 use uuid::Uuid;
-use crate::handlers::games::AppState;
 
 /// POST /api/games/:id/advance
 pub async fn advance_month(
@@ -34,5 +34,6 @@ pub async fn advance_month(
         "tournament": tournament,
         "game_over": game_over,
         "state": game_state,
-    })).into_response()
+    }))
+    .into_response()
 }

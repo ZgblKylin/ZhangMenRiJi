@@ -1,11 +1,11 @@
+use crate::handlers::games::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
     response::IntoResponse,
+    Json,
 };
 use uuid::Uuid;
-use crate::handlers::games::AppState;
 
 /// POST /api/games/:id/decisions/:decision_id
 pub async fn execute_decision(
@@ -37,5 +37,6 @@ pub async fn execute_decision(
         "ok": true,
         "events": events,
         "state": game_state,
-    })).into_response()
+    }))
+    .into_response()
 }

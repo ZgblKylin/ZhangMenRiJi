@@ -1,6 +1,6 @@
+use crate::logic::disciple as disc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use crate::logic::disciple as disc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEffect {
@@ -25,18 +25,187 @@ pub struct RandomEvent {
 /// 江湖风云事件池
 fn jianghu_events() -> Vec<RandomEvent> {
     vec![
-        RandomEvent { id: "jh_01".into(), text: "邻派遣使来谒，言语间颇有试探之意。掌门好言相待，使者惭而退。".into(), effect: EventEffect { prestige: Some(3), morale: Some(2), silver: None, injury: None, free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_02".into(), text: "邻派率众来犯，声称本派侵占了他们的采药之地。一场恶斗，各有损伤。".into(), effect: EventEffect { prestige: Some(-2), morale: Some(-3), silver: Some(-30), injury: Some(8), free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: false },
-        RandomEvent { id: "jh_03".into(), text: "朝廷特使到访，说圣上听闻本派侠名，特赐「侠义之门」匾额一面，并赏银百两。".into(), effect: EventEffect { prestige: Some(8), silver: Some(100), morale: Some(5), injury: None, free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_04".into(), text: "江湖豪杰数人慕名来投，愿意拜入本派门下。掌门大喜，设宴款待。".into(), effect: EventEffect { prestige: Some(2), morale: Some(3), silver: None, injury: None, free_recruit: Some(2), special: None, loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_05".into(), text: "山贼下山劫掠，洗了山脚的村子。掌门率弟子连夜追击，剿灭匪首。".into(), effect: EventEffect { prestige: Some(5), silver: Some(40), morale: Some(2), injury: None, free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_06".into(), text: "江湖传言本派藏有上古秘笈，各路宵小蠢蠢欲动。掌门连夜布防，一夜不得安寝。".into(), effect: EventEffect { prestige: Some(-1), morale: Some(-2), silver: None, injury: Some(5), free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: false },
-        RandomEvent { id: "jh_07".into(), text: "一位云游僧人在山门盘桓数日，临行前留下一卷残缺心法。".into(), effect: EventEffect { prestige: Some(1), silver: None, morale: Some(1), injury: None, free_recruit: None, special: Some("manual".into()), loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_08".into(), text: "魔教余孽在附近作乱，各大派约请本派共商讨魔大计。掌门率精锐前往会盟。".into(), effect: EventEffect { prestige: Some(6), morale: Some(3), silver: Some(-20), injury: Some(10), free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_09".into(), text: "本派弟子在镇上酒楼与人争执，失手伤了人。掌门亲赴赔礼，花费不少。".into(), effect: EventEffect { prestige: Some(-3), silver: Some(-50), morale: Some(-1), injury: None, free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: false },
-        RandomEvent { id: "jh_10".into(), text: "官府张榜悬赏江洋大盗，掌门遣弟子前往缉拿。苦战三日，终将贼人擒获。".into(), effect: EventEffect { prestige: Some(4), silver: Some(80), morale: Some(4), injury: Some(8), free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: true },
-        RandomEvent { id: "jh_11".into(), text: "邻派掌门暴毙，其门下弟子怀疑是本派所为。江湖上议论纷纷。".into(), effect: EventEffect { prestige: Some(-5), morale: Some(-3), silver: None, injury: None, free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: false },
-        RandomEvent { id: "jh_12".into(), text: "西域异人携奇珍异宝路过本地，掌门以礼相待，宾主尽欢。异人临别赠以珍奇药材。".into(), effect: EventEffect { prestige: Some(2), morale: Some(1), silver: Some(60), injury: None, free_recruit: None, special: None, loyalty_loss: None, loyalty_change: None }, good: true },
+        RandomEvent {
+            id: "jh_01".into(),
+            text: "邻派遣使来谒，言语间颇有试探之意。掌门好言相待，使者惭而退。".into(),
+            effect: EventEffect {
+                prestige: Some(3),
+                morale: Some(2),
+                silver: None,
+                injury: None,
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_02".into(),
+            text: "邻派率众来犯，声称本派侵占了他们的采药之地。一场恶斗，各有损伤。".into(),
+            effect: EventEffect {
+                prestige: Some(-2),
+                morale: Some(-3),
+                silver: Some(-30),
+                injury: Some(8),
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: false,
+        },
+        RandomEvent {
+            id: "jh_03".into(),
+            text: "朝廷特使到访，说圣上听闻本派侠名，特赐「侠义之门」匾额一面，并赏银百两。".into(),
+            effect: EventEffect {
+                prestige: Some(8),
+                silver: Some(100),
+                morale: Some(5),
+                injury: None,
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_04".into(),
+            text: "江湖豪杰数人慕名来投，愿意拜入本派门下。掌门大喜，设宴款待。".into(),
+            effect: EventEffect {
+                prestige: Some(2),
+                morale: Some(3),
+                silver: None,
+                injury: None,
+                free_recruit: Some(2),
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_05".into(),
+            text: "山贼下山劫掠，洗了山脚的村子。掌门率弟子连夜追击，剿灭匪首。".into(),
+            effect: EventEffect {
+                prestige: Some(5),
+                silver: Some(40),
+                morale: Some(2),
+                injury: None,
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_06".into(),
+            text: "江湖传言本派藏有上古秘笈，各路宵小蠢蠢欲动。掌门连夜布防，一夜不得安寝。".into(),
+            effect: EventEffect {
+                prestige: Some(-1),
+                morale: Some(-2),
+                silver: None,
+                injury: Some(5),
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: false,
+        },
+        RandomEvent {
+            id: "jh_07".into(),
+            text: "一位云游僧人在山门盘桓数日，临行前留下一卷残缺心法。".into(),
+            effect: EventEffect {
+                prestige: Some(1),
+                silver: None,
+                morale: Some(1),
+                injury: None,
+                free_recruit: None,
+                special: Some("manual".into()),
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_08".into(),
+            text: "魔教余孽在附近作乱，各大派约请本派共商讨魔大计。掌门率精锐前往会盟。".into(),
+            effect: EventEffect {
+                prestige: Some(6),
+                morale: Some(3),
+                silver: Some(-20),
+                injury: Some(10),
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_09".into(),
+            text: "本派弟子在镇上酒楼与人争执，失手伤了人。掌门亲赴赔礼，花费不少。".into(),
+            effect: EventEffect {
+                prestige: Some(-3),
+                silver: Some(-50),
+                morale: Some(-1),
+                injury: None,
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: false,
+        },
+        RandomEvent {
+            id: "jh_10".into(),
+            text: "官府张榜悬赏江洋大盗，掌门遣弟子前往缉拿。苦战三日，终将贼人擒获。".into(),
+            effect: EventEffect {
+                prestige: Some(4),
+                silver: Some(80),
+                morale: Some(4),
+                injury: Some(8),
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
+        RandomEvent {
+            id: "jh_11".into(),
+            text: "邻派掌门暴毙，其门下弟子怀疑是本派所为。江湖上议论纷纷。".into(),
+            effect: EventEffect {
+                prestige: Some(-5),
+                morale: Some(-3),
+                silver: None,
+                injury: None,
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: false,
+        },
+        RandomEvent {
+            id: "jh_12".into(),
+            text: "西域异人携奇珍异宝路过本地，掌门以礼相待，宾主尽欢。异人临别赠以珍奇药材。"
+                .into(),
+            effect: EventEffect {
+                prestige: Some(2),
+                morale: Some(1),
+                silver: Some(60),
+                injury: None,
+                free_recruit: None,
+                special: None,
+                loyalty_loss: None,
+                loyalty_change: None,
+            },
+            good: true,
+        },
     ]
 }
 
@@ -69,8 +238,8 @@ pub fn trigger_random_event(rng: &mut impl Rng) -> RandomEvent {
     }
 }
 
-use crate::models::{GameState};
 use crate::models::martial_art::all_martial_arts;
+use crate::models::GameState;
 
 /// 应用事件效果到游戏状态，返回额外生成的事件文本列表
 pub fn apply_event_effect(
@@ -81,10 +250,18 @@ pub fn apply_event_effect(
     let mut extra_events = vec![];
     let e = &event.effect;
 
-    if let Some(v) = e.prestige { state.prestige = disc::clamp(state.prestige + v, 0, 100); }
-    if let Some(v) = e.silver { state.silver = (state.silver + v).max(0); }
-    if let Some(v) = e.morale { state.morale = disc::clamp(state.morale + v, 0, 100); }
-    if let Some(v) = e.injury { state.injury = disc::clamp(state.injury + v, 0, 100); }
+    if let Some(v) = e.prestige {
+        state.prestige = disc::clamp(state.prestige + v, 0, 100);
+    }
+    if let Some(v) = e.silver {
+        state.silver = (state.silver + v).max(0);
+    }
+    if let Some(v) = e.morale {
+        state.morale = disc::clamp(state.morale + v, 0, 100);
+    }
+    if let Some(v) = e.injury {
+        state.injury = disc::clamp(state.injury + v, 0, 100);
+    }
 
     if let Some(count) = e.free_recruit {
         for _ in 0..count {

@@ -1,14 +1,18 @@
-use rand::Rng;
-use crate::models::{GameState, GameEvent};
 use crate::logic::disciple as disc;
 use crate::logic::event::{self, RandomEvent};
 use crate::logic::tournament;
+use crate::models::{GameEvent, GameState};
+use rand::Rng;
 
 /// 推进月份
 pub fn advance_month(
     rng: &mut impl Rng,
     state: &mut GameState,
-) -> (Vec<GameEvent>, Option<crate::models::tournament::TournamentResult>, bool) {
+) -> (
+    Vec<GameEvent>,
+    Option<crate::models::tournament::TournamentResult>,
+    bool,
+) {
     let mut events = vec![];
 
     // 1. 触发随机事件
@@ -22,7 +26,12 @@ pub fn advance_month(
         month: state.month,
     });
     for t in extra_events {
-        events.push(GameEvent { text: t, mood: "good".into(), year: state.year, month: state.month });
+        events.push(GameEvent {
+            text: t,
+            mood: "good".into(),
+            year: state.year,
+            month: state.month,
+        });
     }
 
     // 2. 弟子月度成长
@@ -60,8 +69,15 @@ pub fn advance_month(
             let leave_count = (alive / 3).max(1);
             let mut left = 0;
             state.disciples.retain(|d| {
-                if !d.alive { return false; }
-                if left < leave_count { left += 1; false } else { true }
+                if !d.alive {
+                    return false;
+                }
+                if left < leave_count {
+                    left += 1;
+                    false
+                } else {
+                    true
+                }
             });
             events.push(GameEvent {
                 text: "库银见底，数名弟子辞别而去……".into(),
@@ -87,7 +103,10 @@ pub fn advance_month(
     let tournament_result = if state.month == 12 {
         let result = tournament::run_tournament(rng, state);
         events.push(GameEvent {
-            text: format!("年终论剑！本派在{}派中位列第{}名。{}", result.total_sects, result.rank, result.desc_text),
+            text: format!(
+                "年终论剑！本派在{}派中位列第{}名。{}",
+                result.total_sects, result.rank, result.desc_text
+            ),
             mood: "good".into(),
             year: state.year,
             month: 12,

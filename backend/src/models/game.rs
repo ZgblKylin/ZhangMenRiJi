@@ -1,10 +1,13 @@
-use serde::{Deserialize, Serialize};
-use crate::models::{Disciple, GameEvent};
+use crate::models::sect::{default_countries, Country, SectState};
 use crate::models::tournament::TournamentRecord;
+use crate::models::{Disciple, GameEvent};
+use serde::{Deserialize, Serialize};
 
 /// 完整游戏状态 — 对应前端 DEFAULT_STATE
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GameState {
+    pub schema_version: i32,
     pub year: i32,
     pub month: i32,
     pub prestige: i32,
@@ -21,11 +24,17 @@ pub struct GameState {
     pub game_over_reason: String,
     pub tournament_history: Vec<TournamentRecord>,
     pub pending_event: Option<serde_json::Value>,
+    pub sect: SectState,
+    pub npc_sects: Vec<SectState>,
+    pub npc_disciples: Vec<Disciple>,
+    pub countries: Vec<Country>,
+    pub world_seed: u64,
 }
 
 impl Default for GameState {
     fn default() -> Self {
         Self {
+            schema_version: 3,
             year: 1,
             month: 1,
             prestige: 45,
@@ -42,6 +51,11 @@ impl Default for GameState {
             game_over_reason: String::new(),
             tournament_history: vec![],
             pending_event: None,
+            sect: SectState::default(),
+            npc_sects: vec![],
+            npc_disciples: vec![],
+            countries: default_countries(),
+            world_seed: rand::random(),
         }
     }
 }
