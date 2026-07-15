@@ -15,6 +15,7 @@ export const ui = reactive({
   popup: false,
   popupEvents: [] as ChronicleEvent[],
   tournament: null as Tournament | null,
+  resolvingEvent: false,
   settingsOpen: false,
 })
 

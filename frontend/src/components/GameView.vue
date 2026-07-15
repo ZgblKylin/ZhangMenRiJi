@@ -1,5 +1,47 @@
 <script setup lang="ts">
-import { computed } from 'vue'; import type { Decision, GameState, MartialArt } from '../types'; import TitleBar from './TitleBar.vue'; import StatsGrid from './StatsGrid.vue'; import DiscipleList from './DiscipleList.vue'; import DecisionGrid from './DecisionGrid.vue'; import AdvanceSection from './AdvanceSection.vue'; import MartialArtsPanel from './MartialArtsPanel.vue'; import TournamentPanel from './TournamentPanel.vue'; import ChroniclesBar from './ChroniclesBar.vue'
-const props = defineProps<{ game: GameState; decisions: Decision[]; arts: MartialArt[]; used: string[] }>(); defineEmits<{ saves: []; restart: []; decide: [id:string]; advance: [] }>(); const alive = computed(() => props.game.disciples?.filter(d => d.alive) || []); const lastTournament = computed(() => { const list = props.game.tournament_history || []; const last = list.at(-1); return last?.year === props.game.year ? last : null })
+import { computed, ref } from 'vue'
+import type { Decision, GameState, ManagementRequest, MartialArt } from '../types'
+import TitleBar from './TitleBar.vue'
+import StatsGrid from './StatsGrid.vue'
+import DiscipleList from './DiscipleList.vue'
+import DecisionGrid from './DecisionGrid.vue'
+import AdvanceSection from './AdvanceSection.vue'
+import TournamentPanel from './TournamentPanel.vue'
+import ChroniclesBar from './ChroniclesBar.vue'
+import SectManagementPanel from './SectManagementPanel.vue'
+
+const props = defineProps<{ game: GameState; decisions: Decision[]; arts: MartialArt[]; used: string[] }>()
+defineEmits<{ saves: []; restart: []; decide: [id: string]; advance: []; manage: [command: ManagementRequest] }>()
+const section = ref<'month' | 'sect' | 'library' | 'world'>('month')
+const alive = computed(() => props.game.disciples?.filter(d => d.alive) || [])
+const lastTournament = computed(() => {
+  const last = (props.game.tournament_history || []).at(-1)
+  return last?.year === props.game.year ? last : null
+})
+const sections = [
+  ['month', '本月议事'], ['sect', '山门营造'], ['library', '藏经研武'], ['world', '江湖通问'],
+] as const
 </script>
-<template><TitleBar :game="game" @saves="$emit('saves')" @restart="$emit('restart')"/><div class="book-layout"><div class="left-page"><StatsGrid :game="game"/><DiscipleList :disciples="alive" :arts="arts"/></div><div class="right-page"><template v-if="game.month === 12"><TournamentPanel :tournament="lastTournament"/><AdvanceSection december :used="used.length" :next-year="game.year + 1" @advance="$emit('advance')"/></template><template v-else><DecisionGrid :decisions="decisions" :arts="arts" :game="game" :used="used" @decide="$emit('decide', $event)"/><AdvanceSection :used="used.length" @advance="$emit('advance')"/></template><MartialArtsPanel :arts="arts" :learned="game.martial_arts_learned"/></div></div><ChroniclesBar :entries="game.event_log || []"/></template>
+
+<template>
+  <TitleBar :game="game" @saves="$emit('saves')" @restart="$emit('restart')" />
+  <nav class="section-tabs">
+    <button v-for="[id, label] in sections" :key="id" :class="{ active: section === id }" @click="section = id">{{ label }}</button>
+    <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}</b> 事</span>
+  </nav>
+  <div class="book-layout">
+    <div class="left-page">
+      <StatsGrid :game="game" />
+      <DiscipleList :disciples="alive" :arts="arts" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" />
+    </div>
+    <div class="right-page">
+      <template v-if="section === 'month'">
+        <TournamentPanel v-if="game.month === 12" :tournament="lastTournament" />
+        <DecisionGrid v-else :decisions="decisions" :arts="arts" :game="game" :used="used" @decide="$emit('decide', $event)" />
+      </template>
+      <SectManagementPanel v-else :game="game" :arts="arts" :view="section" @manage="$emit('manage', $event)" />
+      <AdvanceSection :used="game.decisions_used" :max="game.max_decisions" :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" @advance="$emit('advance')" />
+    </div>
+  </div>
+  <ChroniclesBar :entries="game.event_log || []" />
+</template>
