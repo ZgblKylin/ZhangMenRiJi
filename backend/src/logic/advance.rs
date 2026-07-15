@@ -15,7 +15,10 @@ pub fn advance_month(
 ) {
     let mut events = vec![];
 
-    // 1. 触发随机事件
+    // 1. 所有人物基于月初快照并行行动，结果统一归并。
+    events.extend(crate::logic::action::run_auto_actions(state));
+
+    // 2. 触发随机事件
     let random_event: RandomEvent = event::trigger_random_event(rng);
     let extra_events = event::apply_event_effect(rng, state, &random_event);
     let mood = if random_event.good { "good" } else { "bad" };
@@ -34,8 +37,19 @@ pub fn advance_month(
         });
     }
 
-    // 2. 弟子月度成长
+    // 3. 弟子月度恢复、年龄与门忠变化
     disc::monthly_growth(rng, &mut state.disciples, state.morale);
+    for sect in &state.npc_sects {
+        let morale = sect.attributes.morale;
+        let mut members: Vec<&mut crate::models::Disciple> = state
+            .npc_disciples
+            .iter_mut()
+            .filter(|d| d.sect_id.as_deref() == Some(sect.id.as_str()))
+            .collect();
+        for member in &mut members {
+            disc::monthly_growth(rng, std::slice::from_mut(*member), morale);
+        }
+    }
 
     // 3. 被动收支
     let alive_count = state.disciples.iter().filter(|d| d.alive).count() as i32;
