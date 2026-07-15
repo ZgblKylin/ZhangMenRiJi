@@ -28,6 +28,7 @@ pub async fn create_game(
                 game_state.disciples = generate_starting_disciples(&mut rng);
                 game_state.martial_arts_learned = vec!["hunyuan".into()];
             } // rng drop here
+            crate::logic::sect::hydrate_player_sect(&mut game_state, &req.sect_name);
             let _ = crate::db::update_game(&state.pool, id, &req.sect_name, &game_state).await;
             (
                 StatusCode::CREATED,

@@ -32,17 +32,6 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
     sqlx::query(
-        "ALTER TABLE events ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'world'",
-    )
-    .execute(pool)
-    .await?;
-    sqlx::query(
-        "ALTER TABLE events ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "CREATE TABLE IF NOT EXISTS events (
             id          BIGSERIAL PRIMARY KEY,
             game_id     UUID NOT NULL,
@@ -52,6 +41,17 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
             text        TEXT NOT NULL,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
         )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'world'",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb",
     )
     .execute(pool)
     .await?;
@@ -105,7 +105,8 @@ pub async fn get_game(pool: &PgPool, id: Uuid) -> Result<Option<(String, GameSta
 
     match row {
         Some((sect_name, state_json)) => {
-            let state: GameState = serde_json::from_value(state_json).unwrap_or_default();
+            let mut state: GameState = serde_json::from_value(state_json).unwrap_or_default();
+            crate::logic::sect::hydrate_player_sect(&mut state, &sect_name);
             Ok(Some((sect_name, state)))
         }
         None => Ok(None),

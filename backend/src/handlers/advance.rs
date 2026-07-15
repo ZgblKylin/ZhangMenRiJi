@@ -23,6 +23,7 @@ pub async fn advance_month(
         let mut rng = rand::thread_rng();
         crate::logic::advance::advance_month(&mut rng, &mut game_state)
     };
+    crate::logic::sect::absorb_legacy_fields(&mut game_state);
 
     if let Err(e) = crate::db::update_game(&state.pool, id, &sect_name, &game_state).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
