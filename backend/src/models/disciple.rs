@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct Disciple {
     pub id: String,
+    pub sect_id: Option<String>,
     pub name: String,
     pub talent: i32,
     pub inner_power: i32,
@@ -33,6 +34,7 @@ impl Default for Disciple {
     fn default() -> Self {
         Self {
             id: String::new(),
+            sect_id: Some("player".into()),
             name: String::new(),
             talent: 20,
             inner_power: 30,

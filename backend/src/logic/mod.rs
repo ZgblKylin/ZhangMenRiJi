@@ -4,3 +4,4 @@ pub mod disciple;
 pub mod event;
 pub mod sect;
 pub mod tournament;
+pub mod world;

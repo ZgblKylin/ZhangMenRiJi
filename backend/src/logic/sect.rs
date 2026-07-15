@@ -12,6 +12,7 @@ pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
     for disciple in &mut state.disciples {
         crate::logic::disciple::hydrate_v2_disciple(disciple);
     }
+    crate::logic::world::hydrate_world(state);
     sync_legacy_fields(state);
 }
 
