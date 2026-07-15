@@ -1,6 +1,7 @@
 import type { AdvanceResponse, Decision, GameResponse, MartialArt } from './types'
 
-export const API_BASE = '/api'
+// Tauri 桌面端内嵌的后端固定监听本机 3000 端口。
+export const API_BASE = 'http://127.0.0.1:3000/api'
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(API_BASE + path, {
@@ -33,4 +34,3 @@ export const gameApi = {
   decide: (id: string, decisionId: string) => request<{ state: GameResponse['state'] }>('POST', `/games/${id}/decisions/${decisionId}`),
   advance: (id: string) => request<AdvanceResponse>('POST', `/games/${id}/advance`),
 }
-

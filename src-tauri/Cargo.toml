@@ -1,0 +1,23 @@
+[package]
+name = "zhangmenriji-desktop"
+version = "2.0.0"
+description = "《掌门日记》— 武侠门派经营模拟器桌面应用"
+authors = []
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "zhangmenriji_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.3", features = [] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+zhangmenriji = { path = "../backend" }

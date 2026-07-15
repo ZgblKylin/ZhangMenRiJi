@@ -17,3 +17,6 @@ Thumbs.db
 
 # Rust
 backend/target/
+
+# Node.js
+node_modules/

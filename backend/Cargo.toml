@@ -4,6 +4,14 @@ version = "2.0.0"
 edition = "2021"
 description = "《掌门日记》— 武侠门派经营模拟器 后端服务"
 
+[lib]
+name = "zhangmenriji"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zhangmenriji"
+path = "src/main.rs"
+
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
