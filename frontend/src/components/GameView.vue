@@ -33,6 +33,7 @@ const sections = [
     <div class="center-page">
       <nav class="section-tabs" aria-label="中栏内容切换">
         <button v-for="[id, label] in sections" :key="id" :class="{ active: section === id }" @click="section = id">{{ label }}</button>
+        <AdvanceSection :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" @advance="$emit('advance')" />
         <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}</b> 事</span>
       </nav>
       <template v-if="section === 'month'">
@@ -40,7 +41,6 @@ const sections = [
         <DecisionGrid v-else :decisions="decisions" :arts="arts" :game="game" :used="used" @decide="$emit('decide', $event)" />
       </template>
       <SectManagementPanel v-else :game="game" :arts="arts" :view="section" @manage="$emit('manage', $event)" />
-      <AdvanceSection :used="game.decisions_used" :max="game.max_decisions" :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" @advance="$emit('advance')" />
     </div>
     <ChroniclesBar :sect-entries="sectChronicles" :world-entries="worldChronicles" />
   </div>
