@@ -2,7 +2,7 @@ use crate::models::attributes::{
     AcquiredAttributes, Aptitudes, DiscipleCondition, MartialProgress, ResourcePool, SkillProgress,
 };
 use crate::models::martial_art::all_martial_arts;
-use crate::models::{Disciple, MartialArt};
+use crate::models::{Disciple, MartialArt, SkillEntry};
 use rand::Rng;
 
 const SURNAMES: &[&str] = &[
@@ -163,6 +163,21 @@ pub fn sync_legacy_attributes(d: &mut Disciple) {
     d.inner_power = d.attributes.neili.maximum;
     d.loyalty = d.attributes.sect_loyalty.clamp(0, 100);
     d.alive = d.condition != DiscipleCondition::Dead;
+    sync_skills_from_progress(d);
+}
+
+/// 对外的顺序列表与内部熟练度映射保持一致，便于前端及存档直接读取个人武学。
+pub fn sync_skills_from_progress(d: &mut Disciple) {
+    d.skills = d
+        .martial_progress
+        .proficiencies
+        .iter()
+        .map(|(martial_art_id, progress)| SkillEntry {
+            martial_art_id: martial_art_id.clone(),
+            level: progress.level,
+            experience: progress.experience,
+        })
+        .collect();
 }
 
 /// 将尚沿用 v2 字段的决策与事件效果汇入 v3 属性。
@@ -184,6 +199,18 @@ pub fn absorb_legacy_attributes(d: &mut Disciple) {
 }
 
 pub fn hydrate_v2_disciple(d: &mut Disciple) {
+    if d.martial_progress.proficiencies.is_empty() && !d.skills.is_empty() {
+        d.martial_progress.proficiencies = d
+            .skills
+            .iter()
+            .map(|skill| {
+                (
+                    skill.martial_art_id.clone(),
+                    SkillProgress::new(skill.level, skill.experience),
+                )
+            })
+            .collect();
+    }
     if d.martial_progress.proficiencies.is_empty() {
         d.attributes.neili = ResourcePool {
             current: d.inner_power,
@@ -371,6 +398,10 @@ mod tests {
             .martial_progress
             .proficiencies
             .contains_key(&d.martial_art));
+        assert!(d
+            .skills
+            .iter()
+            .any(|skill| skill.martial_art_id == d.martial_art));
         assert!(d.attributes.qi.maximum > 0);
 
         let mut progress = SkillProgress::new(4, 24);

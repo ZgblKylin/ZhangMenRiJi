@@ -4,6 +4,15 @@ use crate::models::attributes::{
 };
 use serde::{Deserialize, Serialize};
 
+/// 弟子个人掌握的一门武学。`martial_art_id` 对应武学静态表中的 id。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct SkillEntry {
+    pub martial_art_id: String,
+    pub level: i32,
+    pub experience: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Disciple {
@@ -25,6 +34,7 @@ pub struct Disciple {
     pub department: Option<Department>,
     pub master_id: Option<String>,
     pub relations: std::collections::BTreeMap<String, i32>,
+    pub skills: Vec<SkillEntry>,
     pub martial_progress: MartialProgress,
     pub action: Option<ActionPlan>,
     pub away_months: i32,
@@ -51,6 +61,7 @@ impl Default for Disciple {
             department: None,
             master_id: None,
             relations: std::collections::BTreeMap::new(),
+            skills: vec![],
             martial_progress: MartialProgress::default(),
             action: None,
             away_months: 0,

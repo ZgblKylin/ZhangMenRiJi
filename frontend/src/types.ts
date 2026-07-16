@@ -48,6 +48,7 @@ export interface ActionPlan {
   remaining_months: number
 }
 export interface SkillProgress { level: number; experience: number }
+export interface SkillEntry { martial_art_id: string; level: number; experience: number }
 export interface MartialProgress {
   proficiencies: Record<string, SkillProgress>
   specialties: string[]
@@ -69,6 +70,7 @@ export interface Disciple {
   rank: DiscipleRank
   merit: number
   department?: Department | null
+  skills: SkillEntry[]
   martial_progress: MartialProgress
   action?: ActionPlan | null
   away_months: number

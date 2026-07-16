@@ -52,6 +52,17 @@ const expel = (disciple: Disciple) => {
             <span>精力 {{ d.attributes.energy.current }}/{{ d.attributes.energy.maximum }}</span>
           </div>
           <div class="attainment-line">造诣 {{ d.attributes.attainment }} · 功绩 {{ d.merit }} · 声名 {{ d.attributes.reputation }} · 道德 {{ d.attributes.morality }}</div>
+          <div class="disciple-skills">
+            <div class="skill-caption">所习武学</div>
+            <div v-if="d.skills?.length" class="skill-list">
+              <span v-for="skill in d.skills" :key="skill.martial_art_id" class="skill-entry">
+                <b>{{ artName(skill.martial_art_id) }}</b>
+                <em>{{ skill.level }}级</em>
+                <small>经验 {{ skill.experience }}</small>
+              </span>
+            </div>
+            <span v-else class="skill-empty">尚未录入武学谱。</span>
+          </div>
           <div class="action-assignment">
             <select v-model="selected[d.id]" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'">
               <option v-for="[value, label] in actions" :key="value" :value="value">{{ label }}</option>

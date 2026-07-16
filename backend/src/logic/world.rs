@@ -384,6 +384,9 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
         state.npc_sects = sects;
         state.npc_disciples = disciples;
     }
+    for disciple in &mut state.npc_disciples {
+        crate::logic::disciple::hydrate_v2_disciple(disciple);
+    }
 }
 
 #[cfg(test)]
