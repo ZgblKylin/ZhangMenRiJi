@@ -16,6 +16,7 @@ pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
         crate::logic::disciple::hydrate_v2_disciple(disciple);
     }
     normalize_buildings(&mut state.sect);
+    normalize_inventory(&mut state.sect);
     normalize_elder_assignments(&mut state.sect, &state.disciples);
     if !state
         .sect
@@ -36,6 +37,19 @@ pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
     }
     crate::logic::world::hydrate_world(state);
     sync_legacy_fields(state);
+}
+
+/// 兼容早期存档中的同音药名，并同步修正在炼任务的产物名。
+fn normalize_inventory(sect: &mut SectState) {
+    if let Some(quantity) = sect.inventory.remove("金创药") {
+        *sect.inventory.entry("金疮药".into()).or_default() += quantity;
+    }
+    for task in &mut sect.productions {
+        if task.output_item == "金创药" {
+            task.output_item = "金疮药".into();
+            task.name = "金疮药".into();
+        }
+    }
 }
 
 /// 将早期 v3 的五库与药库布局迁移为七座职能建筑。
@@ -273,6 +287,24 @@ mod tests {
 
         assert_eq!(recruits[0].rank, DiscipleRank::Chore);
         assert_eq!(recruits[1].rank, DiscipleRank::Outer);
+    }
+
+    #[test]
+    fn legacy_wound_medicine_name_is_migrated_in_stock_and_production() {
+        let mut sect = SectState::default();
+        sect.inventory.insert("金创药".into(), 3);
+        sect.productions.push(crate::models::sect::ProductionTask {
+            name: "金创药".into(),
+            output_item: "金创药".into(),
+            ..crate::models::sect::ProductionTask::default()
+        });
+
+        normalize_inventory(&mut sect);
+
+        assert!(!sect.inventory.contains_key("金创药"));
+        assert_eq!(sect.inventory["金疮药"], 3);
+        assert_eq!(sect.productions[0].name, "金疮药");
+        assert_eq!(sect.productions[0].output_item, "金疮药");
     }
     use crate::models::sect::Building;
 

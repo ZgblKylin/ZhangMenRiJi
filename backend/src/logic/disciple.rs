@@ -421,8 +421,7 @@ pub fn add_permanent_neili(d: &mut Disciple, amount: i32) {
     recalculate_attribute_maxima(d);
 }
 
-/// 预留给丹药与事件效果；目前内置事件尚未直接奖励精力上限。
-#[allow(dead_code)]
+/// 丹药与事件带来的永久精力上限增益。
 pub fn add_permanent_energy(d: &mut Disciple, amount: i32) {
     d.attribute_bonuses.energy = d.attribute_bonuses.energy.saturating_add(amount);
     d.attributes.energy.maximum = d.attributes.energy.maximum.saturating_add(amount).max(1);

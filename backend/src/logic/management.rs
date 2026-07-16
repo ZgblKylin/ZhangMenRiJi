@@ -283,6 +283,10 @@ pub fn execute_management(
             if quantity <= 0 {
                 return Err("发放数目须为正数。".into());
             }
+            let item = canonical_item_name(&item).to_owned();
+            if !is_issuable_item(&item) {
+                return Err("此物不可直接赐予弟子使用。".into());
+            }
             let stock = state.sect.inventory.get(&item).copied().unwrap_or(0);
             if stock < quantity {
                 return Err(format!("{}存量不足。", item));
@@ -303,38 +307,80 @@ pub fn execute_management(
                     disciple.attributes.sect_loyalty =
                         (disciple.attributes.sect_loyalty + quantity / 2).min(100);
                 }
-                "金创药" => {
+                "金疮药" => {
                     disciple.attributes.qi.current = (disciple.attributes.qi.current
-                        + quantity * 20)
+                        + quantity * 30)
                         .min(disciple.attributes.qi.maximum);
-                    disciple.attributes.spirit.current = (disciple.attributes.spirit.current
-                        + quantity * 12)
-                        .min(disciple.attributes.spirit.maximum);
                     disciple::refresh_condition(disciple);
                 }
                 "养气丹" => {
                     disciple.attributes.neili.current = (disciple.attributes.neili.current
-                        + quantity * 15)
+                        + quantity * 25)
                         .min(disciple.attributes.neili.maximum);
                 }
+                "清神散" => {
+                    disciple.attributes.spirit.current = (disciple.attributes.spirit.current
+                        + quantity * 30)
+                        .min(disciple.attributes.spirit.maximum);
+                    disciple::refresh_condition(disciple);
+                }
+                "回精丸" => {
+                    disciple.attributes.energy.current = (disciple.attributes.energy.current
+                        + quantity * 25)
+                        .min(disciple.attributes.energy.maximum);
+                }
                 "培元丹" => {
-                    disciple.attributes.neili.maximum += quantity * 2;
-                    disciple.attributes.neili.current += quantity * 2;
+                    add_permanent_qi(disciple, quantity * 10);
                 }
-                _ => {
-                    disciple.merit += quantity as i64;
+                "聚气丹" => {
+                    let amount = quantity * 5;
+                    disciple::add_permanent_neili(disciple, amount);
+                    disciple.attributes.neili.current = (disciple.attributes.neili.current
+                        + amount)
+                        .min(disciple.attributes.neili.maximum);
                 }
+                "宁神丹" => {
+                    add_permanent_spirit(disciple, quantity * 10);
+                }
+                "回天丹" => {
+                    let amount = quantity * 5;
+                    disciple::add_permanent_energy(disciple, amount);
+                    disciple.attributes.energy.current = (disciple.attributes.energy.current
+                        + amount)
+                        .min(disciple.attributes.energy.maximum);
+                }
+                "洗髓丹" => {
+                    disciple.aptitudes.constitution =
+                        disciple.aptitudes.constitution.saturating_add(quantity);
+                    disciple::recalculate_attribute_maxima(disciple);
+                }
+                "强筋丹" => {
+                    disciple.aptitudes.strength =
+                        disciple.aptitudes.strength.saturating_add(quantity);
+                    disciple::recalculate_attribute_maxima(disciple);
+                }
+                "开窍丹" => {
+                    disciple.aptitudes.intelligence =
+                        disciple.aptitudes.intelligence.saturating_add(quantity);
+                    disciple::recalculate_attribute_maxima(disciple);
+                }
+                "轻身丹" => {
+                    disciple.aptitudes.agility =
+                        disciple.aptitudes.agility.saturating_add(quantity);
+                    disciple::recalculate_attribute_maxima(disciple);
+                }
+                "延寿丹" => {
+                    disciple.age = disciple.age.saturating_sub(quantity).max(15);
+                    disciple::recalculate_attribute_maxima(disciple);
+                }
+                _ => unreachable!("可赐物品均应有明确效果"),
             }
             disciple::sync_legacy_attributes(disciple);
             format!("司库奉命，将{}{}份发予{}。", item, quantity, disciple.name)
         }
         ManagementRequest::BrewPill { recipe_id } => {
-            let (name, herb_cost, quantity, months) = match recipe_id.as_str() {
-                "wound" => ("金创药", 4, 2, 1),
-                "qi" => ("养气丹", 6, 1, 2),
-                "foundation" => ("培元丹", 10, 1, 3),
-                _ => return Err("百草堂中并无此方。".into()),
-            };
+            let (name, herb_cost, quantity, months) =
+                pill_recipe(&recipe_id).ok_or_else(|| "百草堂中并无此方。".to_string())?;
             let herbs = state.sect.inventory.get("草药").copied().unwrap_or(0);
             if herbs < herb_cost {
                 return Err(format!("草药不足，尚缺{}份。", herb_cost - herbs));
@@ -494,6 +540,67 @@ fn player_disciple_mut<'a>(
         .ok_or_else(|| "查无此人。".to_string())
 }
 
+fn canonical_item_name(item: &str) -> &str {
+    match item {
+        "金创药" => "金疮药",
+        _ => item,
+    }
+}
+
+fn is_issuable_item(item: &str) -> bool {
+    matches!(
+        item,
+        "草药"
+            | "粮秣"
+            | "金疮药"
+            | "养气丹"
+            | "清神散"
+            | "回精丸"
+            | "培元丹"
+            | "聚气丹"
+            | "宁神丹"
+            | "回天丹"
+            | "洗髓丹"
+            | "强筋丹"
+            | "开窍丹"
+            | "轻身丹"
+            | "延寿丹"
+    )
+}
+
+fn pill_recipe(id: &str) -> Option<(&'static str, i32, i32, i32)> {
+    Some(match id {
+        "wound" => ("金疮药", 4, 2, 1),
+        "qi" => ("养气丹", 6, 1, 2),
+        "spirit" => ("清神散", 5, 2, 1),
+        "energy" => ("回精丸", 6, 1, 2),
+        "foundation" => ("培元丹", 12, 1, 6),
+        "gather_qi" => ("聚气丹", 12, 1, 6),
+        "calm_spirit" => ("宁神丹", 12, 1, 6),
+        "restore_origin" => ("回天丹", 12, 1, 6),
+        "marrow" => ("洗髓丹", 20, 1, 12),
+        "sinew" => ("强筋丹", 20, 1, 12),
+        "awaken" => ("开窍丹", 20, 1, 12),
+        "lightness" => ("轻身丹", 20, 1, 12),
+        "longevity" => ("延寿丹", 24, 1, 12),
+        _ => return None,
+    })
+}
+
+fn add_permanent_qi(disciple: &mut crate::models::Disciple, amount: i32) {
+    disciple.attribute_bonuses.qi = disciple.attribute_bonuses.qi.saturating_add(amount);
+    disciple::recalculate_attribute_maxima(disciple);
+    disciple.attributes.qi.current =
+        (disciple.attributes.qi.current + amount).min(disciple.attributes.qi.maximum);
+}
+
+fn add_permanent_spirit(disciple: &mut crate::models::Disciple, amount: i32) {
+    disciple.attribute_bonuses.spirit = disciple.attribute_bonuses.spirit.saturating_add(amount);
+    disciple::recalculate_attribute_maxima(disciple);
+    disciple.attributes.spirit.current =
+        (disciple.attributes.spirit.current + amount).min(disciple.attributes.spirit.maximum);
+}
+
 fn validate_inner_envoy(state: &GameState, id: Option<&str>) -> Result<String, String> {
     let id = id.ok_or_else(|| "须择一名内门弟子前往。".to_string())?;
     let disciple = state
@@ -597,8 +704,8 @@ fn execute_elder_duty(
                 return Err("草药不足两份，难以开炉。".into());
             }
             *state.sect.inventory.entry("草药".into()).or_default() -= 2;
-            *state.sect.inventory.entry("金创药".into()).or_default() += 1;
-            "试炼一炉，得金创药一份"
+            *state.sect.inventory.entry("金疮药".into()).or_default() += 1;
+            "试炼一炉，得金疮药一份"
         }
         "correspond" => {
             for relation in state.sect.relations.values_mut() {
@@ -944,20 +1051,122 @@ mod tests {
     }
 
     #[test]
-    fn pill_production_consumes_herbs_and_finishes_over_time() {
-        let mut state = GameState::default();
+    fn every_pill_recipe_consumes_herbs_and_finishes_into_inventory() {
         let mut rng = StdRng::seed_from_u64(22);
-        let herbs = state.sect.inventory["草药"];
-        execute_management(
-            &mut rng,
-            &mut state,
-            ManagementRequest::BrewPill {
-                recipe_id: "wound".into(),
-            },
-        )
-        .unwrap();
-        assert_eq!(state.sect.inventory["草药"], herbs - 4);
-        crate::logic::sect::apply_monthly_upkeep(&mut state.sect, 0);
-        assert_eq!(state.sect.inventory["金创药"], 2);
+        let recipe_ids = [
+            "wound",
+            "qi",
+            "spirit",
+            "energy",
+            "foundation",
+            "gather_qi",
+            "calm_spirit",
+            "restore_origin",
+            "marrow",
+            "sinew",
+            "awaken",
+            "lightness",
+            "longevity",
+        ];
+
+        for recipe_id in recipe_ids {
+            let mut state = GameState::default();
+            state.sect.inventory.insert("草药".into(), 100);
+            let (name, herb_cost, quantity, months) = pill_recipe(recipe_id).unwrap();
+            execute_management(
+                &mut rng,
+                &mut state,
+                ManagementRequest::BrewPill {
+                    recipe_id: recipe_id.into(),
+                },
+            )
+            .unwrap();
+            assert_eq!(state.sect.inventory["草药"], 100 - herb_cost);
+            assert_eq!(state.sect.productions[0].remaining_months, months);
+            for _ in 0..months {
+                crate::logic::sect::apply_monthly_upkeep(&mut state.sect, 0);
+            }
+            assert_eq!(state.sect.inventory[name], quantity);
+            assert!(state.sect.productions.is_empty());
+        }
+    }
+
+    #[test]
+    fn issuing_medicines_applies_each_restorative_and_permanent_effect() {
+        let mut state = GameState::default();
+        state.max_decisions = 20;
+        let mut disciple = crate::models::Disciple {
+            id: "medicine_target".into(),
+            age: 30,
+            ..crate::models::Disciple::default()
+        };
+        disciple.attributes.qi.current = 1;
+        disciple.attributes.neili.current = 1;
+        disciple.attributes.spirit.current = 1;
+        disciple.attributes.energy.current = 1;
+        state.disciples.push(disciple);
+        let items = [
+            "金疮药",
+            "养气丹",
+            "清神散",
+            "回精丸",
+            "培元丹",
+            "聚气丹",
+            "宁神丹",
+            "回天丹",
+            "洗髓丹",
+            "强筋丹",
+            "开窍丹",
+            "轻身丹",
+            "延寿丹",
+        ];
+        for item in items {
+            state.sect.inventory.insert(item.into(), 1);
+        }
+        let before = state.disciples[0].clone();
+        let mut rng = StdRng::seed_from_u64(23);
+        for item in items {
+            execute_management(
+                &mut rng,
+                &mut state,
+                ManagementRequest::IssueItem {
+                    disciple_id: "medicine_target".into(),
+                    item: item.into(),
+                    quantity: 1,
+                },
+            )
+            .unwrap();
+            assert_eq!(state.sect.inventory[item], 0);
+        }
+
+        let after = &state.disciples[0];
+        assert_eq!(after.attributes.qi.current, 41);
+        assert_eq!(after.attributes.neili.current, 31);
+        assert_eq!(after.attributes.spirit.current, 41);
+        assert_eq!(after.attributes.energy.current, 31);
+        assert_eq!(after.attribute_bonuses.qi, before.attribute_bonuses.qi + 10);
+        assert_eq!(
+            after.attribute_bonuses.neili,
+            before.attribute_bonuses.neili + 5
+        );
+        assert_eq!(
+            after.attribute_bonuses.spirit,
+            before.attribute_bonuses.spirit + 10
+        );
+        assert_eq!(
+            after.attribute_bonuses.energy,
+            before.attribute_bonuses.energy + 5
+        );
+        assert_eq!(
+            after.aptitudes.constitution,
+            before.aptitudes.constitution + 1
+        );
+        assert_eq!(after.aptitudes.strength, before.aptitudes.strength + 1);
+        assert_eq!(
+            after.aptitudes.intelligence,
+            before.aptitudes.intelligence + 1
+        );
+        assert_eq!(after.aptitudes.agility, before.aptitudes.agility + 1);
+        assert_eq!(after.age, 29);
     }
 }

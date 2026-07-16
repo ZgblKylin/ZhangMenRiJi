@@ -4,6 +4,7 @@ import type { Building, BuildingKind, Decision, GameState, ManagementRequest, Ma
 import DecisionGrid from './DecisionGrid.vue'
 import MartialArtsPanel from './MartialArtsPanel.vue'
 import SectViewPanel from './SectViewPanel.vue'
+import { medicineDescription, medicines } from '../medicine'
 
 const props = defineProps<{
   game: GameState
@@ -24,7 +25,7 @@ const elderDuties: Record<BuildingKind, Array<[string, string, string]>> = {
   practice: [['instruct', '整饬教习', '本门志气提升 3 点'], ['drill', '主持月考', '所有在门弟子各添 2 点功绩']],
   scripture: [['curate', '校勘群籍', '每部公册的门派参研提升 4 点'], ['comprehend', '邀众合参', '集中参悟首部公册，门派参研提升 18 点']],
   warehouse: [['audit', '清点旧账', '追回 12 至 24 两库银'], ['purchase', '下山采买', '耗费 15 两，购入 5 份草药']],
-  herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '试炼小炉', '耗费 2 份草药，炼得 1 份金创药']],
+  herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '试炼小炉', '耗费 2 份草药，炼得 1 份金疮药']],
   intelligence: [['correspond', '修书诸派', '与所有门派的交情各提升 2 点'], ['scout', '查探江湖', '本门声望提升 3 点']],
   affairs: [['recruit', '代访新人', '耗费 25 两，为门中访得一名新人'], ['arbitrate', '处置事务', '依门风提升道德、志气或库银']],
   logistics: [['maintain', '巡检诸堂', '所有建筑完好度恢复 4 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量']],
@@ -33,9 +34,7 @@ const orders = [
   ['diligent', '勤修令', '三月内门人更喜练武', 60], ['righteous', '尚义令', '四月内涵养门风', 80],
   ['frugal', '节用令', '四月内节用裕库', 50], ['rest', '调息令', '两月内静养更佳', 45],
 ]
-const recipes = [
-  ['wound', '金创药', '草药4份 · 1月 · 产2份'], ['qi', '养气丹', '草药6份 · 2月 · 产1枚'], ['foundation', '培元丹', '草药10份 · 3月 · 产1枚'],
-]
+const recipeRates = ['常速', '低速', '极低速'] as const
 const decisionIds: Record<BuildingKind, string[]> = {
   practice: ['teach'], scripture: ['train', 'study'], warehouse: [], herb_hall: ['rest'],
   intelligence: [], affairs: ['recruit', 'mission'], logistics: [],
@@ -107,7 +106,7 @@ watch(() => `${props.game.year}-${props.game.month}`, () => {
     <header v-if="currentBuilding" class="building-header">
       <div><b>{{ currentBuilding.name }}</b><small>第{{ currentBuilding.level }}重 · 完好 {{ currentBuilding.condition }}%</small></div>
       <label><span>{{ currentBuilding.elder_title }}</span>
-        <select :value="currentBuilding.elder_id || ''" :disabled="game.decisions_used >= game.max_decisions" @change="appointElder">
+        <select class="wuxia-select elder-select" :value="currentBuilding.elder_id || ''" :disabled="game.decisions_used >= game.max_decisions" @change="appointElder">
           <option value="">暂缺（掌门兼领）</option>
           <option v-for="disciple in elderCandidates" :key="disciple.id" :value="disciple.id">{{ disciple.name }}</option>
         </select>
@@ -142,15 +141,18 @@ watch(() => `${props.game.year}-${props.game.month}`, () => {
 
     <template v-else-if="view === 'warehouse'">
       <div class="management-row-title">合库总簿</div>
-      <div class="warehouse-ledger"><span v-for="(count, name) in game.sect.inventory" :key="name"><b>{{ name }}</b><em>{{ count }}</em></span></div>
+      <div class="warehouse-ledger"><span v-for="(count, name) in game.sect.inventory" :key="name" :class="{ 'medicine-tooltip': medicineDescription(String(name)) }" :data-tooltip="medicineDescription(String(name))"><b>{{ name }}</b><em>{{ count }}</em></span></div>
       <p class="building-prose">银库、药材与内外门物资统一由司库长老造册收发，丹药可从左侧弟子卷宗中赐予。</p>
     </template>
 
     <template v-else-if="view === 'herb_hall'">
       <div class="management-row-title">丹房开炉</div>
-      <div class="recipe-grid">
-        <button v-for="[id, name, note] in recipes" :key="id" class="order-card" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'brew_pill', recipe_id: id })"><b>{{ name }}</b><span>{{ note }}</span></button>
-      </div>
+      <section v-for="rate in recipeRates" :key="rate" class="recipe-section">
+        <div class="recipe-rate"><b>{{ rate }}</b><span>{{ rate === '常速' ? '调养药物' : rate === '低速' ? '永久上限丹药' : '易筋延寿丹药' }}</span></div>
+        <div class="recipe-grid">
+          <button v-for="medicine in medicines.filter(item => item.rate === rate)" :key="medicine.recipeId" class="order-card medicine-tooltip" :data-tooltip="medicine.description" :aria-label="`${medicine.name}：${medicine.description}`" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'brew_pill', recipe_id: medicine.recipeId })"><b>{{ medicine.name }}</b><span>草药{{ medicine.herbCost }}份 · {{ medicine.months }}月 · 产{{ medicine.quantity }}份</span></button>
+        </div>
+      </section>
       <div v-if="game.sect.productions.length" class="active-orders">炼制中：<span v-for="task in game.sect.productions" :key="task.id">{{ task.name }}（尚余{{ task.remaining_months }}月）</span></div>
     </template>
 

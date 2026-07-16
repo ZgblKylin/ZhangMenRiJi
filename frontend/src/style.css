@@ -107,10 +107,36 @@ button { color: inherit; }
 .section-tabs > span { padding:.05rem 0 .28rem; text-align:right; font-size:.62rem; }
 .section-tabs > span b { font-size:.8rem; }
 
-/* 武学装备下拉菜单 */
-.equipment-picker .wuxia-select { width:100%; min-width:0; appearance:none; padding:.18rem 1.15rem .18rem .28rem; border:1px solid var(--color-jade); border-radius:2px; outline:none; background-color:var(--color-paper-light); background-image:linear-gradient(45deg,transparent 50%,var(--color-cinnabar) 50%),linear-gradient(135deg,var(--color-cinnabar) 50%,transparent 50%),linear-gradient(to left,#e8d5a855,#e8d5a855); background-position:calc(100% - 9px) 50%,calc(100% - 5px) 50%,100% 0; background-size:4px 4px,4px 4px,17px 100%; background-repeat:no-repeat; color:var(--color-ink); font-family:var(--font-title); font-size:.55rem; cursor:pointer; box-shadow:inset 0 0 8px #8b735514; }
-.equipment-picker .wuxia-select:hover:not(:disabled),.equipment-picker .wuxia-select:focus { border-color:var(--color-cinnabar); background-color:#fff9ea; box-shadow:0 0 0 1px #c43a3126,inset 0 0 8px #8b735514; }
-.equipment-picker .wuxia-select option { background:var(--color-paper-light); color:var(--color-ink); font-family:var(--font-serif); }
+/* 武侠宣纸下拉菜单 */
+.wuxia-select { width:100%; min-width:0; appearance:none; padding:.18rem 1.15rem .18rem .28rem; border:1px solid var(--color-jade); border-radius:2px; outline:none; background-color:var(--color-paper-light); background-image:linear-gradient(45deg,transparent 50%,var(--color-cinnabar) 50%),linear-gradient(135deg,var(--color-cinnabar) 50%,transparent 50%),linear-gradient(to left,#e8d5a855,#e8d5a855); background-position:calc(100% - 9px) 50%,calc(100% - 5px) 50%,100% 0; background-size:4px 4px,4px 4px,17px 100%; background-repeat:no-repeat; color:var(--color-ink); font-family:var(--font-title); font-size:.55rem; cursor:pointer; box-shadow:inset 0 0 8px #8b735514; }
+.wuxia-select:hover:not(:disabled),.wuxia-select:focus { border-color:var(--color-cinnabar); background-color:#fff9ea; box-shadow:0 0 0 1px #c43a3126,inset 0 0 8px #8b735514; }
+.wuxia-select:disabled { cursor:not-allowed; opacity:.5; }
+.wuxia-select option { background:var(--color-paper-light); color:var(--color-ink); font-family:var(--font-serif); }
+.building-header .elder-select { min-width:132px; padding:.24rem 1.35rem .24rem .42rem; border-color:var(--color-border); font-size:.65rem; box-shadow:inset 0 0 10px #8b73551c,0 1px 0 #fff9; }
+
+/* 丹药悬签与分炉药方 */
+.medicine-tooltip { position:relative; }
+.medicine-tooltip::after { content:attr(data-tooltip); z-index:40; position:absolute; left:50%; bottom:calc(100% + 8px); width:max-content; max-width:250px; padding:.4rem .55rem; border:1px solid var(--color-border); background:linear-gradient(105deg,#f0dfbd,#fff8e9 50%,#ead5ad); color:var(--color-ink-light); box-shadow:0 4px 14px #2c18104d,inset 0 0 10px #8b735512; font:.65rem/1.55 var(--font-serif); letter-spacing:0; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%,4px); transition:opacity .15s,transform .15s; }
+.medicine-tooltip::before { content:''; z-index:41; position:absolute; left:50%; bottom:calc(100% + 4px); width:7px; height:7px; border-right:1px solid var(--color-border); border-bottom:1px solid var(--color-border); background:#f9efd9; opacity:0; transform:translateX(-50%) rotate(45deg); transition:opacity .15s; }
+.medicine-tooltip:hover::after,.medicine-tooltip:focus-within::after { opacity:1; transform:translate(-50%,0); }
+.medicine-tooltip:hover::before,.medicine-tooltip:focus-within::before { opacity:1; }
+.recipe-section { margin-top:.35rem; }
+.recipe-rate { display:flex; align-items:baseline; gap:.45rem; margin-bottom:.2rem; color:var(--color-cinnabar); font:.7rem var(--font-title); }
+.recipe-rate::after { content:''; flex:1; border-top:1px dotted var(--color-border); }
+.recipe-rate span { color:var(--color-ink-fade); font:.55rem var(--font-serif); }
+.recipe-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.recipe-grid .order-card { min-width:0; }
+.recipe-grid .order-card b { color:var(--color-cinnabar); font-family:var(--font-title); letter-spacing:.08em; }
+.warehouse-ledger .medicine-tooltip { border-left:3px solid var(--color-jade); }
+.issue-item-picker { display:flex; flex:1; min-width:82px; }
+.issue-item-picker select { width:100%; }
+
+/* 月令入口常驻朱砂底；议事用尽时仅在状态切换之际强调一次 */
+.section-tabs .advance-button { border-color:#8f2b23; background:linear-gradient(180deg,var(--color-cinnabar-light),var(--color-cinnabar)); color:#fff8e9; text-shadow:0 1px #6d1d18; box-shadow:inset 0 1px #ffffff4d,0 2px 5px #6d1d1833; }
+.section-tabs .advance-button:hover:not(:disabled) { border-color:#7f211b; background:linear-gradient(180deg,#e7685e,#b83229); color:#fff; box-shadow:inset 0 1px #ffffff59,0 3px 9px #6d1d1859; }
+.section-tabs .advance-button.exhausted { animation:advance-pulse .9s ease-out 1; }
+@keyframes advance-pulse { 0%,100% { box-shadow:inset 0 1px #ffffff4d,0 2px 5px #6d1d1833; } 35% { transform:translateY(-1px) scale(1.045); box-shadow:inset 0 1px #ffffff66,0 0 0 4px #c43a3147,0 0 15px #e05a50b3; } }
+@media(prefers-reduced-motion:reduce) { .section-tabs .advance-button.exhausted { animation:none; outline:2px solid #e05a5066; outline-offset:2px; } }
 
 /* 放大月末纪事卷宗 */
 .event-dialog { max-width:1080px; max-height:84vh; padding:2rem 2.2rem; }
@@ -151,4 +177,5 @@ button { color: inherit; }
   .section-tabs { top:0; margin:-.4rem -.6rem .5rem; }
   .event-dialog { width:94%; padding:1rem; }
   .confirm-dialog { width:92%; padding:1.35rem 1rem; }
+  .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
