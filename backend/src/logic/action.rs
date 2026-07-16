@@ -43,7 +43,7 @@ struct DiscipleDelta {
     reputation: i32,
     loyalty: i32,
     merit: i64,
-    proficiencies: BTreeMap<String, i64>,
+    skill_experience: BTreeMap<String, i64>,
     away_months: Option<i32>,
     action: Option<Option<ActionPlan>>,
 }
@@ -328,11 +328,11 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             let mut teacher_delta = base_delta(teacher);
             teacher_delta.spirit -= 7;
             teacher_delta
-                .proficiencies
+                .skill_experience
                 .insert(art.clone(), teacher_gain);
             let mut student_delta = base_delta(student);
             student_delta.spirit -= 9;
-            student_delta.proficiencies.insert(art.clone(), gain);
+            student_delta.skill_experience.insert(art.clone(), gain);
             result.disciples.extend([teacher_delta, student_delta]);
             result.logs.push((
                 teacher.player || student.player,
@@ -366,12 +366,12 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             a.qi -= rng.gen_range(5..=10);
             a.energy -= 6;
             a.attainment += 4 + level_b.max(1) as i64 / 40;
-            a.proficiencies.insert(art_a, gain_a);
+            a.skill_experience.insert(art_a, gain_a);
             let mut b = base_delta(second);
             b.qi -= rng.gen_range(5..=10);
             b.energy -= 6;
             b.attainment += 4 + level_a.max(1) as i64 / 40;
-            b.proficiencies.insert(art_b, gain_b);
+            b.skill_experience.insert(art_b, gain_b);
             result.disciples.extend([a, b]);
             result.logs.push((
                 first.player || second.player,
@@ -428,7 +428,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
                 85
             },
         );
-        delta.proficiencies.insert(art, gain);
+        delta.skill_experience.insert(art, gain);
         result.disciples.push(delta);
         result.logs.push((actor.player, log));
         return result;
@@ -440,7 +440,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             let gain = skill_experience(d, &art, d.aptitudes.intelligence, 85);
             delta.spirit -= 10;
             delta.energy -= 3;
-            delta.proficiencies.insert(art.clone(), gain);
+            delta.skill_experience.insert(art.clone(), gain);
             log = format!(
                 "{}闭门研读{}，添了{}点武学经验。",
                 d.name,
@@ -455,7 +455,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.qi -= 4;
             delta.neili -= 4;
             delta.energy -= 10;
-            delta.proficiencies.insert(art.clone(), gain);
+            delta.skill_experience.insert(art.clone(), gain);
             log = format!(
                 "{}在演武场反复练习{}，添了{}点武学经验。",
                 d.name,
@@ -540,7 +540,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             sect_delta.prestige += 1;
             delta.attainment += 2;
             let art = d.martial_art.clone();
-            delta.proficiencies.insert(
+            delta.skill_experience.insert(
                 art.clone(),
                 skill_experience(d, &art, d.aptitudes.strength, 35),
             );
@@ -558,7 +558,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.attainment += gain;
             delta.qi -= rng.gen_range(0..=8);
             let art = d.martial_art.clone();
-            delta.proficiencies.insert(
+            delta.skill_experience.insert(
                 art.clone(),
                 skill_experience(d, &art, d.aptitudes.agility, 45),
             );
@@ -765,7 +765,7 @@ fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
     d.attributes.reputation = (d.attributes.reputation + delta.reputation).clamp(0, 1000);
     d.attributes.sect_loyalty = (d.attributes.sect_loyalty + delta.loyalty).clamp(0, 100);
     d.merit = (d.merit + delta.merit).max(0);
-    for (art, gain) in delta.proficiencies {
+    for (art, gain) in delta.skill_experience {
         d.martial_progress
             .proficiencies
             .entry(art)

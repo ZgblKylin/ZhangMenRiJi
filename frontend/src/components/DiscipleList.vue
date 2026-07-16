@@ -8,7 +8,7 @@ const openId = ref<string | null>(null)
 const selected = reactive<Record<string, ActionKind>>({})
 const selectedRank = reactive<Record<string, DiscipleRank>>({})
 const actions: Array<[ActionKind, string]> = [
-  ['read', '研读典籍'], ['temper_body', '打熬气血'], ['cultivate_neili', '修炼内力'],
+  ['read', '研读典籍'], ['practice', '练习武功'], ['temper_body', '打熬气血'], ['cultivate_neili', '修炼内力'],
   ['meditate', '冥想养神'], ['spar', '同门切磋'], ['teach', '传功授艺'],
   ['sect_mission', '外派办事'], ['wander', '江湖历练'], ['recover', '静养调息'],
 ]
