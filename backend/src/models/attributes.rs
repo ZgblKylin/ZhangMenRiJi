@@ -54,6 +54,16 @@ pub struct AcquiredAttributes {
     pub sect_loyalty: i32,
 }
 
+/// 丹药、事件与长期修炼带来的永久上限修正。派生上限重算时不会丢失这些值。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttributeBonuses {
+    pub qi: i32,
+    pub spirit: i32,
+    pub neili: i32,
+    pub energy: i32,
+}
+
 impl Default for AcquiredAttributes {
     fn default() -> Self {
         Self {

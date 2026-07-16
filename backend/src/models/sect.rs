@@ -97,7 +97,7 @@ impl Default for SectState {
                 ("草药".into(), 20),
                 ("精铁".into(), 10),
             ]),
-            public_books: vec!["hunyuan".into()],
+            public_books: vec!["player_knowledge".into(), "hunyuan".into()],
             martial_research: BTreeMap::new(),
             relations: BTreeMap::new(),
             active_orders: vec![],

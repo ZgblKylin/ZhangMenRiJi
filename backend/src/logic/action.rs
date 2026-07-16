@@ -458,7 +458,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
     match kind {
         ActionKind::Read => {
             let art = preferred_book(actor);
-            let gain = skill_experience(d, &art, d.aptitudes.intelligence, 85);
+            let gain = skill_experience(d, &art, disciple::effective_intelligence(d), 85);
             delta.spirit -= 10;
             delta.energy -= 3;
             delta.skill_experience.insert(art.clone(), gain);
@@ -523,13 +523,12 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             };
         }
         ActionKind::Meditate => {
-            let art = inner_skill(d);
-            let level = skill_level(d, &art).max(1);
-            let cost = (10 + d.aptitudes.intelligence / 4)
-                .min(d.attributes.spirit.current.saturating_sub(1));
-            let cap = level.saturating_mul(d.aptitudes.constitution) / 2;
+            let knowledge = disciple::knowledge_level(d).max(1);
+            let intelligence = disciple::effective_intelligence(d);
+            let cost = (10 + intelligence / 4).min(d.attributes.spirit.current.saturating_sub(1));
+            let cap = knowledge.saturating_mul(intelligence) / 2;
             let gain = if cost >= 10 {
-                (1 + level / 100 + d.aptitudes.intelligence / 30)
+                (1 + knowledge / 100 + intelligence / 30)
                     .min((cap - d.attributes.energy.maximum).max(0))
             } else {
                 0
@@ -632,9 +631,7 @@ fn skill_level(d: &Disciple, art: &str) -> i32 {
 fn skill_experience(d: &Disciple, art: &str, aptitude: i32, intensity: i32) -> i64 {
     let level = skill_level(d, art).max(1);
     let sessions = 14 + aptitude.max(0) / 2;
-    let difficulty = crate::models::martial_art::all_martial_arts()
-        .into_iter()
-        .find(|candidate| candidate.id == art)
+    let difficulty = crate::models::martial_art::martial_art_by_id(art)
         .map(|candidate| candidate.difficulty)
         .unwrap_or(10)
         .max(5);
@@ -653,15 +650,14 @@ fn practice_art(d: &Disciple) -> String {
 }
 
 fn inner_skill(d: &Disciple) -> String {
-    let arts = crate::models::martial_art::all_martial_arts();
     d.martial_progress
         .proficiencies
         .iter()
         .filter(|(id, _)| {
-            id.as_str() == "基本内功"
-                || arts
-                    .iter()
-                    .any(|art| art.id == id.as_str() && art.art_type == "内功")
+            id.as_str() == "basic_force"
+                || crate::models::martial_art::martial_art_by_id(id).is_some_and(|art| {
+                    art.category == crate::models::martial_art::SkillCategory::Force
+                })
         })
         .max_by_key(|(_, progress)| progress.level)
         .map(|(id, _)| id.clone())
@@ -784,10 +780,11 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
 }
 
 fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
-    d.attributes.qi.maximum += delta.qi_max;
-    d.attributes.spirit.maximum += delta.spirit_max;
-    d.attributes.neili.maximum += delta.neili_max;
-    d.attributes.energy.maximum += delta.energy_max;
+    d.attribute_bonuses.qi += delta.qi_max;
+    d.attribute_bonuses.spirit += delta.spirit_max;
+    d.attribute_bonuses.neili += delta.neili_max;
+    d.attribute_bonuses.energy += delta.energy_max;
+    disciple::recalculate_attribute_maxima(d);
     d.attributes.qi.current =
         (d.attributes.qi.current + delta.qi).clamp(0, d.attributes.qi.maximum.max(0));
     d.attributes.spirit.current =
@@ -801,11 +798,7 @@ fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
     d.attributes.sect_loyalty = (d.attributes.sect_loyalty + delta.loyalty).clamp(0, 100);
     d.merit = (d.merit + delta.merit).max(0);
     for (art, gain) in delta.skill_experience {
-        d.martial_progress
-            .proficiencies
-            .entry(art)
-            .or_default()
-            .gain_experience(gain);
+        disciple::gain_skill_experience(d, &art, gain);
     }
     if let Some(months) = delta.away_months {
         d.away_months = months;

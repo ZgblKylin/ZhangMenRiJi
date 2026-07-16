@@ -12,6 +12,23 @@ pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
     for disciple in &mut state.disciples {
         crate::logic::disciple::hydrate_v2_disciple(disciple);
     }
+    if !state
+        .sect
+        .public_books
+        .iter()
+        .any(|id| id == "player_knowledge")
+    {
+        state.sect.public_books.insert(0, "player_knowledge".into());
+    }
+    if !state
+        .martial_arts_learned
+        .iter()
+        .any(|id| id == "player_knowledge")
+    {
+        state
+            .martial_arts_learned
+            .insert(0, "player_knowledge".into());
+    }
     crate::logic::world::hydrate_world(state);
     sync_legacy_fields(state);
 }

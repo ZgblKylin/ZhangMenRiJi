@@ -1,5 +1,8 @@
-use crate::logic::disciple::{generate_disciple, sync_legacy_attributes};
-use crate::models::attributes::{Department, DiscipleRank, MartialProgress, SkillProgress};
+use crate::logic::disciple::{
+    assign_sect_curriculum, generate_disciple, recalculate_attribute_maxima, sync_legacy_attributes,
+};
+use crate::models::attributes::{Department, DiscipleRank};
+use crate::models::martial_art::{all_martial_arts, knowledge_skill_id};
 use crate::models::sect::{default_buildings, Building, SectAttributes, SectPolicy, SectState};
 use crate::models::Disciple;
 use rand::{rngs::StdRng, SeedableRng};
@@ -292,10 +295,14 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                 ("草药".into(), 30 + sect_index as i32),
                 ("精铁".into(), 18 + sect_index as i32 % 12),
             ]),
-            public_books: vec![
-                format!("{}_foundation", template.id),
-                template.signature.into(),
-            ],
+            public_books: std::iter::once(knowledge_skill_id(template.id))
+                .chain(
+                    all_martial_arts()
+                        .into_iter()
+                        .filter(|art| art.sect_id.as_deref() == Some(template.id) && art.is_combat)
+                        .map(|art| art.id),
+                )
+                .collect(),
             martial_research: BTreeMap::from([(template.signature.into(), 180 + prestige as i64)]),
             relations: BTreeMap::new(),
             active_orders: vec![],
@@ -307,10 +314,10 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             disciple.sect_id = Some(template.id.into());
             disciple.name = (*name).into();
             disciple.martial_art = template.signature.into();
-            disciple.rank = if member_index == 0 {
-                DiscipleRank::Elder
-            } else {
-                DiscipleRank::Inner
+            disciple.rank = match member_index {
+                0 => DiscipleRank::Elder,
+                1 => DiscipleRank::Inner,
+                _ => DiscipleRank::Outer,
             };
             disciple.department = Some(match member_index {
                 0 => Department::Transmission,
@@ -320,26 +327,10 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             disciple.attributes.morality = template.morality;
             disciple.attributes.reputation = prestige / 2 + 20 - member_index as i32 * 4;
             disciple.attributes.attainment = 800 - member_index as i64 * 180 + prestige as i64 * 4;
-            disciple.attributes.neili.maximum += 35 - member_index as i32 * 8;
-            disciple.attributes.neili.current = disciple.attributes.neili.maximum;
-            disciple.martial_progress = MartialProgress {
-                proficiencies: BTreeMap::from([
-                    (
-                        format!("{}_foundation", template.id),
-                        SkillProgress::new(180 - member_index as i32 * 30, 0),
-                    ),
-                    (
-                        template.signature.into(),
-                        SkillProgress::new(320 - member_index as i32 * 55, 0),
-                    ),
-                    (
-                        "基本内功".into(),
-                        SkillProgress::new(150 - member_index as i32 * 20, 0),
-                    ),
-                ]),
-                specialties: vec!["门派绝学".into()],
-                private_books: vec![],
-            };
+            disciple.attribute_bonuses.neili += 35 - member_index as i32 * 8;
+            assign_sect_curriculum(&mut disciple, template.id, 320 - member_index as i32 * 70);
+            disciple.martial_art = template.signature.into();
+            recalculate_attribute_maxima(&mut disciple);
             sync_legacy_attributes(&mut disciple);
             disciples.push(disciple);
         }
@@ -392,6 +383,7 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::martial_art::{base_skill_ids, sect_combat_arts, MartialTier};
 
     #[test]
     fn world_contains_all_required_factions_and_people() {
@@ -407,6 +399,21 @@ mod tests {
                 >= 3
         }));
         assert!(disciples.iter().filter(|d| d.sect_id.is_none()).count() >= 8);
+        for disciple in disciples.iter().filter(|d| d.sect_id.is_some()) {
+            let sect_id = disciple.sect_id.as_deref().unwrap();
+            assert!(base_skill_ids(sect_id)
+                .iter()
+                .all(|id| disciple.martial_progress.proficiencies.contains_key(id)));
+            let tier = match disciple.rank {
+                DiscipleRank::Outer => MartialTier::Outer,
+                DiscipleRank::Inner | DiscipleRank::Elder => MartialTier::Inner,
+                DiscipleRank::Chore => MartialTier::Chore,
+            };
+            assert!(sect_combat_arts(sect_id, tier).iter().all(|art| disciple
+                .martial_progress
+                .proficiencies
+                .contains_key(&art.id)));
+        }
     }
 
     #[test]

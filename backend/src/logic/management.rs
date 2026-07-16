@@ -230,6 +230,7 @@ pub fn execute_management(
                 .into_iter()
                 .find(|art| {
                     art.sect_id.as_deref() == Some("player")
+                        && art.is_combat
                         && !state.martial_arts_learned.contains(&art.id)
                 })
                 .ok_or_else(|| "本门自创武学已尽数参明。".to_string())?;

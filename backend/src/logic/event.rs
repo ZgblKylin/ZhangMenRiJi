@@ -688,7 +688,7 @@ pub fn apply_event_effect(
                     let idx = rng.gen_range(0..alive_count);
                     if let Some(d) = state.disciples.iter_mut().filter(|d| d.alive).nth(idx) {
                         let gain = disc::rand_range(rng, 8, 20);
-                        d.inner_power = disc::clamp(d.inner_power + gain, 10, 100);
+                        d.inner_power = (d.inner_power + gain).max(10);
                         extra_events.push(format!("{}听掌门讲道，若有所悟，内力精进！", d.name));
                     }
                 }

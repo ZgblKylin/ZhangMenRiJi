@@ -45,7 +45,7 @@ impl Default for GameState {
             morale: 55,
             injury: 0,
             disciples: vec![],
-            martial_arts_learned: vec!["hunyuan".into()],
+            martial_arts_learned: vec!["player_knowledge".into(), "hunyuan".into()],
             event_log: vec![],
             decisions_used: 0,
             max_decisions: 3,

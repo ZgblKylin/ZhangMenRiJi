@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 /// 技能在人物面板中的六个固定门类。知识是基础技能，但不参与战斗。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -840,19 +841,29 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
     arts
 }
 
-/// 返回基础技能、玩家武学及 23 个 NPC 门派的三层完整武学表。
-pub fn all_martial_arts() -> Vec<MartialArt> {
+fn build_martial_arts() -> Vec<MartialArt> {
     let mut arts = basic_arts();
     arts.extend(player_arts());
     arts.extend(SECT_MARTIALS.iter().flat_map(sect_arts));
     arts
 }
 
+fn martial_registry() -> &'static [MartialArt] {
+    static REGISTRY: OnceLock<Vec<MartialArt>> = OnceLock::new();
+    REGISTRY.get_or_init(build_martial_arts)
+}
+
+/// 返回基础技能、玩家武学及 23 个 NPC 门派的三层完整武学表。
+pub fn all_martial_arts() -> Vec<MartialArt> {
+    martial_registry().to_vec()
+}
+
 pub fn martial_art_by_id(id: &str) -> Option<MartialArt> {
     let canonical = canonical_skill_id(id);
-    all_martial_arts()
-        .into_iter()
+    martial_registry()
+        .iter()
         .find(|art| art.id == canonical)
+        .cloned()
 }
 
 pub fn knowledge_skill_id(sect_id: &str) -> String {
@@ -883,9 +894,10 @@ pub fn sect_ids() -> impl Iterator<Item = &'static str> {
 }
 
 pub fn sect_combat_arts(sect_id: &str, tier: MartialTier) -> Vec<MartialArt> {
-    all_martial_arts()
-        .into_iter()
+    martial_registry()
+        .iter()
         .filter(|art| art.sect_id.as_deref() == Some(sect_id) && art.is_combat && art.tier == tier)
+        .cloned()
         .collect()
 }
 

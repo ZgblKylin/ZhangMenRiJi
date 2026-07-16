@@ -43,7 +43,7 @@ pub fn run_tournament(rng: &mut impl Rng, state: &mut GameState) -> TournamentRe
     state.morale = disc::clamp(state.morale + disc::rand_range(rng, 3, 8), 0, 100);
 
     for d in state.disciples.iter_mut().filter(|d| d.alive) {
-        d.inner_power = disc::clamp(d.inner_power + disc::rand_range(rng, 2, 6), 10, 100);
+        d.inner_power = (d.inner_power + disc::rand_range(rng, 2, 6)).max(10);
         disc::absorb_legacy_attributes(d);
     }
 

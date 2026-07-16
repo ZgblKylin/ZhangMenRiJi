@@ -40,7 +40,7 @@ pub fn execute_decision(
             }
             for d in state.disciples.iter_mut().filter(|d| d.alive) {
                 let gain = (disc::rand_range(rng, 2, 6) - state.injury / 20).max(1);
-                d.inner_power = clamp(d.inner_power + gain, 10, 100);
+                d.inner_power = (d.inner_power + gain).max(10);
                 d.loyalty = clamp(d.loyalty + disc::rand_range(rng, 1, 4), 0, 100);
             }
             state.injury = clamp(state.injury + disc::rand_range(rng, 3, 8), 0, 100);
@@ -73,7 +73,7 @@ pub fn execute_decision(
                         month: state.month,
                     });
                 } else {
-                    d.inner_power = clamp(d.inner_power - 5, 5, 100);
+                    d.inner_power = (d.inner_power - 5).max(5);
                     d.loyalty = clamp(d.loyalty - disc::rand_range(rng, 3, 8), 0, 100);
                     state.injury = clamp(state.injury + disc::rand_range(rng, 3, 8), 0, 100);
                     events.push(GameEvent {
@@ -140,7 +140,11 @@ pub fn execute_decision(
             let arts = all_martial_arts();
             let unlearned: Vec<_> = arts
                 .iter()
-                .filter(|a| !state.martial_arts_learned.contains(&a.id))
+                .filter(|a| {
+                    a.is_combat
+                        && a.sect_id.as_deref() == Some("player")
+                        && !state.martial_arts_learned.contains(&a.id)
+                })
                 .collect();
             if !unlearned.is_empty() && rng.gen_bool(0.5) {
                 let art = &unlearned[disc::rand_range(rng, 0, unlearned.len() as i32 - 1) as usize];
@@ -177,7 +181,7 @@ pub fn execute_decision(
             let count = alive_count.min(3);
             let mut names = vec![];
             for d in state.disciples.iter_mut().filter(|d| d.alive).take(count) {
-                d.inner_power = clamp(d.inner_power + disc::rand_range(rng, 3, 10), 10, 100);
+                d.inner_power = (d.inner_power + disc::rand_range(rng, 3, 10)).max(10);
                 d.loyalty = clamp(d.loyalty + disc::rand_range(rng, 2, 6), 0, 100);
                 if rng.gen_bool(0.3) && !state.martial_arts_learned.is_empty() {
                     let idx = disc::rand_range(rng, 0, state.martial_arts_learned.len() as i32 - 1)
