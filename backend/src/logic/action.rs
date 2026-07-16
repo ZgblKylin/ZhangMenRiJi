@@ -503,7 +503,7 @@ fn preferred_book(actor: &Actor) -> String {
             d.martial_progress
                 .proficiencies
                 .get(*book)
-                .copied()
+                .map(|progress| progress.level)
                 .unwrap_or(0)
         })
         .cloned()
@@ -592,7 +592,11 @@ fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
     d.attributes.sect_loyalty = (d.attributes.sect_loyalty + delta.loyalty).clamp(0, 100);
     d.merit = (d.merit + delta.merit).max(0);
     for (art, gain) in delta.proficiencies {
-        *d.martial_progress.proficiencies.entry(art).or_default() += gain;
+        d.martial_progress
+            .proficiencies
+            .entry(art)
+            .or_default()
+            .gain_experience(gain);
     }
     if let Some(months) = delta.away_months {
         d.away_months = months;

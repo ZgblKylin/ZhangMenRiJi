@@ -1,5 +1,5 @@
 use crate::models::attributes::{
-    AcquiredAttributes, Aptitudes, DiscipleCondition, MartialProgress, ResourcePool,
+    AcquiredAttributes, Aptitudes, DiscipleCondition, MartialProgress, ResourcePool, SkillProgress,
 };
 use crate::models::martial_art::all_martial_arts;
 use crate::models::{Disciple, MartialArt};
@@ -89,7 +89,9 @@ pub fn generate_disciple(rng: &mut impl Rng, talent_bonus: i32) -> Disciple {
     };
     disciple.attributes = initial_attributes(&disciple, inner_power);
     disciple.martial_progress = MartialProgress {
-        proficiencies: [(art.id.clone(), 50_i64)].into_iter().collect(),
+        proficiencies: [(art.id.clone(), SkillProgress::new(50, 0))]
+            .into_iter()
+            .collect(),
         specialties: vec![art.art_type.clone()],
         private_books: vec![],
     };
@@ -188,7 +190,7 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
         d.attributes.spirit.current = d.attributes.spirit.maximum;
         d.martial_progress
             .proficiencies
-            .insert(d.martial_art.clone(), 25);
+            .insert(d.martial_art.clone(), SkillProgress::new(25, 0));
     }
     refresh_condition(d);
     sync_legacy_attributes(d);
@@ -247,7 +249,7 @@ pub fn get_combat_score(d: &Disciple) -> i32 {
         .martial_progress
         .proficiencies
         .get(&d.martial_art)
-        .copied()
+        .map(|progress| progress.level)
         .unwrap_or(0)
         .min(500) as f64;
     (d.talent as f64 * 0.2

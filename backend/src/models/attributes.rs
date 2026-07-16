@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
 /// 侠客行式先天天赋。数值越高，相关修习与恢复越有利。
@@ -132,11 +132,94 @@ pub struct ActionPlan {
     pub remaining_months: i32,
 }
 
+/// 单门武学的修习进度。经验达到下一级平方后升级，沿用侠客行 MUD 的技能门槛。
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct SkillProgress {
+    pub level: i32,
+    pub experience: i64,
+}
+
+impl SkillProgress {
+    pub fn new(level: i32, experience: i64) -> Self {
+        let mut progress = Self {
+            level: level.max(0),
+            experience: experience.max(0),
+        };
+        progress.normalize();
+        progress
+    }
+
+    pub fn experience_to_next_level(&self) -> i64 {
+        i64::from(self.level.saturating_add(1)).pow(2)
+    }
+
+    /// 增加该门武学的经验，返回本次提升的等级数。
+    pub fn gain_experience(&mut self, amount: i64) -> i32 {
+        self.experience = self.experience.saturating_add(amount.max(0));
+        let old_level = self.level;
+        self.normalize();
+        self.level - old_level
+    }
+
+    fn normalize(&mut self) {
+        while self.experience >= self.experience_to_next_level() {
+            self.experience -= self.experience_to_next_level();
+            self.level = self.level.saturating_add(1);
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SkillProgress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StoredProgress {
+            Current {
+                #[serde(default)]
+                level: i32,
+                #[serde(default, alias = "exp")]
+                experience: i64,
+            },
+            Legacy(i64),
+        }
+
+        Ok(match StoredProgress::deserialize(deserializer)? {
+            StoredProgress::Current { level, experience } => Self::new(level, experience),
+            StoredProgress::Legacy(level) => {
+                Self::new(level.clamp(0, i64::from(i32::MAX)) as i32, 0)
+            }
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct MartialProgress {
-    /// 每门武学的熟练造诣，键为武学 id。
-    pub proficiencies: BTreeMap<String, i64>,
+    /// 每门武学的独立等级与经验，键为武学 id。
+    pub proficiencies: BTreeMap<String, SkillProgress>,
     pub specialties: Vec<String>,
     pub private_books: Vec<String>,
+}
+
+#[cfg(test)]
+mod skill_progress_tests {
+    use super::SkillProgress;
+
+    #[test]
+    fn skill_experience_uses_squared_level_threshold() {
+        let mut progress = SkillProgress::new(4, 0);
+        assert_eq!(progress.experience_to_next_level(), 25);
+        assert_eq!(progress.gain_experience(24), 0);
+        assert_eq!(progress.gain_experience(1), 1);
+        assert_eq!(progress, SkillProgress::new(5, 0));
+    }
+
+    #[test]
+    fn legacy_numeric_proficiency_is_migrated() {
+        let progress: SkillProgress = serde_json::from_str("50").unwrap();
+        assert_eq!(progress, SkillProgress::new(50, 0));
+    }
 }

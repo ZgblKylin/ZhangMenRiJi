@@ -1,5 +1,5 @@
 use crate::logic::disciple::{generate_disciple, sync_legacy_attributes};
-use crate::models::attributes::{Department, DiscipleRank, MartialProgress};
+use crate::models::attributes::{Department, DiscipleRank, MartialProgress, SkillProgress};
 use crate::models::sect::{default_buildings, Building, SectAttributes, SectPolicy, SectState};
 use crate::models::Disciple;
 use rand::{rngs::StdRng, SeedableRng};
@@ -326,9 +326,12 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                 proficiencies: BTreeMap::from([
                     (
                         format!("{}_foundation", template.id),
-                        180 - member_index as i64 * 30,
+                        SkillProgress::new(180 - member_index as i32 * 30, 0),
                     ),
-                    (template.signature.into(), 320 - member_index as i64 * 55),
+                    (
+                        template.signature.into(),
+                        SkillProgress::new(320 - member_index as i32 * 55, 0),
+                    ),
                 ]),
                 specialties: vec!["门派绝学".into()],
                 private_books: vec![],

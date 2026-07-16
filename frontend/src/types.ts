@@ -47,8 +47,9 @@ export interface ActionPlan {
   assigned_by?: string | null
   remaining_months: number
 }
+export interface SkillProgress { level: number; experience: number }
 export interface MartialProgress {
-  proficiencies: Record<string, number>
+  proficiencies: Record<string, SkillProgress>
   specialties: string[]
   private_books: string[]
 }
