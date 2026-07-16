@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import type { GameState, ManagementRequest, MartialArt, SectPolicy } from '../types'
 import MartialArtsPanel from './MartialArtsPanel.vue'
+import SectViewPanel from './SectViewPanel.vue'
 
 const props = defineProps<{ game: GameState; arts: MartialArt[]; view: 'sect' | 'library' | 'world' }>()
 const emit = defineEmits<{ manage: [command: ManagementRequest] }>()
@@ -16,6 +18,9 @@ const artName = (id: string) => props.arts.find(art => art.id === id)?.name || i
 const countryName = (id: string) => props.game.countries.find(country => country.id === id)?.name || id
 const foundation = (sectId: string) => `${sectId}_foundation`
 const command = (payload: ManagementRequest) => emit('manage', payload)
+const viewedSectId = ref<string | null>(null)
+const viewedSect = computed(() => props.game.npc_sects.find(sect => sect.id === viewedSectId.value) || null)
+const viewedDisciples = computed(() => props.game.npc_disciples.filter(disciple => disciple.sect_id === viewedSectId.value && disciple.alive))
 </script>
 
 <template>
@@ -65,18 +70,23 @@ const command = (payload: ManagementRequest) => emit('manage', payload)
   </section>
 
   <section v-else class="management-sheet">
-    <div class="panel-title">江湖门派谱</div>
-    <div class="world-summary">四国并立，天下 {{ game.npc_sects.length }} 派各行其道。先通问修好，交情足时方可请教典籍。</div>
-    <div class="world-grid">
-      <article v-for="npc in game.npc_sects" :key="npc.id" class="world-sect-card">
-        <div class="world-sect-head"><b>{{ npc.name }}</b><span>{{ countryName(npc.country_id) }}</span></div>
-        <div>声望 {{ npc.attributes.prestige }} · 道德 {{ npc.attributes.morality }} · 交情 {{ game.sect.relations[npc.id] || 0 }}</div>
-        <small>镇派：{{ artName(npc.public_books.at(-1) || '') }}</small>
-        <div>
-          <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'exchange', sect_id: npc.id })">通问 · 45两</button>
-          <button class="btn btn-sm" :disabled="(game.sect.relations[npc.id] || 0) < 10 || game.decisions_used >= game.max_decisions" @click="command({ action: 'request_manual', sect_id: npc.id, martial_art_id: foundation(npc.id) })">请教入门册</button>
-        </div>
-      </article>
-    </div>
+    <SectViewPanel v-if="viewedSect" :sect="viewedSect" :disciples="viewedDisciples" :arts="arts"
+      :countries="game.countries" :player-sect="game.sect" :npc-sects="game.npc_sects" @back="viewedSectId = null" />
+    <template v-else>
+      <div class="panel-title">江湖门派谱</div>
+      <div class="world-summary">四国并立，天下 {{ game.npc_sects.length }} 派各行其道。可查阅各派卷宗，通问修好后亦可请教典籍。</div>
+      <div class="world-grid">
+        <article v-for="npc in game.npc_sects" :key="npc.id" class="world-sect-card">
+          <div class="world-sect-head"><b>{{ npc.name }}</b><span>{{ countryName(npc.country_id) }}</span></div>
+          <div>声望 {{ npc.attributes.prestige }} · 道德 {{ npc.attributes.morality }} · 交情 {{ game.sect.relations[npc.id] || 0 }}</div>
+          <small>镇派：{{ artName(npc.public_books.at(-1) || '') }}</small>
+          <div>
+            <button class="btn btn-sm sect-view-entry" @click="viewedSectId = npc.id">查阅门派</button>
+            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'exchange', sect_id: npc.id })">通问 · 45两</button>
+            <button class="btn btn-sm" :disabled="(game.sect.relations[npc.id] || 0) < 10 || game.decisions_used >= game.max_decisions" @click="command({ action: 'request_manual', sect_id: npc.id, martial_art_id: foundation(npc.id) })">请教入门册</button>
+          </div>
+        </article>
+      </div>
+    </template>
   </section>
 </template>
