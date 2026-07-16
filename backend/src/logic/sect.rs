@@ -1,5 +1,5 @@
-use crate::models::game::GameState;
 use crate::models::attributes::DiscipleRank;
+use crate::models::game::GameState;
 use crate::models::sect::{default_buildings, Building, SectState};
 use crate::models::Disciple;
 use std::collections::BTreeSet;
@@ -56,11 +56,7 @@ pub fn normalize_buildings(sect: &mut SectState) {
             continue;
         }
         building.level = matches.iter().map(|old| old.level).max().unwrap_or(1);
-        building.condition = matches
-            .iter()
-            .map(|old| old.condition)
-            .min()
-            .unwrap_or(100);
+        building.condition = matches.iter().map(|old| old.condition).min().unwrap_or(100);
         building.upgrading_months = matches
             .iter()
             .map(|old| old.upgrading_months)
@@ -105,8 +101,8 @@ pub fn normalize_elder_assignments(sect: &mut SectState, disciples: &[Disciple])
 
 pub fn rank_limits(sect: &SectState, disciples: &[Disciple]) -> (usize, usize) {
     let alive = disciples.iter().filter(|disciple| disciple.alive).count();
-    let outer_limit = ((alive as f32) * sect.rank_rules.outer_ratio.clamp(0.0, 1.0)).floor()
-        as usize;
+    let outer_limit =
+        ((alive as f32) * sect.rank_rules.outer_ratio.clamp(0.0, 1.0)).floor() as usize;
     let outer_count = disciples
         .iter()
         .filter(|disciple| disciple.alive && disciple.rank == DiscipleRank::Outer)
@@ -164,8 +160,23 @@ pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32
     sect.attributes.silver = (sect.attributes.silver + income - expense).max(0);
     sect.attributes.morality =
         (sect.attributes.morality + order_bonus(sect, "morality") / 6).clamp(0, 100);
+    match sect.moral_direction {
+        crate::models::sect::MoralDirection::Righteous => {
+            sect.attributes.morality = (sect.attributes.morality + 1).min(100);
+            sect.attributes.prestige = (sect.attributes.prestige + 1).min(1000);
+        }
+        crate::models::sect::MoralDirection::Neutral => {
+            sect.attributes.morale = (sect.attributes.morale + 1).min(100);
+        }
+        crate::models::sect::MoralDirection::Villainous => {
+            sect.attributes.morality = (sect.attributes.morality - 2).max(0);
+            sect.attributes.prestige = (sect.attributes.prestige + 1).min(1000);
+            sect.attributes.silver += 10;
+        }
+    }
 
     for building in &mut sect.buildings {
+        building.elder_action_used = false;
         if building.work_required > 0 {
             let remaining = (building.work_required - building.work_invested).max(0);
             building.upgrading_months = (remaining + 9) / 10;
@@ -295,5 +306,21 @@ mod tests {
                 .count(),
             4
         );
+    }
+
+    #[test]
+    fn moral_directions_have_distinct_monthly_effects() {
+        let mut righteous = SectState::default();
+        righteous.attributes.morality = 50;
+        let mut neutral = righteous.clone();
+        neutral.moral_direction = crate::models::sect::MoralDirection::Neutral;
+        let mut villainous = righteous.clone();
+        villainous.moral_direction = crate::models::sect::MoralDirection::Villainous;
+        apply_monthly_upkeep(&mut righteous, 0);
+        apply_monthly_upkeep(&mut neutral, 0);
+        apply_monthly_upkeep(&mut villainous, 0);
+        assert!(righteous.attributes.morality > neutral.attributes.morality);
+        assert!(villainous.attributes.morality < neutral.attributes.morality);
+        assert!(villainous.attributes.silver > neutral.attributes.silver);
     }
 }

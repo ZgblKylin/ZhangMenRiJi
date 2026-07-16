@@ -273,4 +273,11 @@ mod tests {
         assert_eq!(effective.agility, 21);
         assert_eq!(effective.fortune, innate.fortune);
     }
+
+    #[test]
+    fn legacy_elder_rank_loads_as_inner_disciple() {
+        let rank: DiscipleRank = serde_json::from_str("\"elder\"").unwrap();
+        assert_eq!(rank, DiscipleRank::Inner);
+        assert_eq!(serde_json::to_string(&rank).unwrap(), "\"inner\"");
+    }
 }

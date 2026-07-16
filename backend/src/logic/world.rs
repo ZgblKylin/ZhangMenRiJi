@@ -3,9 +3,11 @@ use crate::logic::disciple::{
 };
 use crate::models::attributes::{Department, DiscipleRank};
 use crate::models::martial_art::{all_martial_arts, knowledge_skill_id};
-use crate::models::sect::{default_buildings, SectAttributes, SectPolicy, SectState};
-use crate::models::Disciple;
-use rand::{rngs::StdRng, SeedableRng};
+use crate::models::sect::{
+    default_buildings, MoralDirection, SectAttributes, SectPolicy, SectState,
+};
+use crate::models::{Disciple, GameEvent, GameState};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::BTreeMap;
 
 struct SectTemplate {
@@ -287,6 +289,13 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                 morale: 55 + sect_index as i32 % 30,
             },
             policy: template.policy.clone(),
+            moral_direction: if template.morality >= 65 {
+                MoralDirection::Righteous
+            } else if template.morality <= 35 {
+                MoralDirection::Villainous
+            } else {
+                MoralDirection::Neutral
+            },
             rank_rules: Default::default(),
             buildings,
             inventory: BTreeMap::from([
@@ -385,6 +394,166 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
     }
 }
 
+/// NPC 门派按玩家相同的名额和长老规则逐月经营。
+pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
+    let sect_ids: Vec<String> = state.npc_sects.iter().map(|sect| sect.id.clone()).collect();
+    let mut changed = Vec::new();
+    for sect_id in sect_ids {
+        let Some(sect_index) = state.npc_sects.iter().position(|sect| sect.id == sect_id) else {
+            continue;
+        };
+        let members: Vec<Disciple> = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| {
+                disciple.alive && disciple.sect_id.as_deref() == Some(sect_id.as_str())
+            })
+            .cloned()
+            .collect();
+        let (_, inner_limit) =
+            crate::logic::sect::rank_limits(&state.npc_sects[sect_index], &members);
+        let elder_count = state.npc_sects[sect_index]
+            .buildings
+            .iter()
+            .filter(|building| building.elder_id.is_some())
+            .count();
+        let urgent = inner_limit < elder_count;
+        let mut notes = Vec::new();
+        if rng.gen_bool(if urgent { 0.82 } else { 0.08 })
+            && state.npc_sects[sect_index].attributes.silver >= 35
+        {
+            state.npc_sects[sect_index].attributes.silver -= 35;
+            let mut recruit =
+                generate_disciple(rng, state.npc_sects[sect_index].attributes.prestige / 20);
+            recruit.sect_id = Some(sect_id.clone());
+            recruit.origin_sect_id = Some(sect_id.clone());
+            recruit.rank = DiscipleRank::Chore;
+            assign_sect_curriculum(&mut recruit, &sect_id, 80);
+            state.npc_disciples.push(recruit);
+            notes.push("广开山门纳得新人");
+        }
+
+        let snapshot: Vec<Disciple> = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| {
+                disciple.alive && disciple.sect_id.as_deref() == Some(sect_id.as_str())
+            })
+            .cloned()
+            .collect();
+        let (outer_limit, _) =
+            crate::logic::sect::rank_limits(&state.npc_sects[sect_index], &snapshot);
+        let outer_count = snapshot
+            .iter()
+            .filter(|disciple| disciple.rank == DiscipleRank::Outer)
+            .count();
+        if outer_count < outer_limit {
+            if let Some(candidate) = state
+                .npc_disciples
+                .iter_mut()
+                .filter(|disciple| {
+                    disciple.alive
+                        && disciple.sect_id.as_deref() == Some(sect_id.as_str())
+                        && disciple.rank == DiscipleRank::Chore
+                })
+                .max_by_key(|disciple| disciple.merit)
+            {
+                candidate.rank = DiscipleRank::Outer;
+                notes.push("擢升一名外门弟子");
+            }
+        }
+        let snapshot: Vec<Disciple> = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| {
+                disciple.alive && disciple.sect_id.as_deref() == Some(sect_id.as_str())
+            })
+            .cloned()
+            .collect();
+        let (_, inner_limit) =
+            crate::logic::sect::rank_limits(&state.npc_sects[sect_index], &snapshot);
+        let inner_count = snapshot
+            .iter()
+            .filter(|disciple| disciple.rank == DiscipleRank::Inner)
+            .count();
+        if inner_count < inner_limit {
+            if let Some(candidate) = state
+                .npc_disciples
+                .iter_mut()
+                .filter(|disciple| {
+                    disciple.alive
+                        && disciple.sect_id.as_deref() == Some(sect_id.as_str())
+                        && disciple.rank == DiscipleRank::Outer
+                })
+                .max_by_key(|disciple| disciple.merit)
+            {
+                candidate.rank = DiscipleRank::Inner;
+                notes.push("擢升一名内门弟子");
+            }
+        }
+
+        let assigned: std::collections::BTreeSet<String> = state.npc_sects[sect_index]
+            .buildings
+            .iter()
+            .filter_map(|building| building.elder_id.clone())
+            .collect();
+        let mut candidates: Vec<String> = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| {
+                disciple.alive
+                    && disciple.sect_id.as_deref() == Some(sect_id.as_str())
+                    && disciple.rank == DiscipleRank::Inner
+                    && !assigned.contains(&disciple.id)
+            })
+            .map(|disciple| disciple.id.clone())
+            .collect();
+        for building in &mut state.npc_sects[sect_index].buildings {
+            if building.elder_id.is_none() {
+                if let Some(id) = candidates.pop() {
+                    building.elder_id = Some(id);
+                    notes.push("补授一席长老");
+                }
+            }
+            if building.elder_id.is_some() {
+                building.elder_action_used = true;
+            }
+        }
+        if elder_count > 0 {
+            state.npc_sects[sect_index].attributes.silver += elder_count as i32 * 2;
+        }
+        if !notes.is_empty() {
+            changed.push(format!(
+                "{}{}。",
+                state.npc_sects[sect_index].name,
+                notes.join("，")
+            ));
+        }
+    }
+    let total = changed.len();
+    let mut events: Vec<GameEvent> = changed
+        .into_iter()
+        .take(3)
+        .map(|text| GameEvent {
+            text,
+            mood: "neutral".into(),
+            year: state.year,
+            month: state.month,
+            category: "world".into(),
+        })
+        .collect();
+    if total > 3 {
+        events.push(GameEvent {
+            text: format!("另有{}家门派亦在招纳门人、整顿堂务。", total - 3),
+            mood: "neutral".into(),
+            year: state.year,
+            month: state.month,
+            category: "world".into(),
+        });
+    }
+    events
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,5 +600,32 @@ mod tests {
             disciples_a[12].aptitudes.strength,
             disciples_b[12].aptitudes.strength
         );
+    }
+
+    #[test]
+    fn understaffed_npc_sects_tend_to_recruit_and_follow_rank_rules() {
+        let mut state = GameState::default();
+        let (sects, disciples) = generate_npc_world(19);
+        state.npc_sects = sects;
+        state.npc_disciples = disciples;
+        let before = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| disciple.sect_id.as_deref() == Some("wudang"))
+            .count();
+        let mut rng = StdRng::seed_from_u64(19);
+        for _ in 0..8 {
+            run_npc_ai(&mut rng, &mut state);
+        }
+        let members: Vec<_> = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| disciple.sect_id.as_deref() == Some("wudang"))
+            .collect();
+        assert!(members.len() > before);
+        assert!(members
+            .iter()
+            .any(|disciple| disciple.rank == DiscipleRank::Chore));
+        assert!(state.npc_sects.iter().all(|sect| sect.buildings.len() == 7));
     }
 }

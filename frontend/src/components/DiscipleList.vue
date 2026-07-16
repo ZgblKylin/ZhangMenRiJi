@@ -3,12 +3,14 @@ import { reactive, ref } from 'vue'
 import type { ActionKind, Building, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillCategory, SkillEntry } from '../types'
 import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 
-const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; buildings: Building[]; disabled?: boolean }>()
+const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; buildings: Building[]; inventory: Record<string, number>; disabled?: boolean }>()
 const emit = defineEmits<{ manage: [command: ManagementRequest]; expel: [disciple: Disciple] }>()
 const openId = ref<string | null>(null)
 const selected = reactive<Record<string, ActionKind>>({})
 const selectedRank = reactive<Record<string, DiscipleRank>>({})
 const selectedTarget = reactive<Record<string, string>>({})
+const selectedItem = reactive<Record<string, string>>({})
+const issuableItems = ['草药', '金创药', '养气丹', '培元丹']
 const innerActions: Array<[ActionKind, string]> = [
   ['read', '研读典籍'], ['practice', '练习武功'], ['temper_body', '打熬气血'], ['cultivate_neili', '修炼内力'],
   ['meditate', '冥想养神'], ['spar', '同门切磋'], ['teach', '传功授艺'],
@@ -154,7 +156,8 @@ const appoint = (disciple: Disciple) => emit('manage', {
               <option value="chore">杂役</option><option value="outer">外门</option><option value="inner">内门</option>
             </select>
             <button class="btn btn-sm" :disabled="disabled" @click="appoint(d)">考校任用</button>
-            <button class="btn btn-sm" :disabled="disabled || !d.alive" @click="$emit('manage', { action: 'issue_item', disciple_id: d.id, item: '草药', quantity: 1 })">赐草药</button>
+            <select v-model="selectedItem[d.id]" :disabled="disabled"><option value="">赐物</option><option v-for="item in issuableItems" :key="item" :value="item" :disabled="!(inventory[item] || 0)">{{ item }}（{{ inventory[item] || 0 }}）</option></select>
+            <button class="btn btn-sm" :disabled="disabled || !d.alive || !selectedItem[d.id]" @click="$emit('manage', { action: 'issue_item', disciple_id: d.id, item: selectedItem[d.id], quantity: 1 })">赐予</button>
             <button class="btn btn-sm danger" :disabled="disabled" @click="emit('expel', d)">逐出</button>
           </div>
         </div>

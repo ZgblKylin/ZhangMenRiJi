@@ -33,6 +33,15 @@ pub enum SectPolicy {
     Reclusive,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MoralDirection {
+    #[default]
+    Righteous,
+    Neutral,
+    Villainous,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RankRules {
@@ -125,6 +134,7 @@ pub struct SectState {
     pub player_controlled: bool,
     pub attributes: SectAttributes,
     pub policy: SectPolicy,
+    pub moral_direction: MoralDirection,
     pub rank_rules: RankRules,
     pub buildings: Vec<Building>,
     pub inventory: BTreeMap<String, i32>,
@@ -144,6 +154,7 @@ impl Default for SectState {
             player_controlled: true,
             attributes: SectAttributes::default(),
             policy: SectPolicy::default(),
+            moral_direction: MoralDirection::default(),
             rank_rules: RankRules::default(),
             buildings: default_buildings(),
             inventory: BTreeMap::from([
@@ -166,7 +177,12 @@ pub fn default_buildings() -> Vec<Building> {
         ("scripture", "藏经阁", BuildingKind::Scripture, "传功长老"),
         ("warehouse", "仓库", BuildingKind::Warehouse, "司库长老"),
         ("herb_hall", "百草堂", BuildingKind::HerbHall, "司药长老"),
-        ("intelligence", "天枢阁", BuildingKind::Intelligence, "天枢长老"),
+        (
+            "intelligence",
+            "天枢阁",
+            BuildingKind::Intelligence,
+            "天枢长老",
+        ),
         ("affairs", "执事堂", BuildingKind::Affairs, "执事长老"),
         ("logistics", "庶务堂", BuildingKind::Logistics, "庶务长老"),
     ]

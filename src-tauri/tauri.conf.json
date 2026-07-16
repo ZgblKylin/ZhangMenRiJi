@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "掌门日记",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "identifier": "com.zhangmenriji.desktop",
   "build": {
     "frontendDist": "../frontend/dist",

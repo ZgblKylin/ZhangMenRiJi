@@ -28,13 +28,13 @@ const sections = [
   <TitleBar :game="game" @save="$emit('save')" @load="$emit('load')" @restart="$emit('restart')" />
   <div class="book-layout">
     <div class="left-page">
-      <DiscipleList :disciples="alive" :arts="arts" :buildings="game.sect.buildings" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" @expel="$emit('expel', $event)" />
+      <DiscipleList :disciples="alive" :arts="arts" :buildings="game.sect.buildings" :inventory="game.sect.inventory" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" @expel="$emit('expel', $event)" />
     </div>
     <div class="center-page">
       <nav class="section-tabs" aria-label="中栏内容切换">
         <button v-for="[id, label] in sections" :key="id" :class="{ active: section === id }" @click="section = id">{{ label }}</button>
         <AdvanceSection :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" @advance="$emit('advance')" />
-        <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}</b> 事</span>
+        <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}/{{ game.max_decisions }}</b></span>
       </nav>
       <TournamentPanel v-if="game.month === 12" :tournament="lastTournament" />
       <SectManagementPanel :game="game" :arts="arts" :decisions="decisions" :used="used" :view="section" @decide="$emit('decide', $event)" @manage="$emit('manage', $event)" />

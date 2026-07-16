@@ -2,7 +2,7 @@ use crate::logic::{disciple, sect};
 use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::management::ManagementRequest;
 use crate::models::martial_art::all_martial_arts;
-use crate::models::sect::{SectOrder, SectPolicy};
+use crate::models::sect::{BuildingKind, MoralDirection, SectOrder, SectPolicy};
 use crate::models::{GameEvent, GameState};
 use rand::Rng;
 use std::collections::BTreeMap;
@@ -12,7 +12,10 @@ pub fn execute_management(
     state: &mut GameState,
     request: ManagementRequest,
 ) -> Result<Vec<GameEvent>, String> {
-    let spends_decision = !matches!(&request, ManagementRequest::EquipSkill { .. });
+    let spends_decision = !matches!(
+        &request,
+        ManagementRequest::EquipSkill { .. } | ManagementRequest::RunElderDuty { .. }
+    );
     if state.game_over {
         return Err("山门已散，诸事皆休。".into());
     }
@@ -88,6 +91,13 @@ pub fn execute_management(
             format!(
                 "门中上下奉行“{}”之策，自本月起各有侧重。",
                 policy_name(&state.sect.policy)
+            )
+        }
+        ManagementRequest::SetMoralDirection { direction } => {
+            state.sect.moral_direction = direction;
+            format!(
+                "执事堂颁下门风新训，本派自此以“{}”为行事准绳。",
+                moral_direction_name(&state.sect.moral_direction)
             )
         }
         ManagementRequest::UpgradeBuilding { building_id } => {
@@ -179,7 +189,10 @@ pub fn execute_management(
                 };
                 if let Some((limit, name)) = limit {
                     if target_count >= limit {
-                        return Err(format!("{}名额已满（现有{}/上限{}）。", name, target_count, limit));
+                        return Err(format!(
+                            "{}名额已满（现有{}/上限{}）。",
+                            name, target_count, limit
+                        ));
                     }
                 }
             }
@@ -192,7 +205,9 @@ pub fn execute_management(
             disciple.department = department;
             disciple.attributes.sect_loyalty = (disciple.attributes.sect_loyalty + 4).min(100);
             disciple::sync_legacy_attributes(disciple);
-            format!("经掌门考校，{}获授新职，门中众人皆来道贺。", disciple.name)
+            let name = disciple.name.clone();
+            sect::normalize_elder_assignments(&mut state.sect, &state.disciples);
+            format!("经掌门考校，{}获授新职，门中众人皆来道贺。", name)
         }
         ManagementRequest::AssignElder {
             building_id,
@@ -206,24 +221,25 @@ pub fn execute_management(
                 .ok_or_else(|| "门中并无此处建筑。".to_string())?;
             let building_name = building.name.clone();
             let elder_title = building.elder_title.clone();
-            let elder_name = if let Some(id) = disciple_id.as_deref() {
-                let candidate = state
-                    .disciples
-                    .iter()
-                    .find(|disciple| disciple.id == id && disciple.alive)
-                    .ok_or_else(|| "查无此人，或此人已不在世。".to_string())?;
-                if candidate.rank != DiscipleRank::Inner {
-                    return Err("长老须从内门弟子中择任。".into());
-                }
-                if state.sect.buildings.iter().any(|other| {
-                    other.id != building_id && other.elder_id.as_deref() == Some(id)
-                }) {
-                    return Err("此人已主持别处事务，不可兼任两席长老。".into());
-                }
-                Some(candidate.name.clone())
-            } else {
-                None
-            };
+            let elder_name =
+                if let Some(id) = disciple_id.as_deref() {
+                    let candidate = state
+                        .disciples
+                        .iter()
+                        .find(|disciple| disciple.id == id && disciple.alive)
+                        .ok_or_else(|| "查无此人，或此人已不在世。".to_string())?;
+                    if candidate.rank != DiscipleRank::Inner {
+                        return Err("长老须从内门弟子中择任。".into());
+                    }
+                    if state.sect.buildings.iter().any(|other| {
+                        other.id != building_id && other.elder_id.as_deref() == Some(id)
+                    }) {
+                        return Err("此人已主持别处事务，不可兼任两席长老。".into());
+                    }
+                    Some(candidate.name.clone())
+                } else {
+                    None
+                };
             let building = state
                 .sect
                 .buildings
@@ -234,9 +250,16 @@ pub fn execute_management(
             building.elder_action_used = false;
             match elder_name {
                 Some(name) => format!("擢任{}为{}，自此主持{}。", name, elder_title, building_name),
-                None => format!("{}暂行空缺，{}事务仍由掌门兼领。", elder_title, building_name),
+                None => format!(
+                    "{}暂行空缺，{}事务仍由掌门兼领。",
+                    elder_title, building_name
+                ),
             }
         }
+        ManagementRequest::RunElderDuty {
+            building_id,
+            duty_id,
+        } => execute_elder_duty(rng, state, &building_id, &duty_id)?,
         ManagementRequest::Expel { disciple_id } => {
             let index = state
                 .disciples
@@ -244,6 +267,7 @@ pub fn execute_management(
                 .position(|disciple| disciple.id == disciple_id)
                 .ok_or_else(|| "查无此人。".to_string())?;
             let disciple = state.disciples.remove(index);
+            sect::normalize_elder_assignments(&mut state.sect, &state.disciples);
             state.sect.attributes.morale = (state.sect.attributes.morale - 4).max(0);
             format!("{}被逐出山门，自此恩义两断。", disciple.name)
         }
@@ -312,14 +336,26 @@ pub fn execute_management(
                 return Err(format!("草药不足，尚缺{}份。", herb_cost - herbs));
             }
             *state.sect.inventory.entry("草药".into()).or_default() -= herb_cost;
-            state.sect.productions.push(crate::models::sect::ProductionTask {
-                id: format!("{}_{}_{}_{}", recipe_id, state.year, state.month, state.sect.productions.len()),
-                name: name.into(),
-                output_item: name.into(),
-                quantity,
-                remaining_months: months,
-            });
-            format!("百草堂开炉炼制{}，耗草药{}份，需时{}个月。", name, herb_cost, months)
+            state
+                .sect
+                .productions
+                .push(crate::models::sect::ProductionTask {
+                    id: format!(
+                        "{}_{}_{}_{}",
+                        recipe_id,
+                        state.year,
+                        state.month,
+                        state.sect.productions.len()
+                    ),
+                    name: name.into(),
+                    output_item: name.into(),
+                    quantity,
+                    remaining_months: months,
+                });
+            format!(
+                "百草堂开炉炼制{}，耗草药{}份，需时{}个月。",
+                name, herb_cost, months
+            )
         }
         ManagementRequest::IssueOrder { order_id } => {
             if state
@@ -394,7 +430,10 @@ pub fn execute_management(
                 art_name(&candidate.id)
             )
         }
-        ManagementRequest::Exchange { sect_id, disciple_id } => {
+        ManagementRequest::Exchange {
+            sect_id,
+            disciple_id,
+        } => {
             let envoy_id = validate_inner_envoy(state, disciple_id.as_deref())?;
             spend(state, 45)?;
             let gain = rng.gen_range(10..=18);
@@ -464,8 +503,167 @@ fn validate_inner_envoy(state: &GameState, id: Option<&str>) -> Result<String, S
     Ok(id.to_owned())
 }
 
+fn execute_elder_duty(
+    rng: &mut impl Rng,
+    state: &mut GameState,
+    building_id: &str,
+    duty_id: &str,
+) -> Result<String, String> {
+    let building = state
+        .sect
+        .buildings
+        .iter()
+        .find(|building| building.id == building_id)
+        .ok_or_else(|| "门中并无此处建筑。".to_string())?;
+    if building.elder_action_used {
+        return Err("这位长老本月已办过一桩堂务。".into());
+    }
+    let elder_id = building
+        .elder_id
+        .clone()
+        .ok_or_else(|| "此处长老席位尚缺，无人主持堂务。".to_string())?;
+    let elder = state
+        .disciples
+        .iter()
+        .find(|disciple| {
+            disciple.id == elder_id && disciple.alive && disciple.rank == DiscipleRank::Inner
+        })
+        .ok_or_else(|| "现任长老已无法理事，请重新择任。".to_string())?;
+    if !disciple::can_act(elder) {
+        return Err("这位长老眼下伤病或外出，无法主持堂务。".into());
+    }
+    let elder_name = elder.name.clone();
+    let kind = building.kind.clone();
+    let allowed = match kind {
+        BuildingKind::Practice => ["instruct", "drill"],
+        BuildingKind::Scripture => ["curate", "comprehend"],
+        BuildingKind::Warehouse => ["audit", "purchase"],
+        BuildingKind::HerbHall => ["treat", "brew"],
+        BuildingKind::Intelligence => ["correspond", "scout"],
+        BuildingKind::Affairs => ["recruit", "arbitrate"],
+        BuildingKind::Logistics => ["maintain", "supervise"],
+    };
+    if !allowed.contains(&duty_id) {
+        return Err("这桩事务不在该堂职掌之内。".into());
+    }
+
+    let result = match duty_id {
+        "instruct" => {
+            state.sect.attributes.morale = (state.sect.attributes.morale + 3).min(100);
+            "整饬教习，门人习武之心更盛"
+        }
+        "drill" => {
+            for disciple in state.disciples.iter_mut().filter(|disciple| disciple.alive) {
+                disciple.merit += 2;
+            }
+            "主持月考，门人各添功绩"
+        }
+        "curate" => {
+            let books = state.sect.public_books.clone();
+            for book in books {
+                *state.sect.martial_research.entry(book).or_default() += 4;
+            }
+            "校勘群籍，各册参研皆有所得"
+        }
+        "comprehend" => {
+            if let Some(book) = state.sect.public_books.first().cloned() {
+                *state.sect.martial_research.entry(book).or_default() += 18;
+            }
+            "邀集门人合参一册，武理渐明"
+        }
+        "audit" => {
+            state.sect.attributes.silver += 12 + rng.gen_range(0..=12);
+            "清点旧账，追回一笔散碎库银"
+        }
+        "purchase" => {
+            if state.sect.attributes.silver < 15 {
+                return Err("库银不足以采买物资。".into());
+            }
+            state.sect.attributes.silver -= 15;
+            *state.sect.inventory.entry("草药".into()).or_default() += 5;
+            "下山采买，为库中添了五份草药"
+        }
+        "treat" => {
+            state.injury = (state.injury - 8).max(0);
+            "亲自诊治，掌门伤势稍减"
+        }
+        "brew" => {
+            let herbs = state.sect.inventory.get("草药").copied().unwrap_or(0);
+            if herbs < 2 {
+                return Err("草药不足两份，难以开炉。".into());
+            }
+            *state.sect.inventory.entry("草药".into()).or_default() -= 2;
+            *state.sect.inventory.entry("金创药".into()).or_default() += 1;
+            "试炼一炉，得金创药一份"
+        }
+        "correspond" => {
+            for relation in state.sect.relations.values_mut() {
+                *relation = (*relation + 2).min(100);
+            }
+            "修书诸派，江湖交情稍有增益"
+        }
+        "scout" => {
+            state.sect.attributes.prestige = (state.sect.attributes.prestige + 3).min(1000);
+            "遣人查探江湖消息，本派声名渐著"
+        }
+        "recruit" => {
+            if state.sect.attributes.silver < 25 {
+                return Err("库银不足以张罗纳徒。".into());
+            }
+            state.sect.attributes.silver -= 25;
+            let mut recruit = disciple::generate_disciple(rng, state.sect.attributes.prestige / 20);
+            recruit.rank = DiscipleRank::Chore;
+            recruit.sect_id = Some("player".into());
+            state.disciples.push(recruit);
+            "代掌门访得一名新人，先收入杂役名册"
+        }
+        "arbitrate" => {
+            match state.sect.moral_direction {
+                MoralDirection::Righteous => state.sect.attributes.morality += 3,
+                MoralDirection::Neutral => state.sect.attributes.morale += 2,
+                MoralDirection::Villainous => {
+                    state.sect.attributes.morality -= 3;
+                    state.sect.attributes.silver += 18;
+                }
+            }
+            state.sect.attributes.morality = state.sect.attributes.morality.clamp(0, 100);
+            state.sect.attributes.morale = state.sect.attributes.morale.clamp(0, 100);
+            "依本派门风处置一桩江湖事务"
+        }
+        "maintain" => {
+            for building in &mut state.sect.buildings {
+                building.condition = (building.condition + 4).min(100);
+            }
+            "督率杂役巡检诸堂，建筑损耗得以修复"
+        }
+        "supervise" => {
+            for building in &mut state.sect.buildings {
+                if building.work_required > 0 {
+                    building.work_invested =
+                        (building.work_invested + 6).min(building.work_required);
+                }
+            }
+            "亲临工地督造，各处营造进度俱增"
+        }
+        _ => unreachable!("堂务已校验"),
+    };
+    if let Some(building) = state
+        .sect
+        .buildings
+        .iter_mut()
+        .find(|building| building.id == building_id)
+    {
+        building.elder_action_used = true;
+    }
+    Ok(format!("{}本月{}。", elder_name, result))
+}
+
 fn dispatch_inner_envoy(state: &mut GameState, id: &str, assigned_by: &str) {
-    if let Some(disciple) = state.disciples.iter_mut().find(|disciple| disciple.id == id) {
+    if let Some(disciple) = state
+        .disciples
+        .iter_mut()
+        .find(|disciple| disciple.id == id)
+    {
         disciple.away_months = 2;
         disciple.action = Some(ActionPlan {
             kind: ActionKind::SectMission,
@@ -497,9 +695,36 @@ fn rank_merit(rank: &DiscipleRank) -> i64 {
 
 fn rank_allows_action(rank: &DiscipleRank, kind: &ActionKind) -> bool {
     match rank {
-        DiscipleRank::Chore => matches!(kind, ActionKind::Maintain | ActionKind::Construct | ActionKind::Produce | ActionKind::Business | ActionKind::Gather | ActionKind::Recover),
-        DiscipleRank::Outer => matches!(kind, ActionKind::Practice | ActionKind::Spar | ActionKind::SectMission | ActionKind::Wander | ActionKind::Recover),
-        DiscipleRank::Inner => matches!(kind, ActionKind::Read | ActionKind::Practice | ActionKind::Teach | ActionKind::Spar | ActionKind::TemperBody | ActionKind::CultivateNeili | ActionKind::Meditate | ActionKind::SectMission | ActionKind::Wander | ActionKind::Recover),
+        DiscipleRank::Chore => matches!(
+            kind,
+            ActionKind::Maintain
+                | ActionKind::Construct
+                | ActionKind::Produce
+                | ActionKind::Business
+                | ActionKind::Gather
+                | ActionKind::Recover
+        ),
+        DiscipleRank::Outer => matches!(
+            kind,
+            ActionKind::Practice
+                | ActionKind::Spar
+                | ActionKind::SectMission
+                | ActionKind::Wander
+                | ActionKind::Recover
+        ),
+        DiscipleRank::Inner => matches!(
+            kind,
+            ActionKind::Read
+                | ActionKind::Practice
+                | ActionKind::Teach
+                | ActionKind::Spar
+                | ActionKind::TemperBody
+                | ActionKind::CultivateNeili
+                | ActionKind::Meditate
+                | ActionKind::SectMission
+                | ActionKind::Wander
+                | ActionKind::Recover
+        ),
     }
 }
 
@@ -511,6 +736,14 @@ fn policy_name(policy: &SectPolicy) -> &'static str {
         SectPolicy::Chivalrous => "行侠尚义",
         SectPolicy::Mercantile => "通商裕库",
         SectPolicy::Reclusive => "闭门清修",
+    }
+}
+
+fn moral_direction_name(direction: &MoralDirection) -> &'static str {
+    match direction {
+        MoralDirection::Righteous => "行侠仗义",
+        MoralDirection::Neutral => "独善其身",
+        MoralDirection::Villainous => "为非作歹",
     }
 }
 
@@ -676,5 +909,43 @@ mod tests {
             .sect
             .public_books
             .contains(&"wudang_foundation".into()));
+        assert_eq!(state.disciples[0].away_months, 2);
+    }
+
+    #[test]
+    fn elder_duty_has_its_own_once_per_month_allowance() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(21);
+        let mut elder = disciple::generate_disciple(&mut rng, 0);
+        elder.rank = DiscipleRank::Inner;
+        let elder_id = elder.id.clone();
+        state.disciples.push(elder);
+        state.sect.buildings[0].elder_id = Some(elder_id);
+        let request = ManagementRequest::RunElderDuty {
+            building_id: "practice".into(),
+            duty_id: "instruct".into(),
+        };
+        execute_management(&mut rng, &mut state, request.clone()).unwrap();
+        assert_eq!(state.decisions_used, 0);
+        assert!(state.sect.buildings[0].elder_action_used);
+        assert!(execute_management(&mut rng, &mut state, request).is_err());
+    }
+
+    #[test]
+    fn pill_production_consumes_herbs_and_finishes_over_time() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(22);
+        let herbs = state.sect.inventory["草药"];
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::BrewPill {
+                recipe_id: "wound".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(state.sect.inventory["草药"], herbs - 4);
+        crate::logic::sect::apply_monthly_upkeep(&mut state.sect, 0);
+        assert_eq!(state.sect.inventory["金创药"], 2);
     }
 }

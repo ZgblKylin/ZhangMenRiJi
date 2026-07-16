@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { BuildingKind, Decision, GameState, ManagementRequest, MartialArt, SectPolicy } from '../types'
+import type { BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy } from '../types'
 import DecisionGrid from './DecisionGrid.vue'
 import MartialArtsPanel from './MartialArtsPanel.vue'
 import SectViewPanel from './SectViewPanel.vue'
@@ -17,6 +17,15 @@ const policyNames: Array<[SectPolicy, string, string]> = [
   ['balanced', '持中守成', '诸务均衡'], ['martial', '崇武精进', '偏重练武'], ['scholarly', '研经明理', '偏重研读'],
   ['chivalrous', '行侠尚义', '积攒道义'], ['mercantile', '通商裕库', '增益进项'], ['reclusive', '闭门清修', '加快调息'],
 ]
+const moralDirections: Array<[MoralDirection, string, string]> = [
+  ['righteous', '行侠仗义', '扶危济困，道德渐长'], ['neutral', '独善其身', '不涉恩怨，安定门心'], ['villainous', '为非作歹', '劫掠牟利，道德日损'],
+]
+const elderDuties: Record<BuildingKind, Array<[string, string]>> = {
+  practice: [['instruct', '整饬教习'], ['drill', '主持月考']], scripture: [['curate', '校勘群籍'], ['comprehend', '邀众合参']],
+  warehouse: [['audit', '清点旧账'], ['purchase', '下山采买']], herb_hall: [['treat', '诊治掌门'], ['brew', '试炼小炉']],
+  intelligence: [['correspond', '修书诸派'], ['scout', '查探江湖']], affairs: [['recruit', '代访新人'], ['arbitrate', '处置事务']],
+  logistics: [['maintain', '巡检诸堂'], ['supervise', '亲临督造']],
+}
 const orders = [
   ['diligent', '勤修令', '三月内门人更喜练武', 60], ['righteous', '尚义令', '四月内涵养门风', 80],
   ['frugal', '节用令', '四月内节用裕库', 50], ['rest', '调息令', '两月内静养更佳', 45],
@@ -61,6 +70,10 @@ const viewedDisciples = computed(() => props.game.npc_disciples.filter(disciple 
         </select>
       </label>
       <i>{{ elderName }}</i>
+      <div class="elder-duty-actions">
+        <button v-for="[id, label] in elderDuties[view]" :key="id" class="btn btn-sm" :disabled="!currentBuilding.elder_id || currentBuilding.elder_action_used || !!game.pending_event" @click="command({ action: 'run_elder_duty', building_id: currentBuilding.id, duty_id: id })">{{ label }}</button>
+        <small>{{ currentBuilding.elder_action_used ? '本月堂务已办' : '长老本月可办一事' }}</small>
+      </div>
     </header>
 
     <DecisionGrid v-if="buildingDecisions.length" :decisions="buildingDecisions" :arts="arts" :game="game" :used="used" :title="`${currentBuilding?.name || ''}本月议事`" @decide="$emit('decide', $event)" />
@@ -117,6 +130,8 @@ const viewedDisciples = computed(() => props.game.npc_disciples.filter(disciple 
       <div class="management-row-title">门籍名额</div>
       <div class="rank-ledger"><span>杂役 <b>{{ rankCount('chore') }}</b><small>不限</small></span><span>外门 <b>{{ rankCount('outer') }}/{{ outerLimit }}</b><small>总数 × {{ Math.round(game.sect.rank_rules.outer_ratio * 100) }}%</small></span><span>内门 <b>{{ rankCount('inner') }}/{{ innerLimit }}</b><small>外门 × {{ Math.round(game.sect.rank_rules.inner_ratio * 100) }}%</small></span></div>
       <div class="management-row-title">掌门方略</div>
+      <div class="moral-grid"><button v-for="[id, name, note] in moralDirections" :key="id" class="policy-card" :class="{ active: game.sect.moral_direction === id }" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'set_moral_direction', direction: id })"><b>{{ name }}</b><small>{{ note }}</small></button></div>
+      <div class="management-row-title">经营侧重</div>
       <div class="policy-grid"><button v-for="[id, name, note] in policyNames" :key="id" class="policy-card" :class="{ active: game.sect.policy === id }" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'set_policy', policy: id })"><b>{{ name }}</b><small>{{ note }}</small></button></div>
       <div class="management-row-title">掌门令</div>
       <div class="order-grid"><button v-for="[id, name, desc, cost] in orders" :key="id" class="order-card" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'issue_order', order_id: id })"><b>{{ name }}</b><span>{{ desc }}</span><small>库银 {{ cost }} 两</small></button></div>

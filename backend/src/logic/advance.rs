@@ -123,6 +123,7 @@ fn finish_month(
     state: &mut GameState,
     mut events: Vec<GameEvent>,
 ) -> AdvanceResult {
+    events.extend(crate::logic::world::run_npc_ai(rng, state));
     // 所有人物仍基于定夺完成后的同一份月初快照并行行动，结果统一归并。
     events.extend(crate::logic::action::run_auto_actions(state));
 
@@ -215,6 +216,10 @@ fn finish_month(
     if state.prestige <= 0 && state.morale <= 0 {
         state.game_over = true;
         state.game_over_reason = "江湖声望尽失，门人志气消沉。本派终究未能撑过难关。".into();
+    }
+    crate::logic::sect::normalize_elder_assignments(&mut state.sect, &state.disciples);
+    for npc_sect in &mut state.npc_sects {
+        crate::logic::sect::normalize_elder_assignments(npc_sect, &state.npc_disciples);
     }
 
     // 9. 论剑（12月推进时触发）

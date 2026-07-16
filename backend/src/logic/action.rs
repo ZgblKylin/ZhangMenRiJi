@@ -185,44 +185,50 @@ fn choose_action(state: &GameState, actor: &Actor, rng: &mut StdRng) -> ActionKi
     let mut choices = match d.rank.clone() {
         DiscipleRank::Chore => vec![
             (ActionKind::Produce, 18),
-            (ActionKind::Business, 16 + sect::policy_bonus(policy, "income")),
+            (
+                ActionKind::Business,
+                16 + sect::policy_bonus(policy, "income"),
+            ),
             (ActionKind::Gather, 18),
             (ActionKind::Recover, 8),
         ],
         DiscipleRank::Outer => vec![
-            (ActionKind::Practice, 24 + sect::policy_bonus(policy, "martial")),
+            (
+                ActionKind::Practice,
+                24 + sect::policy_bonus(policy, "martial"),
+            ),
             (ActionKind::Spar, 18 + sect::policy_bonus(policy, "martial")),
             (ActionKind::SectMission, 12),
             (ActionKind::Wander, 10 + d.aptitudes.fortune / 5),
         ],
         DiscipleRank::Inner => vec![
-        (
-            ActionKind::Read,
-            12 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
-        ),
-        (
-            ActionKind::Practice,
-            14 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
-        ),
-        (ActionKind::Teach, 8),
-        (ActionKind::Spar, 12 + sect::policy_bonus(policy, "martial")),
-        (
-            ActionKind::TemperBody,
-            13 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
-        ),
-        (
-            ActionKind::CultivateNeili,
-            15 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
-        ),
-        (
-            ActionKind::Meditate,
-            9 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
-        ),
-        (
-            ActionKind::SectMission,
-            9 + sect::policy_bonus(policy, "income") + sect::order_bonus(policy, "income"),
-        ),
-        (ActionKind::Wander, 8 + d.aptitudes.fortune / 5),
+            (
+                ActionKind::Read,
+                12 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
+            ),
+            (
+                ActionKind::Practice,
+                14 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
+            ),
+            (ActionKind::Teach, 8),
+            (ActionKind::Spar, 12 + sect::policy_bonus(policy, "martial")),
+            (
+                ActionKind::TemperBody,
+                13 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
+            ),
+            (
+                ActionKind::CultivateNeili,
+                15 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
+            ),
+            (
+                ActionKind::Meditate,
+                9 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
+            ),
+            (
+                ActionKind::SectMission,
+                9 + sect::policy_bonus(policy, "income") + sect::order_bonus(policy, "income"),
+            ),
+            (ActionKind::Wander, 8 + d.aptitudes.fortune / 5),
         ],
     };
     if d.attributes.qi.current < d.attributes.qi.maximum / 3
@@ -865,12 +871,21 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
                 *target.inventory.entry(item).or_default() += quantity;
             }
             for (building_id, work) in delta.building_work {
-                if let Some(building) = target.buildings.iter_mut().find(|building| building.id == building_id) {
-                    building.work_invested = (building.work_invested + work).min(building.work_required);
+                if let Some(building) = target
+                    .buildings
+                    .iter_mut()
+                    .find(|building| building.id == building_id)
+                {
+                    building.work_invested =
+                        (building.work_invested + work).min(building.work_required);
                 }
             }
             for (building_id, work) in delta.building_maintenance {
-                if let Some(building) = target.buildings.iter_mut().find(|building| building.id == building_id) {
+                if let Some(building) = target
+                    .buildings
+                    .iter_mut()
+                    .find(|building| building.id == building_id)
+                {
                     building.condition = (building.condition + work).min(100);
                 }
             }

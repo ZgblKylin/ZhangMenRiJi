@@ -1,5 +1,5 @@
 use crate::models::attributes::{ActionKind, Department, DiscipleRank};
-use crate::models::sect::SectPolicy;
+use crate::models::sect::{MoralDirection, SectPolicy};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -19,6 +19,9 @@ pub enum ManagementRequest {
     SetPolicy {
         policy: SectPolicy,
     },
+    SetMoralDirection {
+        direction: MoralDirection,
+    },
     UpgradeBuilding {
         building_id: String,
     },
@@ -34,6 +37,10 @@ pub enum ManagementRequest {
     AssignElder {
         building_id: String,
         disciple_id: Option<String>,
+    },
+    RunElderDuty {
+        building_id: String,
+        duty_id: String,
     },
     Expel {
         disciple_id: String,

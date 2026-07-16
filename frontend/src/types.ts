@@ -1,6 +1,7 @@
 export type Mood = 'good' | 'bad' | 'neutral'
 export type ActionKind = 'read' | 'practice' | 'teach' | 'spar' | 'temper_body' | 'cultivate_neili' | 'meditate' | 'sect_mission' | 'wander' | 'recover' | 'maintain' | 'construct' | 'produce' | 'business' | 'gather'
 export type SectPolicy = 'balanced' | 'martial' | 'scholarly' | 'chivalrous' | 'mercantile' | 'reclusive'
+export type MoralDirection = 'righteous' | 'neutral' | 'villainous'
 export type DiscipleRank = 'chore' | 'outer' | 'inner'
 export type BuildingKind = 'practice' | 'scripture' | 'warehouse' | 'herb_hall' | 'intelligence' | 'affairs' | 'logistics'
 export type Department = 'transmission' | 'library' | 'apothecary' | 'treasury' | 'stewardship' | 'external_affairs'
@@ -110,6 +111,7 @@ export interface SectState {
   player_controlled: boolean
   attributes: SectAttributes
   policy: SectPolicy
+  moral_direction: MoralDirection
   rank_rules: RankRules
   buildings: Building[]
   inventory: Record<string, number>
