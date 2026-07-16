@@ -18,6 +18,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/games", get(games::list_games))
         .route("/api/games/{id}", get(games::get_game))
         .route("/api/games/{id}", delete(games::delete_game))
+        .route("/api/games/{id}/saves", post(games::create_manual_save))
+        .route("/api/save-groups/{id}", delete(games::delete_save_group))
         .route(
             "/api/games/{id}/decisions/{decision_id}",
             post(decisions::execute_decision),

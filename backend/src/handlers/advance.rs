@@ -33,6 +33,7 @@ pub async fn advance_month(
             .into_response();
     }
 
+    let before = (game_state.year, game_state.month);
     // RNG 在块内消费完即 drop，不跨 await
     let (events, tournament, game_over) = {
         let mut rng = rand::thread_rng();
@@ -40,12 +41,24 @@ pub async fn advance_month(
     };
     crate::logic::sect::absorb_legacy_fields(&mut game_state);
 
-    if let Err(e) = crate::db::update_game(&state.pool, id, &sect_name, &game_state).await {
-        return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
-    }
-    let _ = crate::db::append_events(&state.pool, id, &events).await;
+    let save_id = if (game_state.year, game_state.month) != before {
+        match crate::db::create_save(&state.pool, id, &sect_name, &game_state, true).await {
+            Ok(Some(save_id)) => save_id,
+            Ok(None) => return (StatusCode::NOT_FOUND, "存档不存在").into_response(),
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    } else {
+        // 交互事件尚未结算，月份未推进，先保存在当前时间点中。
+        if let Err(e) = crate::db::update_game(&state.pool, id, &sect_name, &game_state).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+        id
+    };
+    let _ = crate::db::append_events(&state.pool, save_id, &events).await;
+    game_state.autosave = save_id != id || game_state.autosave;
 
     Json(serde_json::json!({
+        "id": save_id,
         "events": events,
         "tournament": tournament,
         "game_over": game_over,
@@ -75,11 +88,18 @@ pub async fn resolve_event(
         Ok(result) => result,
         Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
     };
-    if let Err(error) = crate::db::update_game(&state.pool, id, &sect_name, &game_state).await {
-        return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
-    }
-    let _ = crate::db::append_events(&state.pool, id, &events).await;
+    let save_id = match crate::db::create_save(&state.pool, id, &sect_name, &game_state, true).await
+    {
+        Ok(Some(save_id)) => save_id,
+        Ok(None) => return (StatusCode::NOT_FOUND, "存档不存在").into_response(),
+        Err(error) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
+        }
+    };
+    let _ = crate::db::append_events(&state.pool, save_id, &events).await;
+    game_state.autosave = true;
     Json(serde_json::json!({
+        "id": save_id,
         "events": events,
         "tournament": tournament,
         "game_over": game_over,

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct GameState {
     pub schema_version: i32,
+    /// 当前存档是否由月令推进自动生成；旧存档反序列化时默认为 false。
+    pub autosave: bool,
     pub year: i32,
     pub month: i32,
     pub prestige: i32,
@@ -35,6 +37,7 @@ impl Default for GameState {
     fn default() -> Self {
         Self {
             schema_version: 3,
+            autosave: false,
             year: 1,
             month: 1,
             prestige: 45,
@@ -64,6 +67,8 @@ impl Default for GameState {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct GameSummary {
     pub id: uuid::Uuid,
+    pub save_group_id: uuid::Uuid,
+    pub save_type: String,
     pub sect_name: String,
     pub state: serde_json::Value,
     pub updated_at: chrono::DateTime<chrono::Utc>,
