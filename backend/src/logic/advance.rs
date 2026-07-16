@@ -1,40 +1,181 @@
-use rand::Rng;
-use crate::models::{GameState, GameEvent};
 use crate::logic::disciple as disc;
 use crate::logic::event::{self, RandomEvent};
 use crate::logic::tournament;
+use crate::models::{GameEvent, GameState};
+use rand::Rng;
+
+pub type AdvanceResult = (
+    Vec<GameEvent>,
+    Option<crate::models::tournament::TournamentResult>,
+    bool,
+);
 
 /// 推进月份
-pub fn advance_month(
-    rng: &mut impl Rng,
-    state: &mut GameState,
-) -> (Vec<GameEvent>, Option<crate::models::tournament::TournamentResult>, bool) {
+pub fn advance_month(rng: &mut impl Rng, state: &mut GameState) -> AdvanceResult {
     let mut events = vec![];
 
-    // 1. 触发随机事件
+    if state.pending_event.is_some() {
+        return (events, None, state.game_over);
+    }
+
+    // 约三成月份先遇到须由掌门定夺的大事，定夺前不改动月初快照。
+    if rng.gen_bool(0.3) {
+        let pending = event::trigger_interactive_event(rng);
+        let announcement = GameEvent {
+            text: format!(
+                "【{}】{}：{}",
+                pending.category, pending.title, pending.text
+            ),
+            mood: "neutral".into(),
+            year: state.year,
+            month: state.month,
+            category: interactive_category(&pending.category).into(),
+        };
+        state.pending_event = serde_json::to_value(&pending).ok();
+        state.event_log.push(announcement.clone());
+        trim_log(state);
+        events.push(announcement);
+        return (events, None, state.game_over);
+    }
+
+    // 无须抉择的普通月闻立即结算，而后继续推演本月行动。
     let random_event: RandomEvent = event::trigger_random_event(rng);
     let extra_events = event::apply_event_effect(rng, state, &random_event);
+    for disciple in &mut state.disciples {
+        disc::absorb_legacy_attributes(disciple);
+    }
     let mood = if random_event.good { "good" } else { "bad" };
+    let category = if random_event.id.starts_with("jh_") {
+        "world"
+    } else {
+        "sect"
+    };
     events.push(GameEvent {
         text: random_event.text.clone(),
         mood: mood.into(),
         year: state.year,
         month: state.month,
+        category: category.into(),
     });
     for t in extra_events {
-        events.push(GameEvent { text: t, mood: "good".into(), year: state.year, month: state.month });
+        events.push(GameEvent {
+            text: t,
+            mood: "good".into(),
+            year: state.year,
+            month: state.month,
+            category: category.into(),
+        });
+    }
+    crate::logic::sect::absorb_legacy_fields(state);
+
+    finish_month(rng, state, events)
+}
+
+pub fn resolve_pending_event(
+    rng: &mut impl Rng,
+    state: &mut GameState,
+    option_id: &str,
+) -> Result<AdvanceResult, String> {
+    let value = state
+        .pending_event
+        .clone()
+        .ok_or_else(|| "眼下并无待决之事。".to_string())?;
+    let pending: event::PendingWorldEvent =
+        serde_json::from_value(value).map_err(|_| "此事卷宗已有残缺，无法处置。".to_string())?;
+    let category = interactive_category(&pending.category);
+    let choice = pending
+        .choices
+        .iter()
+        .find(|choice| choice.id == option_id)
+        .cloned()
+        .ok_or_else(|| "掌门所选并非卷宗所列之策。".to_string())?;
+    let random_event = RandomEvent {
+        id: format!("{}:{}", pending.id, choice.id),
+        text: choice.result_text.clone(),
+        effect: choice.effect,
+        good: choice.good,
+    };
+    let extra = event::apply_event_effect(rng, state, &random_event);
+    for disciple in &mut state.disciples {
+        disc::absorb_legacy_attributes(disciple);
+    }
+    crate::logic::sect::absorb_legacy_fields(state);
+    state.pending_event = None;
+    let mut events = vec![GameEvent {
+        text: random_event.text,
+        mood: if random_event.good { "good" } else { "bad" }.into(),
+        year: state.year,
+        month: state.month,
+        category: category.into(),
+    }];
+    events.extend(extra.into_iter().map(|text| GameEvent {
+        text,
+        mood: "good".into(),
+        year: state.year,
+        month: state.month,
+        category: category.into(),
+    }));
+    Ok(finish_month(rng, state, events))
+}
+
+fn finish_month(
+    rng: &mut impl Rng,
+    state: &mut GameState,
+    mut events: Vec<GameEvent>,
+) -> AdvanceResult {
+    for (building_name, result) in
+        crate::logic::management::execute_monthly_elder_duties(rng, state)
+    {
+        let (text, mood) = match result {
+            Ok(text) => (text, "good"),
+            Err(error) => (format!("{}堂务未成：{}", building_name, error), "neutral"),
+        };
+        events.push(GameEvent {
+            text,
+            mood: mood.into(),
+            year: state.year,
+            month: state.month,
+            category: "sect".into(),
+        });
+    }
+    events.extend(crate::logic::world::run_npc_ai(rng, state));
+    // 所有人物仍基于定夺完成后的同一份月初快照并行行动，结果统一归并。
+    events.extend(crate::logic::action::run_auto_actions(state));
+
+    // 3. 结算年龄、门忠和月末自然恢复；修为仍由每人的实际行动独立结算。
+    disc::settle_month(&mut state.disciples, state.morale);
+    for sect in &state.npc_sects {
+        let morale = sect.attributes.morale;
+        for member in state
+            .npc_disciples
+            .iter_mut()
+            .filter(|d| d.sect_id.as_deref() == Some(sect.id.as_str()))
+        {
+            disc::settle_month(std::slice::from_mut(member), morale);
+        }
     }
 
-    // 2. 弟子月度成长
-    disc::monthly_growth(rng, &mut state.disciples, state.morale);
+    // 4. 各派建筑、门人用度与门派令统一结算
+    let alive_count = state.disciples.iter().filter(|d| d.alive).count();
+    let (income, expense) = crate::logic::sect::apply_monthly_upkeep(&mut state.sect, alive_count);
+    events.push(GameEvent {
+        text: format!("司库月结：进项{}两，用度{}两。", income, expense),
+        mood: if income >= expense { "good" } else { "neutral" }.into(),
+        year: state.year,
+        month: state.month,
+        category: "sect".into(),
+    });
+    for npc_sect in &mut state.npc_sects {
+        let members = state
+            .npc_disciples
+            .iter()
+            .filter(|d| d.alive && d.sect_id.as_deref() == Some(npc_sect.id.as_str()))
+            .count();
+        crate::logic::sect::apply_monthly_upkeep(npc_sect, members);
+    }
+    crate::logic::sect::sync_legacy_fields(state);
 
-    // 3. 被动收支
-    let alive_count = state.disciples.iter().filter(|d| d.alive).count() as i32;
-    let income = state.prestige * 3 / 10 + alive_count * 3;
-    let expense = alive_count * 5 + 20;
-    state.silver = (state.silver + income - expense).max(0);
-
-    // 4. 志气自然浮动
+    // 5. 志气自然浮动
     state.morale = disc::clamp(state.morale + disc::rand_range(rng, -3, 3), 0, 100);
 
     // 5. 掌门伤势恢复
@@ -48,6 +189,7 @@ pub fn advance_month(
             mood: "bad".into(),
             year: state.year,
             month: state.month,
+            category: "sect".into(),
         });
         state.morale = disc::clamp(state.morale - 5, 0, 100);
     }
@@ -60,14 +202,22 @@ pub fn advance_month(
             let leave_count = (alive / 3).max(1);
             let mut left = 0;
             state.disciples.retain(|d| {
-                if !d.alive { return false; }
-                if left < leave_count { left += 1; false } else { true }
+                if !d.alive {
+                    return false;
+                }
+                if left < leave_count {
+                    left += 1;
+                    false
+                } else {
+                    true
+                }
             });
             events.push(GameEvent {
                 text: "库银见底，数名弟子辞别而去……".into(),
                 mood: "bad".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
     }
@@ -82,15 +232,23 @@ pub fn advance_month(
         state.game_over = true;
         state.game_over_reason = "江湖声望尽失，门人志气消沉。本派终究未能撑过难关。".into();
     }
+    crate::logic::sect::normalize_elder_assignments(&mut state.sect, &state.disciples);
+    for npc_sect in &mut state.npc_sects {
+        crate::logic::sect::normalize_elder_assignments(npc_sect, &state.npc_disciples);
+    }
 
     // 9. 论剑（12月推进时触发）
     let tournament_result = if state.month == 12 {
         let result = tournament::run_tournament(rng, state);
         events.push(GameEvent {
-            text: format!("年终论剑！本派在{}派中位列第{}名。{}", result.total_sects, result.rank, result.desc_text),
+            text: format!(
+                "年终论剑！本派在{}派中位列第{}名。{}",
+                result.total_sects, result.rank, result.desc_text
+            ),
             mood: "good".into(),
             year: state.year,
             month: 12,
+            category: "sect".into(),
         });
         Some(result)
     } else {
@@ -107,6 +265,7 @@ pub fn advance_month(
             mood: "neutral".into(),
             year: state.year,
             month: state.month,
+            category: "sect".into(),
         });
     }
 
@@ -114,14 +273,106 @@ pub fn advance_month(
     for ev in &events {
         state.event_log.push(ev.clone());
     }
-    if state.event_log.len() > 50 {
-        let excess = state.event_log.len() - 50;
-        state.event_log.drain(0..excess);
-    }
+    trim_log(state);
 
     // 11. 重置决策
     state.decisions_used = 0;
     state.pending_event = None;
 
     (events, tournament_result, state.game_over)
+}
+
+fn trim_log(state: &mut GameState) {
+    if state.event_log.len() > 80 {
+        let excess = state.event_log.len() - 80;
+        state.event_log.drain(0..excess);
+    }
+}
+
+fn interactive_category(category: &str) -> &'static str {
+    match category {
+        "江湖" | "朝廷" | "乡里" => "world",
+        _ => "sect",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::world;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn resolving_pending_event_continues_the_paused_month() {
+        let mut state = GameState {
+            world_seed: 77,
+            ..GameState::default()
+        };
+        let (sects, npc_disciples) = world::generate_npc_world(state.world_seed);
+        state.npc_sects = sects;
+        state.npc_disciples = npc_disciples;
+        state.disciples.push(state.npc_disciples[0].clone());
+        state.disciples[0].sect_id = Some("player".into());
+        let pending = event::interactive_events().remove(0);
+        let choice = pending.choices[0].id.clone();
+        state.pending_event = Some(serde_json::to_value(pending).unwrap());
+        let mut rng = StdRng::seed_from_u64(4);
+        let result = resolve_pending_event(&mut rng, &mut state, &choice).unwrap();
+        assert_eq!(state.month, 2);
+        assert!(state.pending_event.is_none());
+        assert!(!result.0.is_empty());
+    }
+
+    #[test]
+    fn advancing_month_executes_selected_elder_duty() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(31);
+        let mut elder = disc::generate_disciple(&mut rng, 0);
+        elder.rank = crate::models::attributes::DiscipleRank::Inner;
+        let elder_id = elder.id.clone();
+        state.disciples.push(elder);
+        state.sect.buildings[0].elder_id = Some(elder_id);
+        state.sect.buildings[0].selected_duty = Some("drill".into());
+
+        let merit = state.disciples[0].merit;
+        let (events, _, _) = finish_month(&mut rng, &mut state, vec![]);
+
+        assert_eq!(state.disciples[0].merit, merit + 2);
+        assert!(state.sect.buildings[0].elder_action_used);
+        assert!(events.iter().any(|event| event.text.contains("主持月考")));
+    }
+
+    #[test]
+    fn complete_playthrough_reaches_two_tournaments_in_24_months() {
+        let mut rng = StdRng::seed_from_u64(20260716);
+        let mut state = GameState {
+            world_seed: 20260716,
+            ..GameState::default()
+        };
+        let (sects, npc_disciples) = world::generate_npc_world(state.world_seed);
+        state.npc_sects = sects;
+        state.npc_disciples = npc_disciples;
+        state.disciples = disc::generate_starting_disciples(&mut rng);
+
+        let mut elapsed = 0;
+        while elapsed < 24 {
+            let before = (state.year, state.month);
+            advance_month(&mut rng, &mut state);
+            if let Some(value) = state.pending_event.clone() {
+                let pending: event::PendingWorldEvent = serde_json::from_value(value).unwrap();
+                resolve_pending_event(&mut rng, &mut state, &pending.choices[0].id).unwrap();
+            }
+            if (state.year, state.month) != before {
+                elapsed += 1;
+            }
+            assert!(!state.game_over, "第{elapsed}个月意外散伙");
+        }
+
+        assert_eq!((state.year, state.month), (3, 1));
+        assert_eq!(state.tournament_history.len(), 2);
+        assert!(state
+            .event_log
+            .iter()
+            .any(|event| event.text.contains("年终论剑")));
+    }
 }

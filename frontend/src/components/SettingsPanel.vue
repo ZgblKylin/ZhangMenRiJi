@@ -35,7 +35,7 @@ const saveConfig = async () => {
   message.value = ''
   try {
     await invoke('save_config', { config: form.value })
-    message.value = '✅ 配置已保存，请重启应用使其生效喵～'
+    message.value = '配置已存，请重启案牍使其生效。'
   } catch (e) {
     message.value = `❌ 保存失败: ${e}`
   } finally {
@@ -54,7 +54,7 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
       </h2>
 
       <div v-if="!isTauri" style="text-align: center; color: var(--color-ink-fade); padding: 1rem; font-size: .85rem;">
-        请在桌面应用中打开此设置面板喵～<br>浏览器开发模式下配置通过 <code>.env</code> 文件管理。
+        此卷须在桌面应用中开启。<br>若从浏览器调试，请在 <code>.env</code> 中书写配置。
       </div>
 
       <div v-else class="config-form">
@@ -82,9 +82,9 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
         <div v-if="message" class="config-msg" :class="{ error: message.startsWith('❌') }">{{ message }}</div>
 
         <div class="form-actions">
-          <button class="btn" @click="emit('close')">取消</button>
+          <button class="btn" @click="emit('close')">作罢</button>
           <button class="btn btn-primary" :disabled="saving" @click="saveConfig">
-            {{ saving ? '保存中…' : '保存配置' }}
+            {{ saving ? '誊录中…' : '存下配置' }}
           </button>
         </div>
       </div>

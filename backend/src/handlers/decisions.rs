@@ -1,11 +1,11 @@
+use crate::handlers::games::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    Json,
     response::IntoResponse,
+    Json,
 };
 use uuid::Uuid;
-use crate::handlers::games::AppState;
 
 /// POST /api/games/:id/decisions/:decision_id
 pub async fn execute_decision(
@@ -27,6 +27,10 @@ pub async fn execute_decision(
         let mut rng = rand::thread_rng();
         crate::logic::decision::execute_decision(&mut rng, &mut game_state, &decision_id)
     };
+    for disciple in &mut game_state.disciples {
+        crate::logic::disciple::absorb_legacy_attributes(disciple);
+    }
+    crate::logic::sect::absorb_legacy_fields(&mut game_state);
 
     if let Err(e) = crate::db::update_game(&state.pool, id, &sect_name, &game_state).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
@@ -37,5 +41,6 @@ pub async fn execute_decision(
         "ok": true,
         "events": events,
         "state": game_state,
-    })).into_response()
+    }))
+    .into_response()
 }

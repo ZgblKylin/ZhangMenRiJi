@@ -1,3 +1,172 @@
-<script setup lang="ts">import type { Disciple, MartialArt } from '../types'; defineProps<{ disciples: Disciple[]; arts: MartialArt[] }>()</script>
-<template><section class="panel"><div class="panel-title">门下弟子（{{ disciples.length }}人）</div><div v-if="!disciples.length" class="empty-message">山门冷清，尚无弟子。</div><div v-else class="disciple-list"><div v-for="d in disciples" :key="d.name" class="disciple-card"><div class="disciple-info"><span class="disciple-name">{{ d.name }}</span><span v-if="d.loyalty < 25" class="text-cinnabar text-[.6rem]">（心思浮动）</span><span class="disciple-stats">资质<strong>{{ d.talent }}</strong> 内力<strong :class="{ 'stat-low': d.inner_power < 20 }">{{ d.inner_power }}</strong> {{ arts.find(a => a.id === d.martial_art)?.name || '无' }} 忠<strong :class="{ 'stat-low': d.loyalty < 25 }">{{ d.loyalty }}</strong></span></div></div></div></section></template>
+<script setup lang="ts">
+import { reactive, ref } from 'vue'
+import { MartialTier, SkillCategory } from '../types'
+import type { ActionKind, Building, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillEntry } from '../types'
+import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
+import { issuableItems, medicineDescription } from '../medicine'
 
+const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; buildings: Building[]; inventory: Record<string, number>; disabled?: boolean }>()
+const emit = defineEmits<{ manage: [command: ManagementRequest]; expel: [disciple: Disciple] }>()
+const openId = ref<string | null>(null)
+const selected = reactive<Record<string, ActionKind>>({})
+const selectedRank = reactive<Record<string, DiscipleRank>>({})
+const selectedTarget = reactive<Record<string, string>>({})
+const selectedItem = reactive<Record<string, string>>({})
+const innerActions: Array<[ActionKind, string]> = [
+  ['read', '研读典籍'], ['practice', '练习武功'], ['temper_body', '打熬气血'], ['cultivate_neili', '修炼内力'],
+  ['meditate', '冥想养神'], ['spar', '同门切磋'], ['teach', '传武授艺'],
+  ['sect_mission', '外派办事'], ['wander', '江湖历练'], ['recover', '静养调息'],
+]
+const outerActions: Array<[ActionKind, string]> = [
+  ['practice', '习武'], ['spar', '陪练'], ['sect_mission', '江湖事务'], ['wander', '自由历练探险'], ['recover', '静养调息'],
+]
+const choreActions: Array<[ActionKind, string]> = [
+  ['maintain', '建筑维护'], ['construct', '建造升级'], ['produce', '门中生产'], ['business', '世俗经营'], ['gather', '入山采集'], ['recover', '静养调息'],
+]
+const actionsFor = (disciple: Disciple) => disciple.rank === 'chore' ? choreActions : disciple.rank === 'outer' ? outerActions : innerActions
+const actionName = (disciple: Disciple) => actionsFor(disciple).find(([kind]) => kind === disciple.action?.kind)?.[1] || '未安排'
+const displayedSkillCategories = skillCategories.filter(category => category.id !== SkillCategory.Parry)
+const rankName = { chore: '杂役', outer: '外门', inner: '内门' }
+const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
+const artName = (id: string) => displayArtName(props.arts, id)
+const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
+  skillsInCategory(disciple.skills, props.arts, category)
+const art = (id: string) => props.arts.find(candidate => candidate.id === id)
+const skillLevel = (disciple: Disciple, id: string) =>
+  disciple.skills.find(skill => skill.martial_art_id === id)?.level || 0
+const basicSkill = (disciple: Disciple, category: SkillCategory) =>
+  categorySkills(disciple, category).find(skill => art(skill.martial_art_id)?.tier === MartialTier.Basic)
+const combatChoices = (disciple: Disciple, basic: SkillEntry) =>
+  disciple.skills
+    .filter(skill => {
+      const candidate = art(skill.martial_art_id)
+      return candidate?.is_combat && candidate.tier !== MartialTier.Basic && candidate.basic_skill === basic.martial_art_id
+    })
+    .sort((a, b) => b.level - a.level || a.martial_art_id.localeCompare(b.martial_art_id))
+const preparedArt = (disciple: Disciple, basicId: string) => disciple.prepared_skills?.[basicId] || ''
+const isPrepared = (disciple: Disciple, artId: string) => Object.values(disciple.prepared_skills || {}).includes(artId)
+const highestKnowledge = (disciple: Disciple) => categorySkills(disciple, SkillCategory.Knowledge)[0]
+const aptitudeBonus = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') => {
+  const source = {
+    strength: skillLevel(disciple, 'basic_unarmed'),
+    intelligence: highestKnowledge(disciple)?.level || 0,
+    constitution: skillLevel(disciple, 'basic_force'),
+    agility: skillLevel(disciple, 'basic_dodge'),
+  }
+  return Math.floor(source[aptitude] / 10)
+}
+const effectiveAptitude = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') =>
+  disciple.aptitudes[aptitude] + aptitudeBonus(disciple, aptitude)
+const neiliTrainingCap = (disciple: Disciple) => {
+  const force = preparedArt(disciple, 'basic_force') || 'basic_force'
+  return Math.floor(skillLevel(disciple, force) * effectiveAptitude(disciple, 'constitution') * 2 / 3)
+}
+const energyTrainingCap = (disciple: Disciple) => {
+  const knowledge = highestKnowledge(disciple)?.level || 0
+  return Math.floor(knowledge * effectiveAptitude(disciple, 'intelligence') / 2)
+}
+const prepare = (disciple: Disciple, basicSkillId: string, event: Event) => {
+  const martialArtId = (event.target as HTMLSelectElement).value
+  if (!martialArtId || martialArtId === preparedArt(disciple, basicSkillId)) return
+  emit('manage', {
+    action: 'prepare_skill', disciple_id: disciple.id,
+    basic_skill_id: basicSkillId, martial_art_id: martialArtId,
+  })
+}
+const actionUnavailable = (disciple: Disciple, kind: ActionKind) =>
+  (kind === 'cultivate_neili' && disciple.attributes.neili.maximum >= neiliTrainingCap(disciple))
+  || (kind === 'meditate' && disciple.attributes.energy.maximum >= energyTrainingCap(disciple))
+const assign = (disciple: Disciple) => {
+  const kind = selected[disciple.id] || actionsFor(disciple)[0][0]
+  emit('manage', {
+  action: 'assign_action', disciple_id: disciple.id,
+  kind, target_id: ['maintain', 'construct'].includes(kind) ? (selectedTarget[disciple.id] || props.buildings[0]?.id) : null, martial_art_id: null,
+  })
+}
+const appoint = (disciple: Disciple) => emit('manage', {
+  action: 'set_personnel', disciple_id: disciple.id,
+  rank: selectedRank[disciple.id] || disciple.rank, department: disciple.department || null,
+})
+</script>
+
+<template>
+  <section class="panel disciple-panel">
+    <div class="panel-title">门下谱牒（{{ disciples.length }}人）</div>
+    <div v-if="!disciples.length" class="empty-message">山门冷清，尚无弟子。</div>
+    <div v-else class="disciple-list">
+      <article v-for="d in disciples" :key="d.id" class="disciple-card" :class="{ expanded: openId === d.id }">
+        <button class="disciple-summary" @click="openId = openId === d.id ? null : d.id">
+          <span class="disciple-name">{{ d.name }}</span>
+          <span class="rank-seal">{{ rankName[d.rank] }}</span>
+          <span class="disciple-brief">{{ d.age }}岁 · {{ artName(d.martial_art) }} · 门忠{{ d.attributes?.sect_loyalty ?? d.loyalty }} · 本月{{ actionName(d) }}</span>
+          <span class="condition" :class="d.condition">{{ d.away_months ? `外出${d.away_months}月` : conditionName[d.condition] }}</span>
+        </button>
+        <div v-if="openId === d.id" class="disciple-detail">
+          <div class="aptitude-row">
+            <span>膂力<b>{{ effectiveAptitude(d, 'strength') }}<small v-if="aptitudeBonus(d, 'strength')">先天{{ d.aptitudes.strength }} +{{ aptitudeBonus(d, 'strength') }}</small></b></span>
+            <span>悟性<b>{{ effectiveAptitude(d, 'intelligence') }}<small v-if="aptitudeBonus(d, 'intelligence')">先天{{ d.aptitudes.intelligence }} +{{ aptitudeBonus(d, 'intelligence') }}</small></b></span>
+            <span>根骨<b>{{ effectiveAptitude(d, 'constitution') }}<small v-if="aptitudeBonus(d, 'constitution')">先天{{ d.aptitudes.constitution }} +{{ aptitudeBonus(d, 'constitution') }}</small></b></span>
+            <span>身法<b>{{ effectiveAptitude(d, 'agility') }}<small v-if="aptitudeBonus(d, 'agility')">先天{{ d.aptitudes.agility }} +{{ aptitudeBonus(d, 'agility') }}</small></b></span>
+            <span>福源<b>{{ d.aptitudes.fortune }}</b></span>
+          </div>
+          <div class="resource-lines">
+            <span>气血 {{ d.attributes.qi.current }}/{{ d.attributes.qi.maximum }}</span>
+            <span>精神 {{ d.attributes.spirit.current }}/{{ d.attributes.spirit.maximum }}</span>
+            <span>内力 {{ d.attributes.neili.current }}/{{ d.attributes.neili.maximum }} <small>修炼上限 {{ neiliTrainingCap(d) }}</small></span>
+            <span>精力 {{ d.attributes.energy.current }}/{{ d.attributes.energy.maximum }} <small>修炼上限 {{ energyTrainingCap(d) }}</small></span>
+          </div>
+          <div class="attainment-line">造诣 {{ d.attributes.attainment }} · 功绩 {{ d.merit }} · 声名 {{ d.attributes.reputation }} · 道德 {{ d.attributes.morality }}</div>
+          <div class="disciple-skills">
+            <div class="skill-caption">门下武学谱 <small>知识限制本门战斗武学等级</small></div>
+            <div class="skill-category-grid">
+              <section v-for="category in displayedSkillCategories" :key="category.id" class="skill-category" :class="category.id">
+                <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
+                <label v-if="category.id !== SkillCategory.Knowledge && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="preparation-picker">
+                  <span>当前准备</span>
+                  <select class="wuxia-select" :value="preparedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="prepare(d, basicSkill(d, category.id)!.martial_art_id, $event)">
+                    <option v-for="skill in combatChoices(d, basicSkill(d, category.id)!)" :key="skill.martial_art_id" :value="skill.martial_art_id">
+                      {{ artName(skill.martial_art_id) }} · {{ skill.level }}级
+                    </option>
+                  </select>
+                </label>
+                <div v-else-if="category.id === SkillCategory.Knowledge && highestKnowledge(d)" class="auto-preparation">
+                  自动准备 {{ artName(highestKnowledge(d)!.martial_art_id) }} · {{ highestKnowledge(d)!.level }}级
+                </div>
+                <div v-if="categorySkills(d, category.id).length" class="category-skill-list">
+                  <span v-for="skill in categorySkills(d, category.id)" :key="skill.martial_art_id" class="skill-entry" :class="{ prepared: isPrepared(d, skill.martial_art_id) }">
+                    <b>{{ artName(skill.martial_art_id) }}</b>
+                    <em>{{ skill.level }}级<span v-if="isPrepared(d, skill.martial_art_id)"> · 已准备</span></em>
+                    <small>经验 {{ skill.experience }}</small>
+                  </span>
+                </div>
+                <span v-else class="skill-empty">未录入</span>
+              </section>
+            </div>
+          </div>
+          <div class="action-assignment">
+            <select v-model="selected[d.id]" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'">
+              <option v-for="[value, label] in actionsFor(d)" :key="value" :value="value" :disabled="actionUnavailable(d, value)">
+                {{ label }}{{ actionUnavailable(d, value) ? '（已达上限）' : '' }}
+              </option>
+            </select>
+            <select v-if="['maintain', 'construct'].includes(selected[d.id] || actionsFor(d)[0][0])" v-model="selectedTarget[d.id]" :disabled="disabled">
+              <option v-for="building in buildings" :key="building.id" :value="building.id">{{ building.name }}</option>
+            </select>
+            <button class="btn btn-sm" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'" @click="assign(d)">传令</button>
+          </div>
+          <div class="personnel-actions">
+            <select v-model="selectedRank[d.id]" :disabled="disabled">
+              <option value="chore">杂役</option><option value="outer">外门</option><option value="inner">内门</option>
+            </select>
+            <button class="btn btn-sm" :disabled="disabled" @click="appoint(d)">考校任用</button>
+            <label class="issue-item-picker" :class="{ 'medicine-tooltip': medicineDescription(selectedItem[d.id] || '') }" :data-tooltip="medicineDescription(selectedItem[d.id] || '')">
+              <select v-model="selectedItem[d.id]" :disabled="disabled"><option value="">赐物</option><option v-for="item in issuableItems" :key="item" :value="item" :disabled="!(inventory[item] || 0)">{{ item }}（{{ inventory[item] || 0 }}）</option></select>
+            </label>
+            <button class="btn btn-sm" :disabled="disabled || !d.alive || !selectedItem[d.id]" @click="$emit('manage', { action: 'issue_item', disciple_id: d.id, item: selectedItem[d.id], quantity: 1 })">赐予</button>
+            <button class="btn btn-sm danger" :disabled="disabled" @click="emit('expel', d)">逐出</button>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+</template>
