@@ -126,7 +126,7 @@ fn finish_month(
     // 所有人物仍基于定夺完成后的同一份月初快照并行行动，结果统一归并。
     events.extend(crate::logic::action::run_auto_actions(state));
 
-    // 3. 仅结算年龄与门忠；修为和恢复已由每人的实际行动独立结算。
+    // 3. 结算年龄、门忠和月末自然恢复；修为仍由每人的实际行动独立结算。
     disc::settle_month(&mut state.disciples, state.morale);
     for sect in &state.npc_sects {
         let morale = sect.attributes.morale;

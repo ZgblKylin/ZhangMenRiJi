@@ -4,7 +4,7 @@ import type { ActionKind, Disciple, DiscipleRank, ManagementRequest, MartialArt,
 import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 
 const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; disabled?: boolean }>()
-const emit = defineEmits<{ manage: [command: ManagementRequest] }>()
+const emit = defineEmits<{ manage: [command: ManagementRequest]; expel: [disciple: Disciple] }>()
 const openId = ref<string | null>(null)
 const selected = reactive<Record<string, ActionKind>>({})
 const selectedRank = reactive<Record<string, DiscipleRank>>({})
@@ -71,9 +71,6 @@ const appoint = (disciple: Disciple) => emit('manage', {
   action: 'set_personnel', disciple_id: disciple.id,
   rank: selectedRank[disciple.id] || disciple.rank, department: disciple.department || null,
 })
-const expel = (disciple: Disciple) => {
-  if (confirm(`当真要将${disciple.name}逐出山门？`)) emit('manage', { action: 'expel', disciple_id: disciple.id })
-}
 </script>
 
 <template>
@@ -110,7 +107,7 @@ const expel = (disciple: Disciple) => {
                 <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
                 <label v-if="category.id !== 'knowledge' && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="equipment-picker">
                   <span>当前装备</span>
-                  <select :value="equippedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="equip(d, basicSkill(d, category.id)!.martial_art_id, $event)">
+                  <select class="wuxia-select" :value="equippedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="equip(d, basicSkill(d, category.id)!.martial_art_id, $event)">
                     <option v-for="skill in combatChoices(d, basicSkill(d, category.id)!)" :key="skill.martial_art_id" :value="skill.martial_art_id">
                       {{ artName(skill.martial_art_id) }} · {{ skill.level }}级
                     </option>
@@ -144,7 +141,7 @@ const expel = (disciple: Disciple) => {
             </select>
             <button class="btn btn-sm" :disabled="disabled" @click="appoint(d)">考校任用</button>
             <button class="btn btn-sm" :disabled="disabled || !d.alive" @click="$emit('manage', { action: 'issue_item', disciple_id: d.id, item: '草药', quantity: 1 })">赐草药</button>
-            <button class="btn btn-sm danger" :disabled="disabled" @click="expel(d)">逐出</button>
+            <button class="btn btn-sm danger" :disabled="disabled" @click="emit('expel', d)">逐出</button>
           </div>
         </div>
       </article>

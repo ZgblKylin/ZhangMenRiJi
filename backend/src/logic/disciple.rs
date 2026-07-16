@@ -738,7 +738,7 @@ pub fn get_sect_combat_power(disciples: &[Disciple]) -> i32 {
     (total / alive.len() as i32) + (alive.len() as i32 * 5)
 }
 
-/// 结算入门时长、年龄和门忠。修为与资源变化只由弟子本月实际行动产生。
+/// 结算入门时长、年龄、门忠与月末自然恢复。
 pub fn settle_month(disciples: &mut [Disciple], morale: i32) {
     for d in disciples.iter_mut() {
         if !d.alive {
@@ -751,9 +751,28 @@ pub fn settle_month(disciples: &mut [Disciple], morale: i32) {
 
         let loyalty_delta = (morale - 50) / 25;
         d.attributes.sect_loyalty = clamp(d.attributes.sect_loyalty + loyalty_delta, 0, 100);
+        recover_monthly_resources(d);
         refresh_condition(d);
         sync_legacy_attributes(d);
     }
+}
+
+/// 月末至少恢复四项资源上限的 15%；伤病或资源低于四分之一时视为休养，恢复量翻倍。
+fn recover_monthly_resources(d: &mut Disciple) {
+    let needs_rest = d.condition != DiscipleCondition::Healthy
+        || d.attributes.qi.current.saturating_mul(4) <= d.attributes.qi.maximum
+        || d.attributes.spirit.current.saturating_mul(4) <= d.attributes.spirit.maximum;
+    let percent = if needs_rest { 30 } else { 15 };
+    recover_pool(&mut d.attributes.qi, percent);
+    recover_pool(&mut d.attributes.spirit, percent);
+    recover_pool(&mut d.attributes.neili, percent);
+    recover_pool(&mut d.attributes.energy, percent);
+}
+
+fn recover_pool(pool: &mut ResourcePool, percent: i32) {
+    let maximum = pool.maximum.max(0);
+    let amount = maximum.saturating_mul(percent).saturating_add(99) / 100;
+    pool.current = pool.current.saturating_add(amount).clamp(0, maximum);
 }
 
 /// 叛逃检查，返回叛逃者名单
@@ -785,6 +804,66 @@ pub fn apply_birthday(d: &mut Disciple) {
 mod tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn monthly_recovery_restores_all_resources_and_doubles_for_injuries() {
+        let mut healthy = Disciple::default();
+        healthy.attributes.qi = ResourcePool {
+            current: 50,
+            maximum: 100,
+        };
+        healthy.attributes.spirit = ResourcePool {
+            current: 50,
+            maximum: 100,
+        };
+        healthy.attributes.neili = ResourcePool {
+            current: 50,
+            maximum: 100,
+        };
+        healthy.attributes.energy = ResourcePool {
+            current: 50,
+            maximum: 100,
+        };
+
+        let mut injured = healthy.clone();
+        injured.attributes.qi.current = 0;
+        refresh_condition(&mut injured);
+        assert_eq!(injured.condition, DiscipleCondition::SeriouslyInjured);
+
+        settle_month(std::slice::from_mut(&mut healthy), 50);
+        settle_month(std::slice::from_mut(&mut injured), 50);
+
+        assert_eq!(healthy.attributes.qi.current, 65);
+        assert_eq!(healthy.attributes.spirit.current, 65);
+        assert_eq!(healthy.attributes.neili.current, 65);
+        assert_eq!(healthy.attributes.energy.current, 65);
+        assert_eq!(injured.attributes.qi.current, 30);
+        assert_eq!(injured.attributes.spirit.current, 80);
+        assert_eq!(injured.attributes.neili.current, 80);
+        assert_eq!(injured.attributes.energy.current, 80);
+        assert_eq!(injured.condition, DiscipleCondition::Healthy);
+    }
+
+    #[test]
+    fn monthly_recovery_never_exceeds_resource_maxima() {
+        let mut disciple = Disciple::default();
+        for pool in [
+            &mut disciple.attributes.qi,
+            &mut disciple.attributes.spirit,
+            &mut disciple.attributes.neili,
+            &mut disciple.attributes.energy,
+        ] {
+            pool.current = 95;
+            pool.maximum = 100;
+        }
+
+        settle_month(std::slice::from_mut(&mut disciple), 50);
+
+        assert_eq!(disciple.attributes.qi.current, 100);
+        assert_eq!(disciple.attributes.spirit.current, 100);
+        assert_eq!(disciple.attributes.neili.current, 100);
+        assert_eq!(disciple.attributes.energy.current, 100);
+    }
 
     #[test]
     fn age_curve_grows_then_declines_by_fixed_points() {

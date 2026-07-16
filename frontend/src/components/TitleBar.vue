@@ -14,9 +14,10 @@ defineEmits<{ save: []; load: []; restart: [] }>()
       <button class="btn btn-sm btn-jade" @click="$emit('restart')">重开</button>
     </div>
     <div class="title-block">
-      <h1>{{ game.sect_name }}<span class="subtitle"> · 掌门日记</span></h1>
+      <h1>掌门日记</h1>
       <div class="month-text">
-        第 <strong>{{ game.year }}</strong> 年 · <strong>{{ game.month }}</strong> 月
+        <span class="sect-name">{{ game.sect_name }}</span>
+        · 第 <strong>{{ game.year }}</strong> 年 · <strong>{{ game.month }}</strong> 月
         <span class="policy-caption">{{ game.sect?.policy === 'martial' ? '崇武精进' : game.sect?.policy === 'scholarly' ? '研经明理' : game.sect?.policy === 'chivalrous' ? '行侠尚义' : game.sect?.policy === 'mercantile' ? '通商裕库' : game.sect?.policy === 'reclusive' ? '闭门清修' : '持中守成' }}</span>
         <span v-if="game.injury > 30" class="injured-tag">（掌门负伤中）</span>
       </div>
