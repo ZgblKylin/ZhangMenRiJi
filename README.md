@@ -95,12 +95,14 @@ ZhangMenRiJi/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/games` | 创建新游戏 |
-| GET | `/api/games` | 列出存档 |
+| POST | `/api/games` | 开山立派并创建新槽位 |
+| GET | `/api/games` | 按槽位分组列出全部存档（最近优先） |
 | GET | `/api/games/:id` | 获取游戏状态 |
-| DELETE | `/api/games/:id` | 删除存档 |
+| DELETE | `/api/games/:id` | 删除单个存档 |
+| POST | `/api/games/:id/saves` | 在当前槽位新增手动存档 |
+| DELETE | `/api/save-groups/:id` | 删除槽位及其全部存档 |
 | POST | `/api/games/:id/decisions/:decision_id` | 执行决策 |
-| POST | `/api/games/:id/advance` | 推进月份 |
+| POST | `/api/games/:id/advance` | 推进月份并自动存档 |
 | POST | `/api/games/:id/manage` | 执行门派经营 |
 | POST | `/api/games/:id/events/resolve` | 处置交互事件并续行月份 |
 | GET | `/api/decisions` | 决策静态数据 |

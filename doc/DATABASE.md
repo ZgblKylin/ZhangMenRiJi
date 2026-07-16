@@ -19,6 +19,8 @@
 ```sql
 CREATE TABLE games (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    save_group_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    save_type   TEXT NOT NULL DEFAULT 'auto',
     sect_name   TEXT NOT NULL CHECK (char_length(sect_name) BETWEEN 1 AND 10),
     state       JSONB NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -27,7 +29,10 @@ CREATE TABLE games (
 
 -- 索引
 CREATE INDEX idx_games_updated_at ON games (updated_at DESC);
+CREATE INDEX idx_games_save_group ON games (save_group_id, updated_at DESC);
 ```
+
+`save_group_id` 标识一局游戏（一个槽位）。开山立派时生成新值；该局后续的月度自动存档和手动存档均新增为 `games` 行并共享此值。`save_type` 为 `auto` 或 `manual`。
 
 #### `state` JSONB 结构
 
@@ -145,20 +150,23 @@ CREATE INDEX IF NOT EXISTS idx_events_game_time ON events (game_id, year DESC, m
 
 | 查询 | SQL | 用途 |
 |------|-----|------|
-| 创建游戏 | `INSERT INTO games (sect_name, state) VALUES ($1, $2) RETURNING id` | 新游戏 |
+| 创建游戏 | `INSERT INTO games (sect_name, state, save_group_id, save_type) VALUES ($1,$2,$3,'auto') RETURNING id` | 新槽位及初始存档 |
 | 获取游戏 | `SELECT * FROM games WHERE id = $1` | 加载存档 |
-| 更新状态 | `UPDATE games SET state = $2, updated_at = now() WHERE id = $1` | 每月存盘 |
-| 列出存档 | `SELECT id, sect_name, state->>'year', state->>'month', updated_at FROM games ORDER BY updated_at DESC` | 存档列表 |
+| 新增快照 | `INSERT INTO games (sect_name, state, save_group_id, save_type) ...` | 自动或手动存档 |
+| 更新状态 | `UPDATE games SET state = $2, updated_at = now() WHERE id = $1` | 当前月内操作落盘 |
+| 列出存档 | `SELECT ... FROM games ORDER BY updated_at DESC`，应用层按 `save_group_id` 聚合 | 槽位与存档列表 |
 | 删除存档 | `DELETE FROM games WHERE id = $1` | 删档 |
+| 删除槽位 | `DELETE FROM games WHERE save_group_id = $1` | 删除该局全部存档 |
 | 写事件 | `INSERT INTO events (game_id, year, month, mood, text) VALUES ($1,$2,$3,$4,$5)` | 事件日志 |
 | 读事件 | `SELECT * FROM events WHERE game_id = $1 ORDER BY year DESC, month DESC LIMIT 15` | 显示纪事 |
 
 ### 4.2 级联删除
 
-删除游戏时同时删除关联事件：
+删除单个存档时清理其关联数据；删除槽位时先取得组内全部存档 ID，再在事务中批量清理：
 
 ```sql
 DELETE FROM events WHERE game_id = $1;
+DELETE FROM game_snapshots WHERE game_id = $1;
 DELETE FROM games WHERE id = $1;
 ```
 
