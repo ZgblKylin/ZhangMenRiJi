@@ -2,7 +2,7 @@ use crate::models::decision::all_decisions;
 use crate::models::martial_art::all_martial_arts;
 use axum::{response::IntoResponse, Json};
 
-/// GET /api/decisions — 返回全部 8 种决策的静态定义
+/// GET /api/decisions — 返回全部决策的静态定义
 pub async fn list_decisions() -> impl IntoResponse {
     Json(serde_json::json!({ "decisions": all_decisions() }))
 }

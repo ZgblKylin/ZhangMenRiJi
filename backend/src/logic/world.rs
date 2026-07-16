@@ -394,6 +394,48 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
     }
 }
 
+fn chronicle_figure_candidates<'a>(
+    sect: &SectState,
+    disciples: &'a [Disciple],
+) -> Vec<(&'a Disciple, &'static str)> {
+    let leader_id = format!("npc_{}_1", sect.id);
+    let elder_ids: std::collections::BTreeSet<&str> = sect
+        .buildings
+        .iter()
+        .filter_map(|building| building.elder_id.as_deref())
+        .collect();
+    let senior: Vec<_> = disciples
+        .iter()
+        .filter(|disciple| {
+            disciple.alive
+                && disciple.sect_id.as_deref() == Some(sect.id.as_str())
+                && (disciple.id == leader_id || elder_ids.contains(disciple.id.as_str()))
+        })
+        .map(|disciple| {
+            let role = if disciple.id == leader_id {
+                "掌门"
+            } else {
+                "长老"
+            };
+            (disciple, role)
+        })
+        .collect();
+    if !senior.is_empty() {
+        return senior;
+    }
+
+    // 兼容旧存档中的随机人物 ID：若掌门、长老 ID 均已失配，仍从该派内门取材。
+    disciples
+        .iter()
+        .filter(|disciple| {
+            disciple.alive
+                && disciple.sect_id.as_deref() == Some(sect.id.as_str())
+                && disciple.rank == DiscipleRank::Inner
+        })
+        .map(|disciple| (disciple, "内门弟子"))
+        .collect()
+}
+
 /// NPC 门派按玩家相同的名额和长老规则逐月经营。
 pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
     let sect_ids: Vec<String> = state.npc_sects.iter().map(|sect| sect.id.clone()).collect();
@@ -531,31 +573,13 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
     // 这里只写人物行止，不把幕后经营数值直接摊在纪事中。
     let mut figures = Vec::new();
     for sect in &state.npc_sects {
-        let leader_id = format!("npc_{}_1", sect.id);
-        let elder_ids: std::collections::BTreeSet<&str> = sect
-            .buildings
-            .iter()
-            .filter_map(|building| building.elder_id.as_deref())
-            .collect();
-        let candidates: Vec<&Disciple> = state
-            .npc_disciples
-            .iter()
-            .filter(|disciple| {
-                disciple.alive
-                    && disciple.sect_id.as_deref() == Some(sect.id.as_str())
-                    && (disciple.id == leader_id || elder_ids.contains(disciple.id.as_str()))
-            })
-            .collect();
-        if let Some(figure) = candidates.choose(rng) {
+        let candidates = chronicle_figure_candidates(sect, &state.npc_disciples);
+        if let Some((figure, role)) = candidates.choose(rng).copied() {
             figures.push((
                 sect.id.clone(),
                 sect.name.clone(),
                 figure.name.clone(),
-                if figure.id == leader_id {
-                    "掌门"
-                } else {
-                    "长老"
-                },
+                role,
             ));
         }
     }
@@ -568,25 +592,25 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
             let text = if notable_sects.contains(&sect_id) {
                 format!(
                     "{}{}{}召集门人整顿堂务，直到暮色漫过山门才收卷离席。",
-                    sect_name, name, role
+                    sect_name, role, name
                 )
             } else {
                 match rng.gen_range(0..4) {
                     0 => format!(
                         "{}{}{}晨起巡视山门，沿途与弟子谈武论道，至午方归。",
-                        sect_name, name, role
+                        sect_name, role, name
                     ),
                     1 => format!(
                         "{}{}{}在灯下校阅门中簿册，又召来几名弟子细问近况。",
-                        sect_name, name, role
+                        sect_name, role, name
                     ),
                     2 => format!(
                         "{}{}{}于堂前考校门人，众弟子各展所学，山中颇为热闹。",
-                        sect_name, name, role
+                        sect_name, role, name
                     ),
                     _ => format!(
                         "{}{}{}闭门会见远客，席间所谈无人知晓，只闻更鼓数声。",
-                        sect_name, name, role
+                        sect_name, role, name
                     ),
                 }
             };
@@ -682,16 +706,52 @@ mod tests {
         let (sects, disciples) = generate_npc_world(27);
         state.npc_sects = sects;
         state.npc_disciples = disciples;
-        let mut seen_beyond_first_two = false;
-        for seed in 0..12 {
+        let mut seen_sects = std::collections::BTreeSet::new();
+        for seed in 0..32 {
             let mut rng = StdRng::seed_from_u64(seed);
             let events = run_npc_ai(&mut rng, &mut state);
             assert!((2..=4).contains(&events.len()));
             assert!(events.iter().all(|event| event.category == "world"));
-            seen_beyond_first_two |= events
-                .iter()
-                .any(|event| !event.text.contains("武当派") && !event.text.contains("华山派"));
+            assert!(events.iter().all(|event| {
+                !event
+                    .text
+                    .chars()
+                    .any(|character| character.is_ascii_digit())
+                    && !event.text.contains("点")
+                    && !event.text.contains("两")
+                    && !event.text.contains('+')
+            }));
+            for sect in &state.npc_sects {
+                if events.iter().any(|event| event.text.contains(&sect.name)) {
+                    seen_sects.insert(sect.id.clone());
+                }
+            }
         }
-        assert!(seen_beyond_first_two);
+        assert!(seen_sects.len() >= 10);
+    }
+
+    #[test]
+    fn chronicle_candidates_fall_back_to_inner_disciples_for_legacy_ids() {
+        let (mut sects, mut disciples) = generate_npc_world(31);
+        let sect = sects
+            .iter_mut()
+            .find(|sect| sect.id == "qingcheng")
+            .unwrap();
+        for building in &mut sect.buildings {
+            building.elder_id = None;
+        }
+        for (index, disciple) in disciples
+            .iter_mut()
+            .filter(|disciple| disciple.sect_id.as_deref() == Some("qingcheng"))
+            .enumerate()
+        {
+            disciple.id = format!("legacy-person-{index}");
+        }
+
+        let candidates = chronicle_figure_candidates(sect, &disciples);
+        assert!(!candidates.is_empty());
+        assert!(candidates.iter().all(|(disciple, role)| {
+            disciple.rank == DiscipleRank::Inner && *role == "内门弟子"
+        }));
     }
 }

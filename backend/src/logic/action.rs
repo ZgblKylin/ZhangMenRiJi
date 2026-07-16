@@ -357,18 +357,28 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             student_delta.spirit -= 9;
             student_delta.skill_experience.insert(art.clone(), gain);
             result.disciples.extend([teacher_delta, student_delta]);
+            let player_action = teacher.player || student.player;
             result.logs.push((
-                teacher.player || student.player,
-                format!(
-                    "{}向{}传授{}，彼此印证；{}经验 +{}，{}经验 +{}。",
-                    teacher.disciple.name,
-                    student.disciple.name,
-                    art_display(&art),
-                    art_display(&art),
-                    gain,
-                    art_display(&art),
-                    teacher_gain
-                ),
+                player_action,
+                if player_action {
+                    format!(
+                        "{}向{}传授{}，彼此印证；{}经验 +{}，{}经验 +{}。",
+                        teacher.disciple.name,
+                        student.disciple.name,
+                        art_display(&art),
+                        art_display(&art),
+                        gain,
+                        art_display(&art),
+                        teacher_gain
+                    )
+                } else {
+                    format!(
+                        "{}向{}传授{}，师徒在堂中反复拆解招式。",
+                        teacher.disciple.name,
+                        student.disciple.name,
+                        art_display(&art)
+                    )
+                },
             ));
         }
         ActionKind::Spar => {
@@ -399,17 +409,25 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             b.attainment += 4 + level_a.max(1) as i64 / 40;
             b.skill_experience.insert(art_b.clone(), gain_b);
             result.disciples.extend([a, b]);
+            let player_action = first.player || second.player;
             result.logs.push((
-                first.player || second.player,
-                format!(
-                    "{}与{}在演武场切磋，{}经验 +{}，{}经验 +{}。",
-                    first.disciple.name,
-                    second.disciple.name,
-                    art_display(&art_a),
-                    gain_a,
-                    art_display(&art_b),
-                    gain_b
-                ),
+                player_action,
+                if player_action {
+                    format!(
+                        "{}与{}在演武场切磋，{}经验 +{}，{}经验 +{}。",
+                        first.disciple.name,
+                        second.disciple.name,
+                        art_display(&art_a),
+                        gain_a,
+                        art_display(&art_b),
+                        gain_b
+                    )
+                } else {
+                    format!(
+                        "{}与{}在演武场切磋，各展所长，引来同门围观。",
+                        first.disciple.name, second.disciple.name
+                    )
+                },
             ));
         }
         _ => unreachable!("双人任务仅用于传授或切磋"),
@@ -474,7 +492,14 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             )
         };
         result.disciples.push(delta);
-        result.logs.push((actor.player, log));
+        result.logs.push((
+            actor.player,
+            if actor.player {
+                log
+            } else {
+                npc_solo_chronicle(&d.name, kind)
+            },
+        ));
         return result;
     }
 
@@ -717,7 +742,14 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         delta.action = Some(None);
     }
     result.disciples.push(delta);
-    result.logs.push((actor.player, log));
+    result.logs.push((
+        actor.player,
+        if actor.player {
+            log
+        } else {
+            npc_solo_chronicle(&d.name, kind)
+        },
+    ));
     result
 }
 
@@ -892,7 +924,6 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
         }
     }
     sect::sync_legacy_fields(state);
-    npc_logs.sort_by_key(|text| !(text.contains("经验 +") || text.contains("内力精进")));
     let mut events: Vec<GameEvent> = logs
         .into_iter()
         .map(|text| GameEvent {
@@ -912,7 +943,7 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
     }));
     if npc_actions > 0 {
         events.push(GameEvent {
-            text: format!("江湖诸派亦各有动静，共推演了{}桩门人行止。", npc_actions),
+            text: "江湖诸派亦各有动静，门人或勤修武艺，或下山历练。".into(),
             mood: "neutral".into(),
             year: state.year,
             month: state.month,
@@ -969,6 +1000,26 @@ fn art_display(id: &str) -> String {
         .find(|art| art.id == id)
         .map(|art| format!("《{}》", art.name))
         .unwrap_or_else(|| format!("《{}》", id))
+}
+
+fn npc_solo_chronicle(name: &str, kind: &ActionKind) -> String {
+    let deed = match kind {
+        ActionKind::Read => "闭门翻阅典籍，偶有所得",
+        ActionKind::Practice => "在演武场揣摩招式，直至日暮",
+        ActionKind::TemperBody => "在山中打熬筋骨，风雨无阻",
+        ActionKind::CultivateNeili => "静坐运功，潜心锤炼内息",
+        ActionKind::Meditate => "焚香澄心，参悟门中学问",
+        ActionKind::SectMission => "奉命下山办事，仍未归门",
+        ActionKind::Wander => "负笈远游，沿途访师问道",
+        ActionKind::Recover => "留在门中调息静养，气色渐复",
+        ActionKind::Maintain => "巡检门中梁柱瓦石，料理修缮",
+        ActionKind::Construct => "随众营造堂舍，终日未歇",
+        ActionKind::Produce => "操持门中生产，将所得收入库中",
+        ActionKind::Business => "下山经营世俗产业，带回一批收益",
+        ActionKind::Gather => "入山寻药采集，满载而归",
+        ActionKind::Teach | ActionKind::Spar => "与同门切磋讲习，彼此印证",
+    };
+    format!("{}{}。", name, deed)
 }
 
 fn action_name(kind: &ActionKind) -> &'static str {
@@ -1031,6 +1082,18 @@ mod tests {
             serde_json::to_value(&logs_a).unwrap(),
             serde_json::to_value(&logs_b).unwrap()
         );
+        assert!(logs_a
+            .iter()
+            .filter(|event| event.category == "world")
+            .all(|event| {
+                !event
+                    .text
+                    .chars()
+                    .any(|character| character.is_ascii_digit())
+                    && !event.text.contains("点")
+                    && !event.text.contains("两")
+                    && !event.text.contains('+')
+            }));
     }
 
     #[test]

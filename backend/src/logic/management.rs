@@ -479,25 +479,7 @@ pub fn execute_management(
                 gain
             )
         }
-        ManagementRequest::ResearchNewMartial => {
-            spend(state, 120)?;
-            let candidate = all_martial_arts()
-                .into_iter()
-                .find(|art| {
-                    art.sect_id.as_deref() == Some("player")
-                        && art.is_combat
-                        && !state.martial_arts_learned.contains(&art.id)
-                })
-                .ok_or_else(|| "本门自创武学已尽数参明。".to_string())?;
-            state.martial_arts_learned.push(candidate.id.clone());
-            state.sect.public_books.push(candidate.id.clone());
-            state.sect.martial_research.insert(candidate.id.clone(), 60);
-            state.sect.attributes.prestige = (state.sect.attributes.prestige + 5).min(1000);
-            format!(
-                "群策群力，终于创成{}，本派武学又开一脉。",
-                art_name(&candidate.id)
-            )
-        }
+        ManagementRequest::ResearchNewMartial => research_new_martial(state)?,
         ManagementRequest::Exchange {
             sect_id,
             disciple_id,
@@ -545,6 +527,29 @@ pub fn execute_management(
     state.event_log.push(event.clone());
     trim_log(state);
     Ok(vec![event])
+}
+
+/// 研发议事与旧存档管理指令共用同一套结算，确保新武学同时归入藏经阁公册。
+pub(crate) fn research_new_martial(state: &mut GameState) -> Result<String, String> {
+    let candidate = all_martial_arts()
+        .into_iter()
+        .find(|art| {
+            art.sect_id.as_deref() == Some("player")
+                && art.is_combat
+                && !state.martial_arts_learned.contains(&art.id)
+        })
+        .ok_or_else(|| "本门自创武学已尽数参明。".to_string())?;
+    spend(state, 120)?;
+    state.martial_arts_learned.push(candidate.id.clone());
+    if !state.sect.public_books.contains(&candidate.id) {
+        state.sect.public_books.push(candidate.id.clone());
+    }
+    state.sect.martial_research.insert(candidate.id.clone(), 60);
+    state.sect.attributes.prestige = (state.sect.attributes.prestige + 5).min(1000);
+    Ok(format!(
+        "群策群力，终于创成{}，本派武学又开一脉。",
+        art_name(&candidate.id)
+    ))
 }
 
 fn player_disciple_mut<'a>(

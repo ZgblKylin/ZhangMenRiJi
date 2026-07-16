@@ -73,6 +73,17 @@ pub fn all_decisions() -> Vec<DecisionDef> {
             req_unlearned_arts: true,
         },
         DecisionDef {
+            id: "research".into(),
+            title: "集众研创新武学".into(),
+            desc: "召集门中高手群策群力，共同开创一门本派新武学。需拨库银一百二十两。".into(),
+            cost: 120,
+            cost_type: "silver".into(),
+            req_injury_max: None,
+            req_silver_min: Some(120),
+            req_disciples_min: None,
+            req_unlearned_arts: true,
+        },
+        DecisionDef {
             id: "teach".into(),
             title: "传武授艺".into(),
             desc: "掌门亲自为弟子传授武艺，可令数名弟子武学精进。花费库银二十两备办药材。".into(),

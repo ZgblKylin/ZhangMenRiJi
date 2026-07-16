@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import { MedicineType } from '../types'
 import type { Building, BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy, SectState } from '../types'
 import DecisionGrid from './DecisionGrid.vue'
-import MartialArtsPanel from './MartialArtsPanel.vue'
 import SectViewPanel from './SectViewPanel.vue'
 import { medicineDescription, medicines } from '../medicine'
 
@@ -37,7 +36,7 @@ const orders = [
 ]
 const recipeRates = ['常速', '低速', '极低速'] as const
 const decisionIds: Record<BuildingKind, string[]> = {
-  practice: ['teach'], scripture: ['train', 'study'], warehouse: [], herb_hall: ['rest'],
+  practice: ['teach'], scripture: ['train', 'study', 'research'], warehouse: [], herb_hall: ['rest'],
   intelligence: [], affairs: ['recruit', 'mission'], logistics: [],
 }
 const buildingDecisions = computed(() => props.decisions.filter(decision => decisionIds[props.view].includes(decision.id)))
@@ -130,8 +129,6 @@ const selectElderDuty = (building: Building, dutyId: string) => command({ action
           <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'research_martial', martial_art_id: id })">合参 · 40两</button>
         </article>
       </div>
-      <button class="btn btn-primary research-new" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'research_new_martial' })">集众研创新武学 · 库银120两</button>
-      <MartialArtsPanel :arts="arts.filter(art => art.sect_id === 'player')" :learned="game.martial_arts_learned" />
     </template>
 
     <template v-else-if="view === 'warehouse'">

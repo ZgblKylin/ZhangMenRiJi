@@ -65,12 +65,13 @@ pub fn interactive_events() -> Vec<PendingWorldEvent> {
             id: "choice_provocation".into(),
             category: "江湖".into(),
             title: "山门问剑".into(),
-            text: "邻派少侠在山门外连败三名外门弟子，扬言要请掌门赐教。如何处置？".into(),
+            text: "邻派少侠在山门外连败数名外门弟子，扬言要请掌门赐教。如何处置？".into(),
             choices: vec![
                 EventChoice {
                     id: "fight".into(),
                     label: "亲自应战".into(),
-                    result_text: "掌门亲自下场，以三招定胜负。来客抱拳服输，江湖为之侧目。".into(),
+                    result_text: "掌门亲自下场，以寥寥数招定胜负。来客抱拳服输，江湖为之侧目。"
+                        .into(),
                     effect: effect(6, 0, 4, 8, None),
                     good: true,
                 },
@@ -410,7 +411,7 @@ fn jianghu_events() -> Vec<RandomEvent> {
         },
         RandomEvent {
             id: "jh_03".into(),
-            text: "朝廷特使到访，说圣上听闻本派侠名，特赐「侠义之门」匾额一面，并赏银百两。".into(),
+            text: "朝廷特使到访，说圣上听闻本派侠名，特赐「侠义之门」匾额，并有丰厚赏赐。".into(),
             effect: EventEffect {
                 prestige: Some(8),
                 silver: Some(100),
@@ -515,7 +516,7 @@ fn jianghu_events() -> Vec<RandomEvent> {
         },
         RandomEvent {
             id: "jh_10".into(),
-            text: "官府张榜悬赏江洋大盗，掌门遣弟子前往缉拿。苦战三日，终将贼人擒获。".into(),
+            text: "官府张榜悬赏江洋大盗，掌门遣弟子前往缉拿。苦战数日，终将贼人擒获。".into(),
             effect: EventEffect {
                 prestige: Some(4),
                 silver: Some(80),
@@ -624,7 +625,7 @@ pub fn apply_event_effect(
         for _ in 0..count {
             state.disciples.push(disc::generate_disciple(rng, 10));
         }
-        extra_events.push(format!("{}名江湖人士加入本派！", count));
+        extra_events.push("数名江湖人士加入本派！".into());
     }
 
     if let Some(ref special) = e.special {
@@ -728,5 +729,18 @@ mod tests {
             events.iter().map(|event| event.category.as_str()).collect();
         assert!(categories.len() >= 5);
         assert!(events.iter().all(|event| event.choices.len() >= 2));
+    }
+
+    #[test]
+    fn jianghu_chronicles_do_not_expose_numeric_deltas() {
+        assert!(jianghu_events().iter().all(|event| {
+            !event
+                .text
+                .chars()
+                .any(|character| character.is_ascii_digit())
+                && !event.text.contains("点")
+                && !event.text.contains("两")
+                && !event.text.contains('+')
+        }));
     }
 }

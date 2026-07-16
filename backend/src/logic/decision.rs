@@ -186,6 +186,19 @@ pub fn execute_decision(
                 });
             }
         }
+        "research" => {
+            let Ok(text) = crate::logic::management::research_new_martial(state) else {
+                return events;
+            };
+            crate::logic::sect::sync_legacy_fields(state);
+            events.push(GameEvent {
+                text,
+                mood: "good".into(),
+                year: state.year,
+                month: state.month,
+                category: "sect".into(),
+            });
+        }
         "teach" => {
             if state.silver < 20 {
                 return events;
@@ -238,5 +251,33 @@ fn rank_name(rank: &crate::models::attributes::DiscipleRank) -> &'static str {
         crate::models::attributes::DiscipleRank::Chore => "杂役",
         crate::models::attributes::DiscipleRank::Outer => "外门",
         crate::models::attributes::DiscipleRank::Inner => "内门",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn research_decision_creates_a_public_scripture_manual() {
+        let mut state = GameState::default();
+        let silver_before = state.silver;
+        let books_before = state.sect.public_books.clone();
+        let mut rng = StdRng::seed_from_u64(7);
+
+        let events = execute_decision(&mut rng, &mut state, "research");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(state.decisions_used, 1);
+        assert_eq!(state.silver, silver_before - 120);
+        let new_book = state
+            .sect
+            .public_books
+            .iter()
+            .find(|book| !books_before.contains(book))
+            .expect("研发武学应写入藏经阁公册");
+        assert!(state.martial_arts_learned.contains(new_book));
+        assert_eq!(state.sect.martial_research.get(new_book), Some(&60));
     }
 }
