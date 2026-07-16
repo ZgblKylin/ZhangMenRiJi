@@ -30,10 +30,27 @@ pub fn execute_management(
             target_id,
             martial_art_id,
         } => {
-            let disciple = player_disciple_mut(state, &disciple_id)?;
-            if !disciple::can_act(disciple) {
+            let candidate = state
+                .disciples
+                .iter()
+                .find(|disciple| disciple.id == disciple_id)
+                .ok_or_else(|| "查无此人。".to_string())?;
+            if !disciple::can_act(candidate) {
                 return Err("此人眼下不在门中，或伤重难行。".into());
             }
+            if !rank_allows_action(&candidate.rank, &kind) {
+                return Err("此项差事不合此人的门中身份。".into());
+            }
+            if matches!(kind, ActionKind::Maintain | ActionKind::Construct)
+                && !state
+                    .sect
+                    .buildings
+                    .iter()
+                    .any(|building| Some(building.id.as_str()) == target_id.as_deref())
+            {
+                return Err("须指定一处门派建筑。".into());
+            }
+            let disciple = player_disciple_mut(state, &disciple_id)?;
             if kind == ActionKind::CultivateNeili
                 && disciple.attributes.neili.maximum >= disciple::neili_training_cap(disciple)
             {
@@ -80,7 +97,7 @@ pub fn execute_management(
                 .iter()
                 .find(|building| building.id == building_id)
                 .ok_or_else(|| "门中并无此处建筑。".to_string())?;
-            if building.upgrading_months > 0 {
+            if building.work_required > 0 {
                 return Err("此处尚在施工，不可再兴土木。".into());
             }
             let cost = 80 + building.level * 60;
@@ -91,10 +108,12 @@ pub fn execute_management(
                 .iter_mut()
                 .find(|building| building.id == building_id)
                 .expect("建筑已验证存在");
-            building.upgrading_months = building.level.max(1);
+            building.work_required = (building.level + 1) * 20;
+            building.work_invested = 0;
+            building.upgrading_months = (building.work_required + 9) / 10;
             format!(
-                "拨库银{}两扩建{}，约需{}个月。",
-                cost, building.name, building.upgrading_months
+                "拨库银{}两扩建{}，尚需杂役投入{}点工作量。",
+                cost, building.name, building.work_required
             )
         }
         ManagementRequest::RepairBuilding { building_id } => {
@@ -256,12 +275,51 @@ pub fn execute_management(
                     disciple.attributes.sect_loyalty =
                         (disciple.attributes.sect_loyalty + quantity / 2).min(100);
                 }
+                "金创药" => {
+                    disciple.attributes.qi.current = (disciple.attributes.qi.current
+                        + quantity * 20)
+                        .min(disciple.attributes.qi.maximum);
+                    disciple.attributes.spirit.current = (disciple.attributes.spirit.current
+                        + quantity * 12)
+                        .min(disciple.attributes.spirit.maximum);
+                    disciple::refresh_condition(disciple);
+                }
+                "养气丹" => {
+                    disciple.attributes.neili.current = (disciple.attributes.neili.current
+                        + quantity * 15)
+                        .min(disciple.attributes.neili.maximum);
+                }
+                "培元丹" => {
+                    disciple.attributes.neili.maximum += quantity * 2;
+                    disciple.attributes.neili.current += quantity * 2;
+                }
                 _ => {
                     disciple.merit += quantity as i64;
                 }
             }
             disciple::sync_legacy_attributes(disciple);
             format!("司库奉命，将{}{}份发予{}。", item, quantity, disciple.name)
+        }
+        ManagementRequest::BrewPill { recipe_id } => {
+            let (name, herb_cost, quantity, months) = match recipe_id.as_str() {
+                "wound" => ("金创药", 4, 2, 1),
+                "qi" => ("养气丹", 6, 1, 2),
+                "foundation" => ("培元丹", 10, 1, 3),
+                _ => return Err("百草堂中并无此方。".into()),
+            };
+            let herbs = state.sect.inventory.get("草药").copied().unwrap_or(0);
+            if herbs < herb_cost {
+                return Err(format!("草药不足，尚缺{}份。", herb_cost - herbs));
+            }
+            *state.sect.inventory.entry("草药".into()).or_default() -= herb_cost;
+            state.sect.productions.push(crate::models::sect::ProductionTask {
+                id: format!("{}_{}_{}_{}", recipe_id, state.year, state.month, state.sect.productions.len()),
+                name: name.into(),
+                output_item: name.into(),
+                quantity,
+                remaining_months: months,
+            });
+            format!("百草堂开炉炼制{}，耗草药{}份，需时{}个月。", name, herb_cost, months)
         }
         ManagementRequest::IssueOrder { order_id } => {
             if state
@@ -336,23 +394,34 @@ pub fn execute_management(
                 art_name(&candidate.id)
             )
         }
-        ManagementRequest::Exchange { sect_id } => {
+        ManagementRequest::Exchange { sect_id, disciple_id } => {
+            let envoy_id = validate_inner_envoy(state, disciple_id.as_deref())?;
             spend(state, 45)?;
-            let other = state
-                .npc_sects
-                .iter_mut()
-                .find(|sect| sect.id == sect_id)
-                .ok_or_else(|| "江湖中查无此派。".to_string())?;
             let gain = rng.gen_range(10..=18);
             *state.sect.relations.entry(sect_id.clone()).or_default() += gain;
-            *other.relations.entry("player".into()).or_default() += gain;
+            let other_name = {
+                let other = state
+                    .npc_sects
+                    .iter_mut()
+                    .find(|sect| sect.id == sect_id)
+                    .ok_or_else(|| "江湖中查无此派。".to_string())?;
+                *other.relations.entry("player".into()).or_default() += gain;
+                other.name.clone()
+            };
             state.sect.attributes.prestige = (state.sect.attributes.prestige + 2).min(1000);
-            format!("本派携礼拜会{}，宾主论武，交情添了{}分。", other.name, gain)
+            dispatch_inner_envoy(state, &envoy_id, "天枢阁通问");
+            format!("本派携礼拜会{}，宾主论武，交情添了{}分。", other_name, gain)
         }
         ManagementRequest::RequestManual {
             sect_id,
             martial_art_id,
-        } => request_manual(state, &sect_id, &martial_art_id)?,
+            disciple_id,
+        } => {
+            let envoy_id = validate_inner_envoy(state, disciple_id.as_deref())?;
+            let text = request_manual(state, &sect_id, &martial_art_id)?;
+            dispatch_inner_envoy(state, &envoy_id, "天枢阁请教");
+            text
+        }
     };
 
     if spends_decision {
@@ -382,6 +451,31 @@ fn player_disciple_mut<'a>(
         .ok_or_else(|| "查无此人。".to_string())
 }
 
+fn validate_inner_envoy(state: &GameState, id: Option<&str>) -> Result<String, String> {
+    let id = id.ok_or_else(|| "须择一名内门弟子前往。".to_string())?;
+    let disciple = state
+        .disciples
+        .iter()
+        .find(|disciple| disciple.id == id)
+        .ok_or_else(|| "查无这名使者。".to_string())?;
+    if disciple.rank != DiscipleRank::Inner || !disciple::can_act(disciple) {
+        return Err("使者须为眼下可行动的内门弟子。".into());
+    }
+    Ok(id.to_owned())
+}
+
+fn dispatch_inner_envoy(state: &mut GameState, id: &str, assigned_by: &str) {
+    if let Some(disciple) = state.disciples.iter_mut().find(|disciple| disciple.id == id) {
+        disciple.away_months = 2;
+        disciple.action = Some(ActionPlan {
+            kind: ActionKind::SectMission,
+            assigned_by: Some(assigned_by.into()),
+            remaining_months: 2,
+            ..ActionPlan::default()
+        });
+    }
+}
+
 fn spend(state: &mut GameState, amount: i32) -> Result<(), String> {
     if state.sect.attributes.silver < amount {
         return Err(format!(
@@ -398,6 +492,14 @@ fn rank_merit(rank: &DiscipleRank) -> i64 {
         DiscipleRank::Chore => 0,
         DiscipleRank::Outer => 10,
         DiscipleRank::Inner => 80,
+    }
+}
+
+fn rank_allows_action(rank: &DiscipleRank, kind: &ActionKind) -> bool {
+    match rank {
+        DiscipleRank::Chore => matches!(kind, ActionKind::Maintain | ActionKind::Construct | ActionKind::Produce | ActionKind::Business | ActionKind::Gather | ActionKind::Recover),
+        DiscipleRank::Outer => matches!(kind, ActionKind::Practice | ActionKind::Spar | ActionKind::SectMission | ActionKind::Wander | ActionKind::Recover),
+        DiscipleRank::Inner => matches!(kind, ActionKind::Read | ActionKind::Practice | ActionKind::Teach | ActionKind::Spar | ActionKind::TemperBody | ActionKind::CultivateNeili | ActionKind::Meditate | ActionKind::SectMission | ActionKind::Wander | ActionKind::Recover),
     }
 }
 
@@ -502,7 +604,7 @@ mod tests {
             &mut state,
             ManagementRequest::AssignAction {
                 disciple_id: id,
-                kind: crate::models::attributes::ActionKind::Read,
+                kind: crate::models::attributes::ActionKind::Practice,
                 target_id: None,
                 martial_art_id: None,
             },
@@ -556,12 +658,17 @@ mod tests {
         state.npc_disciples = disciples;
         state.sect.relations.insert("wudang".into(), 50);
         let mut rng = StdRng::seed_from_u64(2);
+        let mut envoy = disciple::generate_disciple(&mut rng, 0);
+        envoy.rank = DiscipleRank::Inner;
+        let envoy_id = envoy.id.clone();
+        state.disciples.push(envoy);
         execute_management(
             &mut rng,
             &mut state,
             ManagementRequest::RequestManual {
                 sect_id: "wudang".into(),
                 martial_art_id: "wudang_foundation".into(),
+                disciple_id: Some(envoy_id),
             },
         )
         .unwrap();

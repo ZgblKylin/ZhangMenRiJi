@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// 决策定义（静态数据，8种）
+/// 分散在七座建筑中的掌门议事。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecisionDef {
     pub id: String,
@@ -14,7 +14,7 @@ pub struct DecisionDef {
     pub req_unlearned_arts: bool,       // 要求有未学武学
 }
 
-/// 返回全部 8 种决策的静态定义
+/// 返回全部建筑议事定义。
 pub fn all_decisions() -> Vec<DecisionDef> {
     vec![
         DecisionDef {
@@ -48,17 +48,6 @@ pub fn all_decisions() -> Vec<DecisionDef> {
             req_injury_max: None,
             req_silver_min: None,
             req_disciples_min: Some(1),
-            req_unlearned_arts: false,
-        },
-        DecisionDef {
-            id: "repair".into(),
-            title: "修缮山门".into(),
-            desc: "拨银修缮门派建筑，改善弟子起居环境。花费库银六十两。".into(),
-            cost: 60,
-            cost_type: "silver".into(),
-            req_injury_max: None,
-            req_silver_min: Some(60),
-            req_disciples_min: None,
             req_unlearned_arts: false,
         },
         DecisionDef {
@@ -96,7 +85,7 @@ pub fn all_decisions() -> Vec<DecisionDef> {
         },
         DecisionDef {
             id: "teach".into(),
-            title: "传功授艺".into(),
+            title: "传武授艺".into(),
             desc: "掌门亲自为弟子传授武艺，可令数名弟子武学精进。花费库银二十两备办药材。".into(),
             cost: 20,
             cost_type: "silver".into(),

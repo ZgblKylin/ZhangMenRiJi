@@ -305,6 +305,7 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             martial_research: BTreeMap::from([(template.signature.into(), 180 + prestige as i64)]),
             relations: BTreeMap::new(),
             active_orders: vec![],
+            productions: vec![],
         };
 
         for (member_index, name) in template.members.iter().enumerate() {

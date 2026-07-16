@@ -1,5 +1,5 @@
 use crate::logic::{disciple, sect};
-use crate::models::attributes::{ActionKind, ActionPlan};
+use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::{Disciple, GameEvent, GameState};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rayon::prelude::*;
@@ -54,6 +54,9 @@ struct SectDelta {
     prestige: i32,
     morality: i32,
     morale: i32,
+    inventory: BTreeMap<String, i32>,
+    building_work: BTreeMap<String, i32>,
+    building_maintenance: BTreeMap<String, i32>,
 }
 
 #[derive(Default)]
@@ -179,7 +182,20 @@ fn choose_action(state: &GameState, actor: &Actor, rng: &mut StdRng) -> ActionKi
             .find(|candidate| candidate.id == actor.sect_id)
             .unwrap_or(&state.sect)
     };
-    let mut choices = vec![
+    let mut choices = match d.rank.clone() {
+        DiscipleRank::Chore => vec![
+            (ActionKind::Produce, 18),
+            (ActionKind::Business, 16 + sect::policy_bonus(policy, "income")),
+            (ActionKind::Gather, 18),
+            (ActionKind::Recover, 8),
+        ],
+        DiscipleRank::Outer => vec![
+            (ActionKind::Practice, 24 + sect::policy_bonus(policy, "martial")),
+            (ActionKind::Spar, 18 + sect::policy_bonus(policy, "martial")),
+            (ActionKind::SectMission, 12),
+            (ActionKind::Wander, 10 + d.aptitudes.fortune / 5),
+        ],
+        DiscipleRank::Inner => vec![
         (
             ActionKind::Read,
             12 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
@@ -207,7 +223,8 @@ fn choose_action(state: &GameState, actor: &Actor, rng: &mut StdRng) -> ActionKi
             9 + sect::policy_bonus(policy, "income") + sect::order_bonus(policy, "income"),
         ),
         (ActionKind::Wander, 8 + d.aptitudes.fortune / 5),
-    ];
+        ],
+    };
     if d.attributes.qi.current < d.attributes.qi.maximum / 3
         || d.attributes.spirit.current < d.attributes.spirit.maximum / 3
     {
@@ -617,6 +634,77 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.energy += 8 * multiplier / 100;
             log = format!("{}在门中调息静养，气色渐复。", d.name);
         }
+        ActionKind::Maintain => {
+            let target = d
+                .action
+                .as_ref()
+                .and_then(|plan| plan.target_id.clone())
+                .unwrap_or_else(|| "logistics".into());
+            let work = 6 + d.aptitudes.strength / 6;
+            *result
+                .sects
+                .entry(actor.sect_id.clone())
+                .or_default()
+                .building_maintenance
+                .entry(target)
+                .or_default() += work;
+            delta.energy -= 8;
+            delta.merit += 3;
+            log = format!("{}巡检梁柱瓦石，投入了{}点维护工作。", d.name, work);
+        }
+        ActionKind::Construct => {
+            let target = d
+                .action
+                .as_ref()
+                .and_then(|plan| plan.target_id.clone())
+                .unwrap_or_else(|| "logistics".into());
+            let work = 8 + d.aptitudes.strength / 5;
+            *result
+                .sects
+                .entry(actor.sect_id.clone())
+                .or_default()
+                .building_work
+                .entry(target)
+                .or_default() += work;
+            delta.qi -= 5;
+            delta.energy -= 10;
+            delta.merit += 5;
+            log = format!("{}参与营造，完成了{}点建造工作。", d.name, work);
+        }
+        ActionKind::Produce => {
+            let quantity = 6 + d.aptitudes.constitution / 5;
+            *result
+                .sects
+                .entry(actor.sect_id.clone())
+                .or_default()
+                .inventory
+                .entry("粮秣".into())
+                .or_default() += quantity;
+            delta.energy -= 7;
+            delta.merit += 2;
+            log = format!("{}操持门中生产，入库粮秣{}份。", d.name, quantity);
+        }
+        ActionKind::Business => {
+            let silver = 10 + d.aptitudes.intelligence / 2 + rng.gen_range(0..=12);
+            result
+                .sects
+                .entry(actor.sect_id.clone())
+                .or_default()
+                .silver += silver;
+            delta.merit += 3;
+            log = format!("{}下山经营世俗产业，带回库银{}两。", d.name, silver);
+        }
+        ActionKind::Gather => {
+            let herbs = 2 + d.aptitudes.fortune / 8;
+            let sect_delta = result.sects.entry(actor.sect_id.clone()).or_default();
+            *sect_delta.inventory.entry("草药".into()).or_default() += herbs;
+            if rng.gen_bool(0.35) {
+                *sect_delta.inventory.entry("精铁".into()).or_default() += 1;
+            }
+            delta.energy -= 6;
+            delta.merit += 3;
+            log = format!("{}入山采集，带回草药{}份。", d.name, herbs);
+        }
         ActionKind::Teach | ActionKind::Spar => unreachable!("独行任务已回退为研读"),
     }
     if d.action.is_some() && !matches!(kind, ActionKind::SectMission | ActionKind::Wander) {
@@ -731,6 +819,15 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
             total.prestige += delta.prestige;
             total.morality += delta.morality;
             total.morale += delta.morale;
+            for (item, quantity) in delta.inventory {
+                *total.inventory.entry(item).or_default() += quantity;
+            }
+            for (building, work) in delta.building_work {
+                *total.building_work.entry(building).or_default() += work;
+            }
+            for (building, work) in delta.building_maintenance {
+                *total.building_maintenance.entry(building).or_default() += work;
+            }
         }
         for (player, text) in result.logs {
             if player {
@@ -764,6 +861,19 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
             target.attributes.morality =
                 (target.attributes.morality + delta.morality).clamp(0, 100);
             target.attributes.morale = (target.attributes.morale + delta.morale).clamp(0, 100);
+            for (item, quantity) in delta.inventory {
+                *target.inventory.entry(item).or_default() += quantity;
+            }
+            for (building_id, work) in delta.building_work {
+                if let Some(building) = target.buildings.iter_mut().find(|building| building.id == building_id) {
+                    building.work_invested = (building.work_invested + work).min(building.work_required);
+                }
+            }
+            for (building_id, work) in delta.building_maintenance {
+                if let Some(building) = target.buildings.iter_mut().find(|building| building.id == building_id) {
+                    building.condition = (building.condition + work).min(100);
+                }
+            }
         }
     }
     sect::sync_legacy_fields(state);
@@ -858,6 +968,11 @@ fn action_name(kind: &ActionKind) -> &'static str {
         ActionKind::SectMission => "mission",
         ActionKind::Wander => "wander",
         ActionKind::Recover => "recover",
+        ActionKind::Maintain => "maintain",
+        ActionKind::Construct => "construct",
+        ActionKind::Produce => "produce",
+        ActionKind::Business => "business",
+        ActionKind::Gather => "gather",
     }
 }
 

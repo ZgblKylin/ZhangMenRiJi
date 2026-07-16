@@ -24,7 +24,9 @@ pub fn execute_decision(
             let count = disc::rand_range(rng, 1, 2);
             for _ in 0..count {
                 let bonus = if state.prestige > 50 { 10 } else { 0 };
-                state.disciples.push(disc::generate_disciple(rng, bonus));
+                let mut recruit = disc::generate_disciple(rng, bonus);
+                recruit.rank = crate::models::attributes::DiscipleRank::Chore;
+                state.disciples.push(recruit);
             }
             state.total_disciples_recruited += count;
             events.push(GameEvent {

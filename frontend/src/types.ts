@@ -1,5 +1,5 @@
 export type Mood = 'good' | 'bad' | 'neutral'
-export type ActionKind = 'read' | 'practice' | 'teach' | 'spar' | 'temper_body' | 'cultivate_neili' | 'meditate' | 'sect_mission' | 'wander' | 'recover'
+export type ActionKind = 'read' | 'practice' | 'teach' | 'spar' | 'temper_body' | 'cultivate_neili' | 'meditate' | 'sect_mission' | 'wander' | 'recover' | 'maintain' | 'construct' | 'produce' | 'business' | 'gather'
 export type SectPolicy = 'balanced' | 'martial' | 'scholarly' | 'chivalrous' | 'mercantile' | 'reclusive'
 export type DiscipleRank = 'chore' | 'outer' | 'inner'
 export type BuildingKind = 'practice' | 'scripture' | 'warehouse' | 'herb_hall' | 'intelligence' | 'affairs' | 'logistics'
@@ -96,9 +96,12 @@ export interface Building {
   elder_id?: string | null
   elder_title: string
   elder_action_used: boolean
+  work_required: number
+  work_invested: number
 }
 export interface RankRules { outer_ratio: number; inner_ratio: number }
 export interface SectOrder { id: string; name: string; remaining_months: number; silver_cost: number; effect: Record<string, number> }
+export interface ProductionTask { id: string; name: string; output_item: string; quantity: number; remaining_months: number }
 export interface SectAttributes { prestige: number; silver: number; morality: number; morale: number }
 export interface SectState {
   id: string
@@ -114,6 +117,7 @@ export interface SectState {
   martial_research: Record<string, number>
   relations: Record<string, number>
   active_orders: SectOrder[]
+  productions: ProductionTask[]
 }
 export interface Country { id: string; name: string; prosperity: number; order: number }
 

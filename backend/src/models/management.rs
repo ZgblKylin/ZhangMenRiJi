@@ -43,6 +43,9 @@ pub enum ManagementRequest {
         item: String,
         quantity: i32,
     },
+    BrewPill {
+        recipe_id: String,
+    },
     IssueOrder {
         order_id: String,
     },
@@ -55,9 +58,11 @@ pub enum ManagementRequest {
     ResearchNewMartial,
     Exchange {
         sect_id: String,
+        disciple_id: Option<String>,
     },
     RequestManual {
         sect_id: String,
         martial_art_id: String,
+        disciple_id: Option<String>,
     },
 }

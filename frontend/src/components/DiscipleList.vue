@@ -1,18 +1,26 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import type { ActionKind, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillCategory, SkillEntry } from '../types'
+import type { ActionKind, Building, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillCategory, SkillEntry } from '../types'
 import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 
-const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; disabled?: boolean }>()
+const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; buildings: Building[]; disabled?: boolean }>()
 const emit = defineEmits<{ manage: [command: ManagementRequest]; expel: [disciple: Disciple] }>()
 const openId = ref<string | null>(null)
 const selected = reactive<Record<string, ActionKind>>({})
 const selectedRank = reactive<Record<string, DiscipleRank>>({})
-const actions: Array<[ActionKind, string]> = [
+const selectedTarget = reactive<Record<string, string>>({})
+const innerActions: Array<[ActionKind, string]> = [
   ['read', '研读典籍'], ['practice', '练习武功'], ['temper_body', '打熬气血'], ['cultivate_neili', '修炼内力'],
   ['meditate', '冥想养神'], ['spar', '同门切磋'], ['teach', '传功授艺'],
   ['sect_mission', '外派办事'], ['wander', '江湖历练'], ['recover', '静养调息'],
 ]
+const outerActions: Array<[ActionKind, string]> = [
+  ['practice', '习武'], ['spar', '陪练'], ['sect_mission', '江湖事务'], ['wander', '自由历练探险'], ['recover', '静养调息'],
+]
+const choreActions: Array<[ActionKind, string]> = [
+  ['maintain', '建筑维护'], ['construct', '建造升级'], ['produce', '门中生产'], ['business', '世俗经营'], ['gather', '入山采集'], ['recover', '静养调息'],
+]
+const actionsFor = (disciple: Disciple) => disciple.rank === 'chore' ? choreActions : disciple.rank === 'outer' ? outerActions : innerActions
 const rankName = { chore: '杂役', outer: '外门', inner: '内门' }
 const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
 const artName = (id: string) => displayArtName(props.arts, id)
@@ -63,10 +71,13 @@ const equip = (disciple: Disciple, basicSkillId: string, event: Event) => {
 const actionUnavailable = (disciple: Disciple, kind: ActionKind) =>
   (kind === 'cultivate_neili' && disciple.attributes.neili.maximum >= neiliTrainingCap(disciple))
   || (kind === 'meditate' && disciple.attributes.energy.maximum >= energyTrainingCap(disciple))
-const assign = (disciple: Disciple) => emit('manage', {
+const assign = (disciple: Disciple) => {
+  const kind = selected[disciple.id] || actionsFor(disciple)[0][0]
+  emit('manage', {
   action: 'assign_action', disciple_id: disciple.id,
-  kind: selected[disciple.id] || 'read', target_id: null, martial_art_id: null,
-})
+  kind, target_id: ['maintain', 'construct'].includes(kind) ? (selectedTarget[disciple.id] || props.buildings[0]?.id) : null, martial_art_id: null,
+  })
+}
 const appoint = (disciple: Disciple) => emit('manage', {
   action: 'set_personnel', disciple_id: disciple.id,
   rank: selectedRank[disciple.id] || disciple.rank, department: disciple.department || null,
@@ -129,9 +140,12 @@ const appoint = (disciple: Disciple) => emit('manage', {
           </div>
           <div class="action-assignment">
             <select v-model="selected[d.id]" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'">
-              <option v-for="[value, label] in actions" :key="value" :value="value" :disabled="actionUnavailable(d, value)">
+              <option v-for="[value, label] in actionsFor(d)" :key="value" :value="value" :disabled="actionUnavailable(d, value)">
                 {{ label }}{{ actionUnavailable(d, value) ? '（已达上限）' : '' }}
               </option>
+            </select>
+            <select v-if="['maintain', 'construct'].includes(selected[d.id] || actionsFor(d)[0][0])" v-model="selectedTarget[d.id]" :disabled="disabled">
+              <option v-for="building in buildings" :key="building.id" :value="building.id">{{ building.name }}</option>
             </select>
             <button class="btn btn-sm" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'" @click="assign(d)">传令</button>
           </div>

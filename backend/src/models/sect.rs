@@ -74,6 +74,8 @@ pub struct Building {
     pub elder_id: Option<String>,
     pub elder_title: String,
     pub elder_action_used: bool,
+    pub work_required: i32,
+    pub work_invested: i32,
 }
 
 impl Default for Building {
@@ -88,6 +90,8 @@ impl Default for Building {
             elder_id: None,
             elder_title: String::new(),
             elder_action_used: false,
+            work_required: 0,
+            work_invested: 0,
         }
     }
 }
@@ -100,6 +104,16 @@ pub struct SectOrder {
     pub remaining_months: i32,
     pub silver_cost: i32,
     pub effect: BTreeMap<String, i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProductionTask {
+    pub id: String,
+    pub name: String,
+    pub output_item: String,
+    pub quantity: i32,
+    pub remaining_months: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +132,7 @@ pub struct SectState {
     pub martial_research: BTreeMap<String, i64>,
     pub relations: BTreeMap<String, i32>,
     pub active_orders: Vec<SectOrder>,
+    pub productions: Vec<ProductionTask>,
 }
 
 impl Default for SectState {
@@ -140,6 +155,7 @@ impl Default for SectState {
             martial_research: BTreeMap::new(),
             relations: BTreeMap::new(),
             active_orders: vec![],
+            productions: vec![],
         }
     }
 }

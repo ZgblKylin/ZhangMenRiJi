@@ -170,6 +170,11 @@ pub enum ActionKind {
     SectMission,
     Wander,
     Recover,
+    Maintain,
+    Construct,
+    Produce,
+    Business,
+    Gather,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

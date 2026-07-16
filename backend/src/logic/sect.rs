@@ -66,6 +66,16 @@ pub fn normalize_buildings(sect: &mut SectState) {
             .map(|old| old.upgrading_months)
             .max()
             .unwrap_or(0);
+        building.work_required = matches
+            .iter()
+            .map(|old| old.work_required)
+            .max()
+            .unwrap_or(0);
+        building.work_invested = matches
+            .iter()
+            .map(|old| old.work_invested)
+            .max()
+            .unwrap_or(0);
         if let Some(current) = matches.iter().find(|old| old.id == building.id) {
             building.elder_id = current.elder_id.clone();
             building.elder_action_used = current.elder_action_used;
@@ -156,11 +166,15 @@ pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32
         (sect.attributes.morality + order_bonus(sect, "morality") / 6).clamp(0, 100);
 
     for building in &mut sect.buildings {
-        if building.upgrading_months > 0 {
-            building.upgrading_months -= 1;
-            if building.upgrading_months == 0 {
+        if building.work_required > 0 {
+            let remaining = (building.work_required - building.work_invested).max(0);
+            building.upgrading_months = (remaining + 9) / 10;
+            if remaining == 0 {
                 building.level += 1;
                 building.condition = 100;
+                building.work_required = 0;
+                building.work_invested = 0;
+                building.upgrading_months = 0;
             }
         } else {
             building.condition = (building.condition - 1).max(0);
@@ -171,7 +185,24 @@ pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32
     }
     sect.active_orders
         .retain(|order| order.remaining_months > 0);
+    settle_productions(sect);
     (income, expense)
+}
+
+fn settle_productions(sect: &mut SectState) {
+    for task in &mut sect.productions {
+        task.remaining_months -= 1;
+    }
+    let completed: Vec<(String, i32)> = sect
+        .productions
+        .iter()
+        .filter(|task| task.remaining_months <= 0)
+        .map(|task| (task.output_item.clone(), task.quantity))
+        .collect();
+    sect.productions.retain(|task| task.remaining_months > 0);
+    for (item, quantity) in completed {
+        *sect.inventory.entry(item).or_default() += quantity;
+    }
 }
 
 pub fn building_level(sect: &SectState, id: &str) -> i32 {
