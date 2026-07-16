@@ -127,6 +127,7 @@ export interface Building {
   elder_id?: string | null
   elder_title: string
   selected_duty?: string | null
+  duty_target?: string | null
   elder_action_used: boolean
   work_required: number
   work_invested: number

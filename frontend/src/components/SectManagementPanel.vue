@@ -28,7 +28,7 @@ const elderDuties: Record<BuildingKind, Array<[string, string, string]>> = {
   herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '试炼小炉', `耗费 2 份草药，炼得 1 份${MedicineType.Wound}`]],
   intelligence: [['correspond', '修书诸派', '与所有门派的交情各提升 2 点'], ['scout', '查探江湖', '本门声望提升 3 点']],
   affairs: [['recruit', '代访新人', '耗费 25 两，为门中访得一名新人'], ['arbitrate', '处置事务', '依门风提升道德、志气或库银']],
-  logistics: [['maintain', '巡检诸堂', '所有建筑完好度恢复 4 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量']],
+  logistics: [['maintain', '巡检诸堂', '所有建筑完好度恢复 4 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量'], ['expand', '督造扩建', '选取一栋建筑立项扩建，低级建筑优先']],
 }
 const orders = [
   ['diligent', '勤修令', '三月内门人更喜练武', 60], ['righteous', '尚义令', '四月内涵养门风', 80],
@@ -41,6 +41,7 @@ const decisionIds: Record<BuildingKind, string[]> = {
 }
 const buildingDecisions = computed(() => props.decisions.filter(decision => decisionIds[props.view].includes(decision.id)))
 const currentBuilding = computed(() => props.game.sect.buildings.find(building => building.kind === props.view))
+const upgradeableBuildings = computed(() => props.game.sect.buildings.filter(building => building.work_required === 0))
 const assignedIds = computed(() => new Set(props.game.sect.buildings.map(building => building.elder_id).filter(Boolean)))
 const elderCandidates = computed(() => props.game.disciples.filter(disciple =>
   disciple.alive && disciple.rank === 'inner' && (!assignedIds.value.has(disciple.id) || disciple.id === currentBuilding.value?.elder_id)))
@@ -89,11 +90,16 @@ const recommendedElderDuty = (building: Building) => {
     case 'herb_hall': return props.game.injury > 0 || (props.game.sect.inventory['草药'] || 0) < 2 ? 'treat' : 'brew'
     case 'intelligence': return Object.values(props.game.sect.relations).some(value => value < 10) ? 'correspond' : 'scout'
     case 'affairs': return props.game.sect.attributes.silver >= 25 ? 'recruit' : 'arbitrate'
-    case 'logistics': return props.game.sect.buildings.some(item => item.work_required > item.work_invested) ? 'supervise' : 'maintain'
+    case 'logistics':
+      if (props.game.sect.buildings.some(item => item.work_required > 0)) return 'supervise'
+      if (props.game.sect.buildings.some(item => item.condition < 70)) return 'maintain'
+      return 'expand'
   }
 }
 const selectedDuty = (building: Building) => building.selected_duty || recommendedElderDuty(building)
-const selectElderDuty = (building: Building, dutyId: string) => command({ action: 'set_elder_duty', building_id: building.id, duty_id: dutyId })
+const expansionTarget = (building: Building) => upgradeableBuildings.value.find(item => item.id === building.duty_target)?.id || upgradeableBuildings.value[0]?.id || null
+const selectElderDuty = (building: Building, dutyId: string, dutyTarget?: string | null) => command({ action: 'set_elder_duty', building_id: building.id, duty_id: dutyId, duty_target: dutyTarget })
+const selectExpansionTarget = (building: Building, event: Event) => selectElderDuty(building, 'expand', (event.target as HTMLSelectElement).value || null)
 </script>
 
 <template>
@@ -109,7 +115,13 @@ const selectElderDuty = (building: Building, dutyId: string) => command({ action
       <i>{{ elderName }}</i>
       <div class="elder-duty-actions">
         <small>{{ currentBuilding.elder_action_used ? '本月堂务已办，过月仍照此办理' : '事务已择定，过月自动办理' }}</small>
-        <button v-for="[id, label, description] in elderDuties[view]" :key="id" type="button" class="btn btn-sm elder-duty-option" :class="{ active: selectedDuty(currentBuilding) === id }" :data-tooltip="description" :aria-label="`${label}：${description}`" :disabled="!currentBuilding.elder_id || !!game.pending_event" @click="selectElderDuty(currentBuilding, id)">{{ label }}</button>
+        <button v-for="[id, label, description] in elderDuties[view]" :key="id" type="button" class="btn btn-sm elder-duty-option" :class="{ active: selectedDuty(currentBuilding) === id }" :data-tooltip="description" :aria-label="`${label}：${description}`" :disabled="!currentBuilding.elder_id || !!game.pending_event" @click="selectElderDuty(currentBuilding, id, id === 'expand' ? expansionTarget(currentBuilding) : undefined)">{{ label }}</button>
+        <label v-if="selectedDuty(currentBuilding) === 'expand'" class="elder-duty-target"><span>扩建目标</span>
+          <select class="wuxia-select" :value="expansionTarget(currentBuilding) || ''" :disabled="!currentBuilding.elder_id || !!game.pending_event || !upgradeableBuildings.length" @change="selectExpansionTarget(currentBuilding, $event)">
+            <option v-if="!upgradeableBuildings.length" value="">暂无可扩建建筑</option>
+            <option v-for="building in upgradeableBuildings" :key="building.id" :value="building.id">{{ building.name }} · 第{{ building.level }}重</option>
+          </select>
+        </label>
       </div>
     </header>
 

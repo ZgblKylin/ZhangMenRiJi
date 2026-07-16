@@ -267,6 +267,7 @@ pub fn execute_management(
         ManagementRequest::SetElderDuty {
             building_id,
             duty_id,
+            duty_target,
         } => {
             let building = state
                 .sect
@@ -276,6 +277,9 @@ pub fn execute_management(
                 .ok_or_else(|| "门中并无此处建筑。".to_string())?;
             if !elder_duties(&building.kind).contains(&duty_id.as_str()) {
                 return Err("这桩事务不在该堂职掌之内。".into());
+            }
+            if duty_id == "expand" {
+                building.duty_target = duty_target;
             }
             building.selected_duty = Some(duty_id);
             building.elder_action_used = false;
@@ -667,7 +671,7 @@ fn elder_duties(kind: &BuildingKind) -> &'static [&'static str] {
         BuildingKind::HerbHall => &["treat", "brew"],
         BuildingKind::Intelligence => &["correspond", "scout"],
         BuildingKind::Affairs => &["recruit", "arbitrate"],
-        BuildingKind::Logistics => &["maintain", "supervise"],
+        BuildingKind::Logistics => &["maintain", "supervise", "expand"],
     }
 }
 
@@ -702,6 +706,7 @@ fn execute_elder_duty(
     }
     let elder_name = elder.name.clone();
     let kind = building.kind.clone();
+    let duty_target = building.duty_target.clone();
     if !elder_duties(&kind).contains(&duty_id) {
         return Err("这桩事务不在该堂职掌之内。".into());
     }
@@ -808,6 +813,53 @@ fn execute_elder_duty(
             }
             "亲临工地督造，各处营造进度俱增"
         }
+        "expand" => {
+            let candidates = state
+                .sect
+                .buildings
+                .iter()
+                .filter(|building| building.work_required == 0)
+                .map(|building| (building.id.clone(), building.level))
+                .collect::<Vec<_>>();
+            if candidates.is_empty() {
+                return Err("眼下各处皆在施工，无处可再立项扩建。".into());
+            }
+
+            let selected_id = duty_target
+                .filter(|target| candidates.iter().any(|(id, _)| id == target))
+                .unwrap_or_else(|| {
+                    let max_level = candidates
+                        .iter()
+                        .map(|(_, level)| *level)
+                        .max()
+                        .unwrap_or(1);
+                    let total_weight = candidates
+                        .iter()
+                        .map(|(_, level)| max_level - level + 1)
+                        .sum::<i32>();
+                    let mut roll = rng.gen_range(0..total_weight);
+                    candidates
+                        .iter()
+                        .find_map(|(id, level)| {
+                            roll -= max_level - level + 1;
+                            (roll < 0).then(|| id.clone())
+                        })
+                        .expect("扩建候选建筑权重应为正数")
+                });
+            let target = state
+                .sect
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == selected_id)
+                .expect("扩建候选建筑应存在");
+            target.work_required = (target.level + 1) * 20;
+            target.work_invested = 0;
+            let result = format!(
+                "督率杂役扩建{}，立项{}点工作量",
+                target.name, target.work_required
+            );
+            return finish_elder_duty(state, building_id, &elder_name, result);
+        }
         _ => unreachable!("堂务已校验"),
     };
     let result = if duty_id == "brew" {
@@ -815,6 +867,15 @@ fn execute_elder_duty(
     } else {
         result.to_owned()
     };
+    finish_elder_duty(state, building_id, &elder_name, result)
+}
+
+fn finish_elder_duty(
+    state: &mut GameState,
+    building_id: &str,
+    elder_name: &str,
+    result: String,
+) -> Result<String, String> {
     if let Some(building) = state
         .sect
         .buildings
@@ -1100,6 +1161,7 @@ mod tests {
         let request = ManagementRequest::SetElderDuty {
             building_id: "practice".into(),
             duty_id: "drill".into(),
+            duty_target: None,
         };
         execute_management(&mut rng, &mut state, request).unwrap();
         assert_eq!(state.decisions_used, 0);
@@ -1108,6 +1170,91 @@ mod tests {
             Some("drill")
         );
         assert!(!state.sect.buildings[0].elder_action_used);
+    }
+
+    #[test]
+    fn expand_duty_persists_and_uses_the_selected_building() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(23);
+        let mut elder = disciple::generate_disciple(&mut rng, 0);
+        elder.rank = DiscipleRank::Inner;
+        let elder_id = elder.id.clone();
+        state.disciples.push(elder);
+        let logistics = state
+            .sect
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == "logistics")
+            .unwrap();
+        logistics.elder_id = Some(elder_id);
+
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::SetElderDuty {
+                building_id: "logistics".into(),
+                duty_id: "expand".into(),
+                duty_target: Some("scripture".into()),
+            },
+        )
+        .unwrap();
+        let logistics = state
+            .sect
+            .buildings
+            .iter()
+            .find(|building| building.id == "logistics")
+            .unwrap();
+        assert_eq!(logistics.duty_target.as_deref(), Some("scripture"));
+
+        let result = execute_elder_duty(&mut rng, &mut state, "logistics", "expand").unwrap();
+        let scripture = state
+            .sect
+            .buildings
+            .iter()
+            .find(|building| building.id == "scripture")
+            .unwrap();
+        assert_eq!(scripture.work_required, 40);
+        assert_eq!(scripture.work_invested, 0);
+        assert!(result.contains("扩建藏经阁，立项40点工作量"));
+    }
+
+    #[test]
+    fn expand_duty_falls_back_to_an_available_weighted_target() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(24);
+        let mut elder = disciple::generate_disciple(&mut rng, 0);
+        elder.rank = DiscipleRank::Inner;
+        let elder_id = elder.id.clone();
+        state.disciples.push(elder);
+        for building in &mut state.sect.buildings {
+            building.level = 3;
+            building.work_required = 10;
+        }
+        let practice = state
+            .sect
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == "practice")
+            .unwrap();
+        practice.level = 1;
+        practice.work_required = 0;
+        let logistics = state
+            .sect
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == "logistics")
+            .unwrap();
+        logistics.elder_id = Some(elder_id);
+        logistics.duty_target = Some("missing".into());
+
+        execute_elder_duty(&mut rng, &mut state, "logistics", "expand").unwrap();
+        let practice = state
+            .sect
+            .buildings
+            .iter()
+            .find(|building| building.id == "practice")
+            .unwrap();
+        assert_eq!(practice.work_required, 40);
     }
 
     #[test]

@@ -97,6 +97,9 @@ pub struct Building {
     pub elder_id: Option<String>,
     pub elder_title: String,
     pub selected_duty: Option<String>,
+    /// 长老事务的二级目标（如扩建目标建筑 id）。
+    #[serde(default)]
+    pub duty_target: Option<String>,
     pub elder_action_used: bool,
     pub work_required: i32,
     pub work_invested: i32,
@@ -114,6 +117,7 @@ impl Default for Building {
             elder_id: None,
             elder_title: String::new(),
             selected_duty: None,
+            duty_target: None,
             elder_action_used: false,
             work_required: 0,
             work_invested: 0,
@@ -249,4 +253,24 @@ pub fn default_countries() -> Vec<Country> {
             order: 55,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Building;
+
+    #[test]
+    fn legacy_building_without_duty_target_deserializes() {
+        let building: Building = serde_json::from_value(serde_json::json!({
+            "id": "logistics",
+            "name": "庶务堂",
+            "kind": "logistics",
+            "level": 2
+        }))
+        .unwrap();
+
+        assert_eq!(building.id, "logistics");
+        assert_eq!(building.level, 2);
+        assert_eq!(building.duty_target, None);
+    }
 }

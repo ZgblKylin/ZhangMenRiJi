@@ -41,6 +41,8 @@ pub enum ManagementRequest {
     SetElderDuty {
         building_id: String,
         duty_id: String,
+        #[serde(default)]
+        duty_target: Option<String>,
     },
     Expel {
         disciple_id: String,

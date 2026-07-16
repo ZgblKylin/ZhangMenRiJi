@@ -95,6 +95,7 @@ pub fn normalize_buildings(sect: &mut SectState) {
             if current.selected_duty.is_some() {
                 building.selected_duty = current.selected_duty.clone();
             }
+            building.duty_target = current.duty_target.clone();
             building.elder_action_used = current.elder_action_used;
         }
     }
