@@ -88,10 +88,17 @@ pub fn generate_disciple(rng: &mut impl Rng, talent_bonus: i32) -> Disciple {
         ..Disciple::default()
     };
     disciple.attributes = initial_attributes(&disciple, inner_power);
+    let mut proficiencies = [
+        (art.id.clone(), SkillProgress::new(50, 0)),
+        (art.basic_skill.clone(), SkillProgress::new(40, 0)),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    proficiencies
+        .entry("基本内功".into())
+        .or_insert_with(|| SkillProgress::new(inner_power, 0));
     disciple.martial_progress = MartialProgress {
-        proficiencies: [(art.id.clone(), SkillProgress::new(50, 0))]
-            .into_iter()
-            .collect(),
+        proficiencies,
         specialties: vec![art.art_type.clone()],
         private_books: vec![],
     };
@@ -192,6 +199,10 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
             .proficiencies
             .insert(d.martial_art.clone(), SkillProgress::new(25, 0));
     }
+    d.martial_progress
+        .proficiencies
+        .entry("基本内功".into())
+        .or_insert_with(|| SkillProgress::new(d.inner_power, 0));
     refresh_condition(d);
     sync_legacy_attributes(d);
 }
@@ -268,8 +279,8 @@ pub fn get_sect_combat_power(disciples: &[Disciple]) -> i32 {
     (total / alive.len() as i32) + (alive.len() as i32 * 5)
 }
 
-/// 月度弟子成长
-pub fn monthly_growth(rng: &mut impl Rng, disciples: &mut [Disciple], morale: i32) {
+/// 结算入门时长、年龄和门忠。修为与资源变化只由弟子本月实际行动产生。
+pub fn settle_month(disciples: &mut [Disciple], morale: i32) {
     for d in disciples.iter_mut() {
         if !d.alive {
             continue;
@@ -279,16 +290,7 @@ pub fn monthly_growth(rng: &mut impl Rng, disciples: &mut [Disciple], morale: i3
             apply_birthday(d);
         }
 
-        let neili_recovery = 2 + d.aptitudes.constitution / 10;
-        let energy_recovery = 3 + d.aptitudes.intelligence / 10;
-        let qi_recovery = 6 + d.aptitudes.constitution / 4;
-        let spirit_recovery = 6 + d.aptitudes.intelligence / 4;
-        recover(&mut d.attributes.neili, neili_recovery);
-        recover(&mut d.attributes.energy, energy_recovery);
-        recover(&mut d.attributes.qi, qi_recovery);
-        recover(&mut d.attributes.spirit, spirit_recovery);
-
-        let loyalty_delta = (morale - 50) / 20 + rand_range(rng, -2, 2);
+        let loyalty_delta = (morale - 50) / 25;
         d.attributes.sect_loyalty = clamp(d.attributes.sect_loyalty + loyalty_delta, 0, 100);
         refresh_condition(d);
         sync_legacy_attributes(d);
@@ -310,10 +312,6 @@ pub fn check_desertion(rng: &mut impl Rng, disciples: &mut Vec<Disciple>) -> Vec
         }
     });
     deserters
-}
-
-fn recover(pool: &mut ResourcePool, amount: i32) {
-    pool.current = (pool.current + amount).clamp(0, pool.maximum.max(0));
 }
 
 /// 弟子在入门周年增长一岁。年龄仅带来固定点数变化，修行、药物等额外上限不会丢失。
@@ -374,5 +372,11 @@ mod tests {
             .proficiencies
             .contains_key(&d.martial_art));
         assert!(d.attributes.qi.maximum > 0);
+
+        let mut progress = SkillProgress::new(4, 24);
+        assert_eq!(progress.gain_experience(1), 1);
+        assert_eq!(progress, SkillProgress::new(5, 0));
+        let legacy: SkillProgress = serde_json::from_str("50").unwrap();
+        assert_eq!(legacy, SkillProgress::new(50, 0));
     }
 }

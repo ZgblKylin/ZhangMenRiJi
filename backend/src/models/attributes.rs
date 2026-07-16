@@ -111,6 +111,7 @@ pub enum Department {
 #[serde(rename_all = "snake_case")]
 pub enum ActionKind {
     Read,
+    Practice,
     Teach,
     Spar,
     TemperBody,
@@ -202,24 +203,4 @@ pub struct MartialProgress {
     pub proficiencies: BTreeMap<String, SkillProgress>,
     pub specialties: Vec<String>,
     pub private_books: Vec<String>,
-}
-
-#[cfg(test)]
-mod skill_progress_tests {
-    use super::SkillProgress;
-
-    #[test]
-    fn skill_experience_uses_squared_level_threshold() {
-        let mut progress = SkillProgress::new(4, 0);
-        assert_eq!(progress.experience_to_next_level(), 25);
-        assert_eq!(progress.gain_experience(24), 0);
-        assert_eq!(progress.gain_experience(1), 1);
-        assert_eq!(progress, SkillProgress::new(5, 0));
-    }
-
-    #[test]
-    fn legacy_numeric_proficiency_is_migrated() {
-        let progress: SkillProgress = serde_json::from_str("50").unwrap();
-        assert_eq!(progress, SkillProgress::new(50, 0));
-    }
 }

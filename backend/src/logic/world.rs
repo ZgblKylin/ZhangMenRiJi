@@ -332,6 +332,10 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                         template.signature.into(),
                         SkillProgress::new(320 - member_index as i32 * 55, 0),
                     ),
+                    (
+                        "基本内功".into(),
+                        SkillProgress::new(150 - member_index as i32 * 20, 0),
+                    ),
                 ]),
                 specialties: vec!["门派绝学".into()],
                 private_books: vec![],

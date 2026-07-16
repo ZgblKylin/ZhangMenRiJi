@@ -115,17 +115,16 @@ fn finish_month(
     // 所有人物仍基于定夺完成后的同一份月初快照并行行动，结果统一归并。
     events.extend(crate::logic::action::run_auto_actions(state));
 
-    // 3. 弟子月度恢复、年龄与门忠变化
-    disc::monthly_growth(rng, &mut state.disciples, state.morale);
+    // 3. 仅结算年龄与门忠；修为和恢复已由每人的实际行动独立结算。
+    disc::settle_month(&mut state.disciples, state.morale);
     for sect in &state.npc_sects {
         let morale = sect.attributes.morale;
-        let mut members: Vec<&mut crate::models::Disciple> = state
+        for member in state
             .npc_disciples
             .iter_mut()
             .filter(|d| d.sect_id.as_deref() == Some(sect.id.as_str()))
-            .collect();
-        for member in &mut members {
-            disc::monthly_growth(rng, std::slice::from_mut(*member), morale);
+        {
+            disc::settle_month(std::slice::from_mut(member), morale);
         }
     }
 

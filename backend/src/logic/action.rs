@@ -184,6 +184,10 @@ fn choose_action(state: &GameState, actor: &Actor, rng: &mut StdRng) -> ActionKi
             ActionKind::Read,
             12 + sect::policy_bonus(policy, "study") + sect::order_bonus(policy, "study"),
         ),
+        (
+            ActionKind::Practice,
+            14 + sect::policy_bonus(policy, "martial") + sect::order_bonus(policy, "martial"),
+        ),
         (ActionKind::Teach, 8),
         (ActionKind::Spar, 12 + sect::policy_bonus(policy, "martial")),
         (
@@ -300,25 +304,40 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
     match job.kind {
         ActionKind::Teach => {
             let (teacher, student) =
-                if first.disciple.attributes.attainment >= second.disciple.attributes.attainment {
+                if teaching_score(&first.disciple) >= teaching_score(&second.disciple) {
                     (first, second)
                 } else {
                     (second, first)
                 };
-            let art = teacher.disciple.martial_art.clone();
-            let gain = 5 + teacher.disciple.aptitudes.intelligence as i64 / 5;
+            let art = teaching_art(&teacher.disciple, &student.disciple);
+            let teacher_level = skill_level(&teacher.disciple, &art);
+            let student_level = skill_level(&student.disciple, &art);
+            let gap_bonus = (teacher_level - student_level).max(0) as i64;
+            let gain = skill_experience(
+                &student.disciple,
+                &art,
+                student.disciple.aptitudes.intelligence,
+                105 + gap_bonus.min(80) as i32,
+            );
+            let teacher_gain = skill_experience(
+                &teacher.disciple,
+                &art,
+                teacher.disciple.aptitudes.intelligence,
+                25,
+            );
             let mut teacher_delta = base_delta(teacher);
-            teacher_delta.spirit -= 6;
-            teacher_delta.attainment += 2;
+            teacher_delta.spirit -= 7;
+            teacher_delta
+                .proficiencies
+                .insert(art.clone(), teacher_gain);
             let mut student_delta = base_delta(student);
-            student_delta.spirit -= 5;
-            student_delta.attainment += gain;
+            student_delta.spirit -= 9;
             student_delta.proficiencies.insert(art.clone(), gain);
             result.disciples.extend([teacher_delta, student_delta]);
             result.logs.push((
                 teacher.player || student.player,
                 format!(
-                    "{}向{}传授{}，彼此印证，后者造诣增了{}点。",
+                    "{}向{}传授{}，彼此印证，后者添了{}点武学经验。",
                     teacher.disciple.name,
                     student.disciple.name,
                     art_display(&art),
@@ -327,20 +346,32 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             ));
         }
         ActionKind::Spar => {
-            let gain_a = 3 + first.disciple.aptitudes.agility as i64 / 8;
-            let gain_b = 3 + second.disciple.aptitudes.agility as i64 / 8;
+            let art_a = first.disciple.martial_art.clone();
+            let art_b = second.disciple.martial_art.clone();
+            let level_a = skill_level(&first.disciple, &art_a);
+            let level_b = skill_level(&second.disciple, &art_b);
+            let gain_a = skill_experience(
+                &first.disciple,
+                &art_a,
+                (first.disciple.aptitudes.strength + first.disciple.aptitudes.agility) / 2,
+                90 + (level_b - level_a).clamp(0, 50),
+            );
+            let gain_b = skill_experience(
+                &second.disciple,
+                &art_b,
+                (second.disciple.aptitudes.strength + second.disciple.aptitudes.agility) / 2,
+                90 + (level_a - level_b).clamp(0, 50),
+            );
             let mut a = base_delta(first);
             a.qi -= rng.gen_range(5..=10);
             a.energy -= 6;
-            a.attainment += gain_a;
-            a.proficiencies
-                .insert(first.disciple.martial_art.clone(), gain_a);
+            a.attainment += 4 + level_b.max(1) as i64 / 40;
+            a.proficiencies.insert(art_a, gain_a);
             let mut b = base_delta(second);
             b.qi -= rng.gen_range(5..=10);
             b.energy -= 6;
-            b.attainment += gain_b;
-            b.proficiencies
-                .insert(second.disciple.martial_art.clone(), gain_b);
+            b.attainment += 4 + level_a.max(1) as i64 / 40;
+            b.proficiencies.insert(art_b, gain_b);
             result.disciples.extend([a, b]);
             result.logs.push((
                 first.player || second.player,
@@ -382,10 +413,22 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             let sect_delta = result.sects.entry(actor.sect_id.clone()).or_default();
             sect_delta.silver += silver;
             sect_delta.prestige += 1;
-            delta.attainment += 3;
+            delta.attainment += 4;
         } else {
-            delta.attainment += 4 + d.aptitudes.fortune as i64 / 6;
+            delta.attainment += 5 + d.aptitudes.fortune as i64 / 6;
         }
+        let art = d.martial_art.clone();
+        let gain = skill_experience(
+            d,
+            &art,
+            (d.aptitudes.strength + d.aptitudes.agility) / 2,
+            if matches!(kind, ActionKind::SectMission) {
+                55
+            } else {
+                85
+            },
+        );
+        delta.proficiencies.insert(art, gain);
         result.disciples.push(delta);
         result.logs.push((actor.player, log));
         return result;
@@ -394,13 +437,27 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
     match kind {
         ActionKind::Read => {
             let art = preferred_book(actor);
-            let gain = 4 + d.aptitudes.intelligence as i64 / 4;
-            delta.spirit -= 9;
+            let gain = skill_experience(d, &art, d.aptitudes.intelligence, 85);
+            delta.spirit -= 10;
             delta.energy -= 3;
-            delta.attainment += gain;
             delta.proficiencies.insert(art.clone(), gain);
             log = format!(
-                "{}闭门研读{}，武理造诣增了{}点。",
+                "{}闭门研读{}，添了{}点武学经验。",
+                d.name,
+                art_display(&art),
+                gain
+            );
+        }
+        ActionKind::Practice => {
+            let art = practice_art(d);
+            let aptitude = (d.aptitudes.strength + d.aptitudes.agility) / 2;
+            let gain = skill_experience(d, &art, aptitude, 115);
+            delta.qi -= 4;
+            delta.neili -= 4;
+            delta.energy -= 10;
+            delta.proficiencies.insert(art.clone(), gain);
+            log = format!(
+                "{}在演武场反复练习{}，添了{}点武学经验。",
                 d.name,
                 art_display(&art),
                 gain
@@ -411,25 +468,62 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.qi -= 11;
             delta.energy -= 5;
             delta.qi_max += gain;
-            delta.attainment += 3;
             log = format!("{}打熬筋骨，气血上限添了{}点。", d.name, gain);
         }
         ActionKind::CultivateNeili => {
-            let gain = 2 + d.aptitudes.constitution / 15;
-            delta.qi -= 8;
-            delta.spirit -= 4;
+            let art = inner_skill(d);
+            let level = skill_level(d, &art).max(1);
+            let cost =
+                (10 + d.aptitudes.constitution / 4).min(d.attributes.qi.current.saturating_sub(1));
+            let cap = level
+                .saturating_mul(d.aptitudes.constitution)
+                .saturating_mul(2)
+                / 3;
+            let gain = if cost >= 10 {
+                (1 + level / 80 + d.aptitudes.constitution / 25)
+                    .min((cap - d.attributes.neili.maximum).max(0))
+            } else {
+                0
+            };
+            delta.qi -= cost;
             delta.neili_max += gain;
             delta.neili += gain;
-            delta.attainment += 5;
-            log = format!("{}吐纳行功，内力上限添了{}点。", d.name, gain);
+            log = if cost < 10 {
+                format!("{}气血不济，打坐片刻便只得收功。", d.name)
+            } else if gain > 0 {
+                format!(
+                    "{}盘膝打坐，以{}点气血炼化真气，内力上限添了{}点。",
+                    d.name, cost, gain
+                )
+            } else {
+                format!("{}盘膝打坐，却觉内功修为已遇瓶颈。", d.name)
+            };
         }
         ActionKind::Meditate => {
-            let gain = 2 + d.aptitudes.intelligence / 15;
-            delta.spirit -= 10;
+            let art = inner_skill(d);
+            let level = skill_level(d, &art).max(1);
+            let cost = (10 + d.aptitudes.intelligence / 4)
+                .min(d.attributes.spirit.current.saturating_sub(1));
+            let cap = level.saturating_mul(d.aptitudes.constitution) / 2;
+            let gain = if cost >= 10 {
+                (1 + level / 100 + d.aptitudes.intelligence / 30)
+                    .min((cap - d.attributes.energy.maximum).max(0))
+            } else {
+                0
+            };
+            delta.spirit -= cost;
             delta.energy_max += gain;
             delta.energy += gain;
-            delta.attainment += 5;
-            log = format!("{}静坐冥思，精力上限添了{}点。", d.name, gain);
+            log = if cost < 10 {
+                format!("{}精神不济，冥想片刻便难以为继。", d.name)
+            } else if gain > 0 {
+                format!(
+                    "{}澄心冥想，以{}点精神凝炼心神，精力上限添了{}点。",
+                    d.name, cost, gain
+                )
+            } else {
+                format!("{}澄心冥想，却觉精力修为已遇瓶颈。", d.name)
+            };
         }
         ActionKind::SectMission => {
             let duration = rng.gen_range(1..=3);
@@ -444,6 +538,12 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             let sect_delta = result.sects.entry(actor.sect_id.clone()).or_default();
             sect_delta.silver += silver;
             sect_delta.prestige += 1;
+            delta.attainment += 2;
+            let art = d.martial_art.clone();
+            delta.proficiencies.insert(
+                art.clone(),
+                skill_experience(d, &art, d.aptitudes.strength, 35),
+            );
             log = format!("{}奉命下山办事，约需{}个月方回。", d.name, duration);
         }
         ActionKind::Wander => {
@@ -457,6 +557,11 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             let gain = 5 + d.aptitudes.fortune as i64 / 5;
             delta.attainment += gain;
             delta.qi -= rng.gen_range(0..=8);
+            let art = d.martial_art.clone();
+            delta.proficiencies.insert(
+                art.clone(),
+                skill_experience(d, &art, d.aptitudes.agility, 45),
+            );
             log = format!("{}负笈游历江湖，预备{}个月后归山。", d.name, duration);
         }
         ActionKind::Recover => {
@@ -482,6 +587,75 @@ fn base_delta(actor: &Actor) -> DiscipleDelta {
         id: actor.disciple.id.clone(),
         ..DiscipleDelta::default()
     }
+}
+
+fn skill_level(d: &Disciple, art: &str) -> i32 {
+    d.martial_progress
+        .proficiencies
+        .get(art)
+        .map(|progress| progress.level)
+        .unwrap_or(0)
+}
+
+/// 把 MUD 中连续多次练习压缩为一个月：基础技能越深，每月可获得的技能经验越多。
+fn skill_experience(d: &Disciple, art: &str, aptitude: i32, intensity: i32) -> i64 {
+    let level = skill_level(d, art).max(1);
+    let sessions = 14 + aptitude.max(0) / 2;
+    let difficulty = crate::models::martial_art::all_martial_arts()
+        .into_iter()
+        .find(|candidate| candidate.id == art)
+        .map(|candidate| candidate.difficulty)
+        .unwrap_or(10)
+        .max(5);
+    let per_session = level / 5 + 1;
+    (i64::from(per_session) * i64::from(sessions) * i64::from(intensity.max(1))
+        / i64::from(80 + difficulty * 3))
+    .max(1)
+}
+
+fn practice_art(d: &Disciple) -> String {
+    d.action
+        .as_ref()
+        .and_then(|plan| plan.martial_art_id.clone())
+        .filter(|art| d.martial_progress.proficiencies.contains_key(art))
+        .unwrap_or_else(|| d.martial_art.clone())
+}
+
+fn inner_skill(d: &Disciple) -> String {
+    let arts = crate::models::martial_art::all_martial_arts();
+    d.martial_progress
+        .proficiencies
+        .iter()
+        .filter(|(id, _)| {
+            id.as_str() == "基本内功"
+                || arts
+                    .iter()
+                    .any(|art| art.id == id.as_str() && art.art_type == "内功")
+        })
+        .max_by_key(|(_, progress)| progress.level)
+        .map(|(id, _)| id.clone())
+        .unwrap_or_else(|| d.martial_art.clone())
+}
+
+fn teaching_score(d: &Disciple) -> i64 {
+    let highest = d
+        .martial_progress
+        .proficiencies
+        .values()
+        .map(|progress| progress.level)
+        .max()
+        .unwrap_or(0);
+    d.attributes.attainment + i64::from(highest) * 10
+}
+
+fn teaching_art(teacher: &Disciple, student: &Disciple) -> String {
+    teacher
+        .martial_progress
+        .proficiencies
+        .keys()
+        .max_by_key(|art| skill_level(teacher, art) - skill_level(student, art))
+        .cloned()
+        .unwrap_or_else(|| teacher.martial_art.clone())
 }
 
 fn preferred_book(actor: &Actor) -> String {
@@ -619,6 +793,7 @@ fn art_display(id: &str) -> String {
 fn action_name(kind: &ActionKind) -> &'static str {
     match kind {
         ActionKind::Read => "read",
+        ActionKind::Practice => "practice",
         ActionKind::Teach => "teach",
         ActionKind::Spar => "spar",
         ActionKind::TemperBody => "temper",
@@ -673,21 +848,49 @@ mod tests {
     }
 
     #[test]
-    fn all_world_disciples_receive_one_merged_result() {
+    fn assigned_actions_produce_distinct_individual_growth() {
         let mut state = world_state();
-        let before: i64 = state
-            .disciples
-            .iter()
-            .chain(&state.npc_disciples)
-            .map(|d| d.attributes.attainment)
-            .sum();
+        state.npc_disciples.clear();
+        let mut meditator = state.disciples[1].clone();
+        meditator.id = "test_meditator".into();
+        meditator.action = Some(ActionPlan {
+            kind: ActionKind::Meditate,
+            ..ActionPlan::default()
+        });
+        state.disciples.push(meditator);
+        state.disciples[0].action = Some(ActionPlan {
+            kind: ActionKind::Read,
+            martial_art_id: Some(state.disciples[0].martial_art.clone()),
+            ..ActionPlan::default()
+        });
+        state.disciples[1].action = Some(ActionPlan {
+            kind: ActionKind::CultivateNeili,
+            ..ActionPlan::default()
+        });
+        let read_art = state.disciples[0].martial_art.clone();
+        let read_before = state.disciples[0].martial_progress.proficiencies[&read_art].clone();
+        let read_neili_before = state.disciples[0].attributes.neili.maximum;
+        let cultivate_skill_before = state.disciples[1].martial_progress.proficiencies.clone();
+        let cultivate_neili_before = state.disciples[1].attributes.neili.maximum;
+        let meditate_spirit_before = state.disciples[2].attributes.spirit.current;
+        let meditate_energy_before = state.disciples[2].attributes.energy.maximum;
+
         run_auto_actions(&mut state);
-        let after: i64 = state
-            .disciples
-            .iter()
-            .chain(&state.npc_disciples)
-            .map(|d| d.attributes.attainment)
-            .sum();
-        assert!(after > before);
+
+        assert_ne!(
+            state.disciples[0].martial_progress.proficiencies[&read_art],
+            read_before
+        );
+        assert_eq!(
+            state.disciples[0].attributes.neili.maximum,
+            read_neili_before
+        );
+        assert_eq!(
+            state.disciples[1].martial_progress.proficiencies,
+            cultivate_skill_before
+        );
+        assert!(state.disciples[1].attributes.neili.maximum > cultivate_neili_before);
+        assert!(state.disciples[2].attributes.spirit.current < meditate_spirit_before);
+        assert!(state.disciples[2].attributes.energy.maximum > meditate_energy_before);
     }
 }
