@@ -1,4 +1,4 @@
-import type { AdvanceResponse, Decision, GameResponse, ManageResponse, ManagementRequest, MartialArt } from './types'
+import type { AdvanceResponse, Decision, GameResponse, ManageResponse, ManagementRequest, MartialArt, SaveGroup } from './types'
 
 // Tauri 桌面端内嵌的后端固定监听本机 3000 端口。
 export const API_BASE = 'http://127.0.0.1:3000/api'
@@ -27,10 +27,12 @@ export const gameApi = {
       arts: (arts.arts || []).map(a => ({ ...a, type: a.art_type || a.type })),
     }
   },
-  list: () => request<{ games: GameResponse[] }>('GET', '/games'),
+  list: () => request<{ groups: SaveGroup[] }>('GET', '/games'),
   create: (sectName: string) => request<GameResponse>('POST', '/games', { sect_name: sectName }),
   get: (id: string) => request<GameResponse>('GET', `/games/${id}`),
+  save: (id: string) => request<GameResponse>('POST', `/games/${id}/saves`),
   remove: (id: string) => request<null>('DELETE', `/games/${id}`),
+  removeGroup: (id: string) => request<null>('DELETE', `/save-groups/${id}`),
   decide: (id: string, decisionId: string) => request<{ state: GameResponse['state'] }>('POST', `/games/${id}/decisions/${decisionId}`),
   manage: (id: string, command: ManagementRequest) => request<ManageResponse>('POST', `/games/${id}/manage`, command),
   advance: (id: string) => request<AdvanceResponse>('POST', `/games/${id}/advance`),

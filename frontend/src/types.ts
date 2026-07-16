@@ -104,6 +104,7 @@ export interface Tournament { year?: number; rank: number; total_sects: number; 
 export interface GameState {
   sect_name: string
   schema_version: number
+  autosave?: boolean
   year: number
   month: number
   prestige: number
@@ -126,19 +127,27 @@ export interface GameState {
 }
 
 export interface ManagementRequest { action: string; [key: string]: unknown }
-export interface GameResponse { id: string; sect_name?: string; state: GameState; updated_at?: string }
-export interface AdvanceResponse { state: GameState; events?: ChronicleEvent[]; tournament?: Tournament; game_over?: boolean }
+export interface GameResponse { id: string; save_group_id: string; sect_name?: string; state: GameState; updated_at?: string }
+export interface AdvanceResponse { id: string; state: GameState; events?: ChronicleEvent[]; tournament?: Tournament; game_over?: boolean }
 export interface ManageResponse { state: GameState; events?: ChronicleEvent[] }
 
-export interface SaveSlot {
+export interface SaveRecord {
   id: string
+  save_group_id: string
+  save_type: 'auto' | 'manual'
+  autosave: boolean
+  year: number
+  month: number
+  updated_at: string
+}
+
+export interface SaveGroup {
+  save_group_id: string
   sect_name: string
   year: number
   month: number
-  prestige: number
-  silver: number
-  disciples: number
-  updated_at?: string
+  updated_at: string
+  saves: SaveRecord[]
 }
 
 export interface AppConfig {

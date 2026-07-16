@@ -11,7 +11,7 @@ import ChroniclesBar from './ChroniclesBar.vue'
 import SectManagementPanel from './SectManagementPanel.vue'
 
 const props = defineProps<{ game: GameState; decisions: Decision[]; arts: MartialArt[]; used: string[] }>()
-defineEmits<{ saves: []; restart: []; decide: [id: string]; advance: []; manage: [command: ManagementRequest] }>()
+defineEmits<{ save: []; load: []; restart: []; decide: [id: string]; advance: []; manage: [command: ManagementRequest] }>()
 const section = ref<'month' | 'sect' | 'library' | 'world'>('month')
 const alive = computed(() => props.game.disciples?.filter(d => d.alive) || [])
 const lastTournament = computed(() => {
@@ -24,7 +24,7 @@ const sections = [
 </script>
 
 <template>
-  <TitleBar :game="game" @saves="$emit('saves')" @restart="$emit('restart')" />
+  <TitleBar :game="game" @save="$emit('save')" @load="$emit('load')" @restart="$emit('restart')" />
   <nav class="section-tabs">
     <button v-for="[id, label] in sections" :key="id" :class="{ active: section === id }" @click="section = id">{{ label }}</button>
     <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}</b> 事</span>
