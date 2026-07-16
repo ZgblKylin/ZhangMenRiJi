@@ -43,8 +43,8 @@ const combatChoices = (disciple: Disciple, basic: SkillEntry) =>
       return candidate?.is_combat && candidate.tier !== MartialTier.Basic && candidate.basic_skill === basic.martial_art_id
     })
     .sort((a, b) => b.level - a.level || a.martial_art_id.localeCompare(b.martial_art_id))
-const equippedArt = (disciple: Disciple, basicId: string) => disciple.equipped_skills?.[basicId] || ''
-const isEquipped = (disciple: Disciple, artId: string) => Object.values(disciple.equipped_skills || {}).includes(artId)
+const preparedArt = (disciple: Disciple, basicId: string) => disciple.prepared_skills?.[basicId] || ''
+const isPrepared = (disciple: Disciple, artId: string) => Object.values(disciple.prepared_skills || {}).includes(artId)
 const highestKnowledge = (disciple: Disciple) => categorySkills(disciple, SkillCategory.Knowledge)[0]
 const aptitudeBonus = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') => {
   const source = {
@@ -58,18 +58,18 @@ const aptitudeBonus = (disciple: Disciple, aptitude: 'strength' | 'intelligence'
 const effectiveAptitude = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') =>
   disciple.aptitudes[aptitude] + aptitudeBonus(disciple, aptitude)
 const neiliTrainingCap = (disciple: Disciple) => {
-  const force = equippedArt(disciple, 'basic_force') || 'basic_force'
+  const force = preparedArt(disciple, 'basic_force') || 'basic_force'
   return Math.floor(skillLevel(disciple, force) * effectiveAptitude(disciple, 'constitution') * 2 / 3)
 }
 const energyTrainingCap = (disciple: Disciple) => {
   const knowledge = highestKnowledge(disciple)?.level || 0
   return Math.floor(knowledge * effectiveAptitude(disciple, 'intelligence') / 2)
 }
-const equip = (disciple: Disciple, basicSkillId: string, event: Event) => {
+const prepare = (disciple: Disciple, basicSkillId: string, event: Event) => {
   const martialArtId = (event.target as HTMLSelectElement).value
-  if (!martialArtId || martialArtId === equippedArt(disciple, basicSkillId)) return
+  if (!martialArtId || martialArtId === preparedArt(disciple, basicSkillId)) return
   emit('manage', {
-    action: 'equip_skill', disciple_id: disciple.id,
+    action: 'prepare_skill', disciple_id: disciple.id,
     basic_skill_id: basicSkillId, martial_art_id: martialArtId,
   })
 }
@@ -121,21 +121,21 @@ const appoint = (disciple: Disciple) => emit('manage', {
             <div class="skill-category-grid">
               <section v-for="category in displayedSkillCategories" :key="category.id" class="skill-category" :class="category.id">
                 <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
-                <label v-if="category.id !== SkillCategory.Knowledge && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="equipment-picker">
-                  <span>当前装备</span>
-                  <select class="wuxia-select" :value="equippedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="equip(d, basicSkill(d, category.id)!.martial_art_id, $event)">
+                <label v-if="category.id !== SkillCategory.Knowledge && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="preparation-picker">
+                  <span>当前准备</span>
+                  <select class="wuxia-select" :value="preparedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="prepare(d, basicSkill(d, category.id)!.martial_art_id, $event)">
                     <option v-for="skill in combatChoices(d, basicSkill(d, category.id)!)" :key="skill.martial_art_id" :value="skill.martial_art_id">
                       {{ artName(skill.martial_art_id) }} · {{ skill.level }}级
                     </option>
                   </select>
                 </label>
-                <div v-else-if="category.id === SkillCategory.Knowledge && highestKnowledge(d)" class="auto-equipment">
-                  自动装备 {{ artName(highestKnowledge(d)!.martial_art_id) }} · {{ highestKnowledge(d)!.level }}级
+                <div v-else-if="category.id === SkillCategory.Knowledge && highestKnowledge(d)" class="auto-preparation">
+                  自动准备 {{ artName(highestKnowledge(d)!.martial_art_id) }} · {{ highestKnowledge(d)!.level }}级
                 </div>
                 <div v-if="categorySkills(d, category.id).length" class="category-skill-list">
-                  <span v-for="skill in categorySkills(d, category.id)" :key="skill.martial_art_id" class="skill-entry" :class="{ equipped: isEquipped(d, skill.martial_art_id) }">
+                  <span v-for="skill in categorySkills(d, category.id)" :key="skill.martial_art_id" class="skill-entry" :class="{ prepared: isPrepared(d, skill.martial_art_id) }">
                     <b>{{ artName(skill.martial_art_id) }}</b>
-                    <em>{{ skill.level }}级<span v-if="isEquipped(d, skill.martial_art_id)"> · 已装备</span></em>
+                    <em>{{ skill.level }}级<span v-if="isPrepared(d, skill.martial_art_id)"> · 已准备</span></em>
                     <small>经验 {{ skill.experience }}</small>
                   </span>
                 </div>

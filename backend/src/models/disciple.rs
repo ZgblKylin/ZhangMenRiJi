@@ -24,8 +24,9 @@ pub struct Disciple {
     pub talent: i32,
     pub inner_power: i32,
     pub martial_art: String,
-    /// 基础技能 id 到当前装备战斗武学 id 的映射；知识使用 `knowledge` 键自动选择。
-    pub equipped_skills: std::collections::BTreeMap<String, String>,
+    /// 基础技能 id 到当前准备战斗武学 id 的映射；知识使用 `knowledge` 键自动选择。
+    #[serde(alias = "equipped_skills")]
+    pub prepared_skills: std::collections::BTreeMap<String, String>,
     pub loyalty: i32,
     pub months_in_sect: i32,
     pub alive: bool,
@@ -33,7 +34,7 @@ pub struct Disciple {
     pub aptitudes: Aptitudes,
     pub attributes: AcquiredAttributes,
     pub attribute_bonuses: AttributeBonuses,
-    /// 0 为旧存档；1 为六类技能；2 为装备武学与独立修炼上限。
+    /// 0 为旧存档；1 为六类技能；2 为准备武学与独立修炼上限。
     pub martial_schema_version: i32,
     pub condition: DiscipleCondition,
     pub rank: DiscipleRank,
@@ -57,7 +58,7 @@ impl Default for Disciple {
             talent: 20,
             inner_power: 30,
             martial_art: "hunyuan".into(),
-            equipped_skills: std::collections::BTreeMap::new(),
+            prepared_skills: std::collections::BTreeMap::new(),
             loyalty: 60,
             months_in_sect: 0,
             alive: true,
@@ -77,5 +78,27 @@ impl Default for Disciple {
             action: None,
             away_months: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Disciple;
+
+    #[test]
+    fn legacy_skill_preparation_field_is_migrated() {
+        let disciple: Disciple = serde_json::from_value(serde_json::json!({
+            "equipped_skills": { "basic_force": "hunyuan" }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            disciple.prepared_skills.get("basic_force"),
+            Some(&"hunyuan".to_string())
+        );
+
+        let serialized = serde_json::to_value(disciple).unwrap();
+        assert!(serialized.get("prepared_skills").is_some());
+        assert!(serialized.get("equipped_skills").is_none());
     }
 }

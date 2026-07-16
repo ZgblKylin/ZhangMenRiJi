@@ -23,7 +23,7 @@ const GIVEN_FEMALE: &[&str] = &[
     "念慈", "倚天", "芷若", "飞燕", "语嫣", "龙儿", "莫愁", "秋水",
 ];
 const MARTIAL_SCHEMA_VERSION: i32 = 2;
-pub const KNOWLEDGE_EQUIPMENT_KEY: &str = SkillCategory::Knowledge.slug();
+pub const KNOWLEDGE_PREPARATION_KEY: &str = SkillCategory::Knowledge.slug();
 
 pub(crate) fn rand_range(rng: &mut impl Rng, min: i32, max: i32) -> i32 {
     rng.gen_range(min..=max)
@@ -138,7 +138,7 @@ pub fn generate_disciple(rng: &mut impl Rng, talent_bonus: i32) -> Disciple {
         specialties: vec![origin.into()],
         private_books: vec![],
     };
-    normalize_equipped_skills(&mut disciple);
+    normalize_prepared_skills(&mut disciple);
     disciple.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     disciple.attributes = initial_attributes(&disciple);
     sync_legacy_attributes(&mut disciple);
@@ -229,17 +229,17 @@ pub fn knowledge_level(d: &Disciple) -> i32 {
     )
 }
 
-pub fn equipped_skill_id<'a>(d: &'a Disciple, basic_skill_id: &str) -> Option<&'a str> {
-    d.equipped_skills.get(basic_skill_id).map(String::as_str)
+pub fn prepared_skill_id<'a>(d: &'a Disciple, basic_skill_id: &str) -> Option<&'a str> {
+    d.prepared_skills.get(basic_skill_id).map(String::as_str)
 }
 
 pub fn effective_intelligence(d: &Disciple) -> i32 {
     effective_aptitudes(d).intelligence
 }
 
-/// 当前装备内功决定打坐可达到的上限；没有特殊内功时退回基本内功。
+/// 当前准备内功决定打坐可达到的上限；没有特殊内功时退回基本内功。
 pub fn neili_training_cap(d: &Disciple) -> i32 {
-    let force_level = equipped_skill_id(d, "basic_force")
+    let force_level = prepared_skill_id(d, "basic_force")
         .map(|id| skill_level(d, id))
         .unwrap_or_else(|| skill_level(d, "basic_force"));
     force_level
@@ -324,11 +324,11 @@ pub fn sync_legacy_attributes(d: &mut Disciple) {
     sync_skills_from_progress(d);
 }
 
-/// 保留仍合法的手动装备，为缺项选最高等级战斗武学，并自动选择最高知识。
-pub fn normalize_equipped_skills(d: &mut Disciple) {
+/// 保留仍合法的手动准备，为缺项选最高等级战斗武学，并自动选择最高知识。
+pub fn normalize_prepared_skills(d: &mut Disciple) {
     let known = &d.martial_progress.proficiencies;
-    d.equipped_skills.retain(|basic_id, art_id| {
-        if basic_id == KNOWLEDGE_EQUIPMENT_KEY {
+    d.prepared_skills.retain(|basic_id, art_id| {
+        if basic_id == KNOWLEDGE_PREPARATION_KEY {
             return false;
         }
         known.contains_key(basic_id)
@@ -347,7 +347,7 @@ pub fn normalize_equipped_skills(d: &mut Disciple) {
         .cloned()
         .collect();
     for basic_id in basic_ids {
-        if d.equipped_skills.contains_key(&basic_id) {
+        if d.prepared_skills.contains_key(&basic_id) {
             continue;
         }
         if let Some((art_id, _)) = d
@@ -361,7 +361,7 @@ pub fn normalize_equipped_skills(d: &mut Disciple) {
             })
             .max_by_key(|(_, progress)| progress.level)
         {
-            d.equipped_skills.insert(basic_id, art_id.clone());
+            d.prepared_skills.insert(basic_id, art_id.clone());
         }
     }
 
@@ -374,12 +374,12 @@ pub fn normalize_equipped_skills(d: &mut Disciple) {
         })
         .max_by_key(|(_, progress)| progress.level)
     {
-        d.equipped_skills
-            .insert(KNOWLEDGE_EQUIPMENT_KEY.into(), knowledge_id.clone());
+        d.prepared_skills
+            .insert(KNOWLEDGE_PREPARATION_KEY.into(), knowledge_id.clone());
     }
 
     if let Some((art_id, _)) = d
-        .equipped_skills
+        .prepared_skills
         .values()
         .filter_map(|id| d.martial_progress.proficiencies.get_key_value(id))
         .filter(|(id, _)| martial_art_by_id(id).is_some_and(|art| art.is_combat))
@@ -389,14 +389,14 @@ pub fn normalize_equipped_skills(d: &mut Disciple) {
     }
 }
 
-pub fn equip_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Result<(), String> {
+pub fn prepare_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Result<(), String> {
     let basic_skill_id = canonical_skill_id(basic_skill_id);
     let art_id = canonical_skill_id(art_id);
     let basic =
         martial_art_by_id(&basic_skill_id).ok_or_else(|| "并无这门基础武学。".to_string())?;
     let art = martial_art_by_id(&art_id).ok_or_else(|| "并无这门战斗武学。".to_string())?;
     if basic.tier != MartialTier::Basic || basic.category == SkillCategory::Knowledge {
-        return Err("这门武学不能作为装备槽位。".into());
+        return Err("这门武学不能作为准备槽位。".into());
     }
     if !art.is_combat || art.tier == MartialTier::Basic || art.basic_skill != basic_skill_id {
         return Err("这门武学与基础武学并不相配。".into());
@@ -409,8 +409,8 @@ pub fn equip_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Resu
     {
         return Err("此人尚未掌握所选武学。".into());
     }
-    d.equipped_skills.insert(basic_skill_id, art_id);
-    normalize_equipped_skills(d);
+    d.prepared_skills.insert(basic_skill_id, art_id);
+    normalize_prepared_skills(d);
     sync_legacy_attributes(d);
     Ok(())
 }
@@ -474,8 +474,8 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
             .collect();
     }
     canonicalize_proficiencies(d);
-    let old_equipment = std::mem::take(&mut d.equipped_skills);
-    d.equipped_skills = old_equipment
+    let old_preparation = std::mem::take(&mut d.prepared_skills);
+    d.prepared_skills = old_preparation
         .into_iter()
         .map(|(basic, art)| (canonical_skill_id(&basic), canonical_skill_id(&art)))
         .collect();
@@ -495,7 +495,7 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
         d.attributes.energy.maximum = d.attributes.energy.maximum.max(1);
         d.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     }
-    normalize_equipped_skills(d);
+    normalize_prepared_skills(d);
     recalculate_attribute_maxima(d);
     d.attributes.sect_loyalty = d.loyalty.clamp(0, 100);
     refresh_condition(d);
@@ -633,8 +633,8 @@ pub fn assign_sect_curriculum(d: &mut Disciple, origin: &str, combat_level: i32)
         .map(|art| art.id.clone())
         .unwrap_or_else(|| "basic_unarmed".into());
     d.martial_progress.specialties = vec![origin.into()];
-    d.equipped_skills.clear();
-    normalize_equipped_skills(d);
+    d.prepared_skills.clear();
+    normalize_prepared_skills(d);
     d.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     d.attributes = initial_attributes(d);
     sync_legacy_attributes(d);
@@ -658,7 +658,7 @@ pub fn gain_skill_experience(d: &mut Disciple, art_id: &str, amount: i64) -> i32
         }
     }
     let gained = progress.level - old_level;
-    normalize_equipped_skills(d);
+    normalize_prepared_skills(d);
     recalculate_attribute_maxima(d);
     gained
 }
@@ -707,7 +707,7 @@ pub fn get_combat_score(d: &Disciple) -> i32 {
         martial_art_by_id(id).is_some_and(|art| art.is_combat && art.tier == MartialTier::Basic)
     }) {
         skill_total += basic_progress.level / 2;
-        if let Some(art_id) = equipped_skill_id(d, basic_id) {
+        if let Some(art_id) = prepared_skill_id(d, basic_id) {
             skill_total += skill_level(d, art_id);
             if let Some(art) = martial_art_by_id(art_id) {
                 art_power += art.atk + art.def + art.spd;
@@ -954,13 +954,13 @@ mod tests {
             ("wudang_outer_force".into(), SkillProgress::new(30, 0)),
             ("wudang_knowledge".into(), SkillProgress::new(80, 0)),
         ]);
-        normalize_equipped_skills(&mut d);
+        normalize_prepared_skills(&mut d);
         d.attributes.neili.maximum = 700;
         d.attributes.neili.current = 650;
         let before = attribute_maxima(&d);
         assert_eq!(neili_training_cap(&d), 1_000);
 
-        equip_skill(&mut d, "basic_force", "wudang_outer_force").unwrap();
+        prepare_skill(&mut d, "basic_force", "wudang_outer_force").unwrap();
         assert_eq!(neili_training_cap(&d), 500);
         assert_eq!(d.attributes.neili.maximum, 700);
         assert_eq!(d.attributes.neili.current, 650);
@@ -984,7 +984,7 @@ mod tests {
             ("hunyuan".into(), SkillProgress::new(80, 0)),
             ("player_knowledge".into(), SkillProgress::new(80, 0)),
         ]);
-        normalize_equipped_skills(&mut d);
+        normalize_prepared_skills(&mut d);
         let actual = d.attributes.neili.maximum;
         let cap = neili_training_cap(&d);
         gain_skill_experience(&mut d, "basic_force", 1);

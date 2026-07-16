@@ -791,7 +791,7 @@ fn practice_art(d: &Disciple) -> String {
 }
 
 fn inner_skill(d: &Disciple) -> String {
-    disciple::equipped_skill_id(d, "basic_force")
+    disciple::prepared_skill_id(d, "basic_force")
         .unwrap_or("basic_force")
         .to_string()
 }

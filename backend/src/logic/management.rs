@@ -15,7 +15,7 @@ pub fn execute_management(
 ) -> Result<Vec<GameEvent>, String> {
     let spends_decision = !matches!(
         &request,
-        ManagementRequest::EquipSkill { .. } | ManagementRequest::SetElderDuty { .. }
+        ManagementRequest::PrepareSkill { .. } | ManagementRequest::SetElderDuty { .. }
     );
     if state.game_over {
         return Err("山门已散，诸事皆休。".into());
@@ -58,7 +58,7 @@ pub fn execute_management(
             if kind == ActionKind::CultivateNeili
                 && disciple.attributes.neili.maximum >= disciple::neili_training_cap(disciple)
             {
-                return Err("此人现有内力已达到所装备内功的修炼上限。".into());
+                return Err("此人现有内力已达到所准备内功的修炼上限。".into());
             }
             if kind == ActionKind::Meditate
                 && disciple.attributes.energy.maximum >= disciple::energy_training_cap(disciple)
@@ -74,13 +74,13 @@ pub fn execute_management(
             });
             format!("掌门传话，命{}依令安排本月行止。", disciple.name)
         }
-        ManagementRequest::EquipSkill {
+        ManagementRequest::PrepareSkill {
             disciple_id,
             basic_skill_id,
             martial_art_id,
         } => {
             let disciple = player_disciple_mut(state, &disciple_id)?;
-            disciple::equip_skill(disciple, &basic_skill_id, &martial_art_id)?;
+            disciple::prepare_skill(disciple, &basic_skill_id, &martial_art_id)?;
             format!(
                 "{}将{}改作当前运用的武学。",
                 disciple.name,
@@ -1024,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn changing_equipment_is_free_and_preserves_actual_neili() {
+    fn changing_preparation_is_free_and_preserves_actual_neili() {
         let mut state = GameState::default();
         let mut rng = StdRng::seed_from_u64(11);
         let mut d = disciple::generate_disciple(&mut rng, 0);
@@ -1043,7 +1043,7 @@ mod tests {
         execute_management(
             &mut rng,
             &mut state,
-            ManagementRequest::EquipSkill {
+            ManagementRequest::PrepareSkill {
                 disciple_id: id,
                 basic_skill_id: "basic_force".into(),
                 martial_art_id: "wudang_foundation".into(),
@@ -1054,7 +1054,7 @@ mod tests {
         assert_eq!(state.decisions_used, 0);
         assert_eq!(state.disciples[0].attributes.neili.maximum, actual);
         assert_eq!(
-            state.disciples[0].equipped_skills.get("basic_force"),
+            state.disciples[0].prepared_skills.get("basic_force"),
             Some(&"wudang_foundation".into())
         );
     }
