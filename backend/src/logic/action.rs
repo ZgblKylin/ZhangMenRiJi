@@ -337,11 +337,14 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             result.logs.push((
                 teacher.player || student.player,
                 format!(
-                    "{}向{}传授{}，彼此印证，后者添了{}点武学经验。",
+                    "{}向{}传授{}，彼此印证；{}经验 +{}，{}经验 +{}。",
                     teacher.disciple.name,
                     student.disciple.name,
                     art_display(&art),
-                    gain
+                    art_display(&art),
+                    gain,
+                    art_display(&art),
+                    teacher_gain
                 ),
             ));
         }
@@ -366,18 +369,23 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             a.qi -= rng.gen_range(5..=10);
             a.energy -= 6;
             a.attainment += 4 + level_b.max(1) as i64 / 40;
-            a.skill_experience.insert(art_a, gain_a);
+            a.skill_experience.insert(art_a.clone(), gain_a);
             let mut b = base_delta(second);
             b.qi -= rng.gen_range(5..=10);
             b.energy -= 6;
             b.attainment += 4 + level_a.max(1) as i64 / 40;
-            b.skill_experience.insert(art_b, gain_b);
+            b.skill_experience.insert(art_b.clone(), gain_b);
             result.disciples.extend([a, b]);
             result.logs.push((
                 first.player || second.player,
                 format!(
-                    "{}与{}在演武场拆了数十招，各自颇有所得。",
-                    first.disciple.name, second.disciple.name
+                    "{}与{}在演武场切磋，{}经验 +{}，{}经验 +{}。",
+                    first.disciple.name,
+                    second.disciple.name,
+                    art_display(&art_a),
+                    gain_a,
+                    art_display(&art_b),
+                    gain_b
                 ),
             ));
         }
@@ -398,7 +406,6 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.action = Some(None);
             delta.reputation += 2;
             delta.merit += 5;
-            log = format!("{}办完差事，风尘仆仆回到山门。", d.name);
         } else {
             let mut plan = d.action.clone().unwrap_or(ActionPlan {
                 kind: kind.clone(),
@@ -406,7 +413,6 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             });
             plan.remaining_months = d.away_months - 1;
             delta.action = Some(Some(plan));
-            log = format!("{}仍在外奔走，传回一封平安书。", d.name);
         }
         if matches!(kind, ActionKind::SectMission) {
             let silver = 8 + d.aptitudes.strength + rng.gen_range(0..=16);
@@ -428,7 +434,22 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
                 85
             },
         );
-        delta.skill_experience.insert(art, gain);
+        delta.skill_experience.insert(art.clone(), gain);
+        log = if d.away_months <= 1 {
+            format!(
+                "{}办完差事，风尘仆仆回到山门；{}经验 +{}。",
+                d.name,
+                art_display(&art),
+                gain
+            )
+        } else {
+            format!(
+                "{}仍在外奔走，途中不忘磨炼{}，经验 +{}。",
+                d.name,
+                art_display(&art),
+                gain
+            )
+        };
         result.disciples.push(delta);
         result.logs.push((actor.player, log));
         return result;
@@ -442,8 +463,9 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.energy -= 3;
             delta.skill_experience.insert(art.clone(), gain);
             log = format!(
-                "{}闭门研读{}，添了{}点武学经验。",
+                "{}研读{}有所领悟，{}经验 +{}。",
                 d.name,
+                art_display(&art),
                 art_display(&art),
                 gain
             );
@@ -457,8 +479,9 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.energy -= 10;
             delta.skill_experience.insert(art.clone(), gain);
             log = format!(
-                "{}在演武场反复练习{}，添了{}点武学经验。",
+                "{}在演武场反复练习{}，{}经验 +{}。",
                 d.name,
+                art_display(&art),
                 art_display(&art),
                 gain
             );
@@ -492,7 +515,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
                 format!("{}气血不济，打坐片刻便只得收功。", d.name)
             } else if gain > 0 {
                 format!(
-                    "{}盘膝打坐，以{}点气血炼化真气，内力上限添了{}点。",
+                    "{}打坐修炼，以{}点气血炼化真气，内力精进，上限 +{}。",
                     d.name, cost, gain
                 )
             } else {
@@ -540,11 +563,15 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             sect_delta.prestige += 1;
             delta.attainment += 2;
             let art = d.martial_art.clone();
-            delta.skill_experience.insert(
-                art.clone(),
-                skill_experience(d, &art, d.aptitudes.strength, 35),
+            let skill_gain = skill_experience(d, &art, d.aptitudes.strength, 35);
+            delta.skill_experience.insert(art.clone(), skill_gain);
+            log = format!(
+                "{}奉命下山办事，约需{}个月方回；{}经验 +{}。",
+                d.name,
+                duration,
+                art_display(&art),
+                skill_gain
             );
-            log = format!("{}奉命下山办事，约需{}个月方回。", d.name, duration);
         }
         ActionKind::Wander => {
             let duration = rng.gen_range(1..=4);
@@ -558,11 +585,15 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.attainment += gain;
             delta.qi -= rng.gen_range(0..=8);
             let art = d.martial_art.clone();
-            delta.skill_experience.insert(
-                art.clone(),
-                skill_experience(d, &art, d.aptitudes.agility, 45),
+            let skill_gain = skill_experience(d, &art, d.aptitudes.agility, 45);
+            delta.skill_experience.insert(art.clone(), skill_gain);
+            log = format!(
+                "{}负笈游历江湖，预备{}个月后归山；{}经验 +{}。",
+                d.name,
+                duration,
+                art_display(&art),
+                skill_gain
             );
-            log = format!("{}负笈游历江湖，预备{}个月后归山。", d.name, duration);
         }
         ActionKind::Recover => {
             let multiplier = 100 + actor.recovery_bonus;
@@ -688,6 +719,7 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
     let mut deltas = Vec::new();
     let mut sect_deltas: BTreeMap<String, SectDelta> = BTreeMap::new();
     let mut logs = Vec::new();
+    let mut npc_logs = Vec::new();
     let mut npc_actions = 0;
     for result in results {
         deltas.extend(result.disciples);
@@ -703,6 +735,7 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
                 logs.push(text);
             } else {
                 npc_actions += 1;
+                npc_logs.push(text);
             }
         }
     }
@@ -732,6 +765,8 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
         }
     }
     sect::sync_legacy_fields(state);
+    npc_logs.sort_by_key(|text| !(text.contains("经验 +") || text.contains("内力精进")));
+    logs.extend(npc_logs.into_iter().take(3));
     if npc_actions > 0 {
         logs.push(format!(
             "江湖诸派亦各有动静，共推演了{}桩门人行止。",
@@ -741,7 +776,7 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
     logs.into_iter()
         .map(|text| GameEvent {
             text,
-            mood: "neutral".into(),
+            mood: "good".into(),
             year: state.year,
             month: state.month,
         })
@@ -875,7 +910,7 @@ mod tests {
         let meditate_spirit_before = state.disciples[2].attributes.spirit.current;
         let meditate_energy_before = state.disciples[2].attributes.energy.maximum;
 
-        run_auto_actions(&mut state);
+        let logs = run_auto_actions(&mut state);
 
         assert_ne!(
             state.disciples[0].martial_progress.proficiencies[&read_art],
@@ -892,5 +927,6 @@ mod tests {
         assert!(state.disciples[1].attributes.neili.maximum > cultivate_neili_before);
         assert!(state.disciples[2].attributes.spirit.current < meditate_spirit_before);
         assert!(state.disciples[2].attributes.energy.maximum > meditate_energy_before);
+        assert!(logs.iter().any(|event| event.text.contains("经验 +")));
     }
 }
