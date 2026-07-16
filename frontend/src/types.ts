@@ -1,7 +1,8 @@
 export type Mood = 'good' | 'bad' | 'neutral'
 export type ActionKind = 'read' | 'practice' | 'teach' | 'spar' | 'temper_body' | 'cultivate_neili' | 'meditate' | 'sect_mission' | 'wander' | 'recover'
 export type SectPolicy = 'balanced' | 'martial' | 'scholarly' | 'chivalrous' | 'mercantile' | 'reclusive'
-export type DiscipleRank = 'chore' | 'outer' | 'inner' | 'elder'
+export type DiscipleRank = 'chore' | 'outer' | 'inner'
+export type BuildingKind = 'practice' | 'scripture' | 'warehouse' | 'herb_hall' | 'intelligence' | 'affairs' | 'logistics'
 export type Department = 'transmission' | 'library' | 'apothecary' | 'treasury' | 'stewardship' | 'external_affairs'
 export type SkillCategory = 'unarmed' | 'parry' | 'dodge' | 'force' | 'weapon' | 'knowledge'
 export type MartialTier = 'basic' | 'chore' | 'outer' | 'inner'
@@ -85,7 +86,18 @@ export interface Disciple {
   away_months: number
 }
 
-export interface Building { id: string; name: string; level: number; condition: number; upgrading_months: number }
+export interface Building {
+  id: string
+  name: string
+  kind: BuildingKind
+  level: number
+  condition: number
+  upgrading_months: number
+  elder_id?: string | null
+  elder_title: string
+  elder_action_used: boolean
+}
+export interface RankRules { outer_ratio: number; inner_ratio: number }
 export interface SectOrder { id: string; name: string; remaining_months: number; silver_cost: number; effect: Record<string, number> }
 export interface SectAttributes { prestige: number; silver: number; morality: number; morale: number }
 export interface SectState {
@@ -95,6 +107,7 @@ export interface SectState {
   player_controlled: boolean
   attributes: SectAttributes
   policy: SectPolicy
+  rank_rules: RankRules
   buildings: Building[]
   inventory: Record<string, number>
   public_books: string[]

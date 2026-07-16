@@ -13,7 +13,7 @@ const actions: Array<[ActionKind, string]> = [
   ['meditate', '冥想养神'], ['spar', '同门切磋'], ['teach', '传功授艺'],
   ['sect_mission', '外派办事'], ['wander', '江湖历练'], ['recover', '静养调息'],
 ]
-const rankName = { chore: '杂役', outer: '外门', inner: '内门', elder: '长老' }
+const rankName = { chore: '杂役', outer: '外门', inner: '内门' }
 const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
 const artName = (id: string) => displayArtName(props.arts, id)
 const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
@@ -137,7 +137,7 @@ const appoint = (disciple: Disciple) => emit('manage', {
           </div>
           <div class="personnel-actions">
             <select v-model="selectedRank[d.id]" :disabled="disabled">
-              <option value="chore">杂役</option><option value="outer">外门</option><option value="inner">内门</option><option value="elder">长老</option>
+              <option value="chore">杂役</option><option value="outer">外门</option><option value="inner">内门</option>
             </select>
             <button class="btn btn-sm" :disabled="disabled" @click="appoint(d)">考校任用</button>
             <button class="btn btn-sm" :disabled="disabled || !d.alive" @click="$emit('manage', { action: 'issue_item', disciple_id: d.id, item: '草药', quantity: 1 })">赐草药</button>

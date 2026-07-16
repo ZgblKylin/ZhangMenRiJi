@@ -127,6 +127,7 @@ pub fn execute_management(
                 let mut recruit =
                     disciple::generate_disciple(rng, state.sect.attributes.prestige / 20);
                 recruit.sect_id = Some("player".into());
+                recruit.rank = DiscipleRank::Chore;
                 names.push(recruit.name.clone());
                 state.disciples.push(recruit);
             }
@@ -138,6 +139,31 @@ pub fn execute_management(
             rank,
             department,
         } => {
+            let current_rank = state
+                .disciples
+                .iter()
+                .find(|disciple| disciple.id == disciple_id)
+                .ok_or_else(|| "查无此人。".to_string())?
+                .rank
+                .clone();
+            if current_rank != rank {
+                let (outer_limit, inner_limit) = sect::rank_limits(&state.sect, &state.disciples);
+                let target_count = state
+                    .disciples
+                    .iter()
+                    .filter(|disciple| disciple.alive && disciple.rank == rank)
+                    .count();
+                let limit = match rank {
+                    DiscipleRank::Chore => None,
+                    DiscipleRank::Outer => Some((outer_limit, "外门")),
+                    DiscipleRank::Inner => Some((inner_limit, "内门")),
+                };
+                if let Some((limit, name)) = limit {
+                    if target_count >= limit {
+                        return Err(format!("{}名额已满（现有{}/上限{}）。", name, target_count, limit));
+                    }
+                }
+            }
             let disciple = player_disciple_mut(state, &disciple_id)?;
             let required = rank_merit(&rank);
             if disciple.merit < required {
@@ -148,6 +174,49 @@ pub fn execute_management(
             disciple.attributes.sect_loyalty = (disciple.attributes.sect_loyalty + 4).min(100);
             disciple::sync_legacy_attributes(disciple);
             format!("经掌门考校，{}获授新职，门中众人皆来道贺。", disciple.name)
+        }
+        ManagementRequest::AssignElder {
+            building_id,
+            disciple_id,
+        } => {
+            let building = state
+                .sect
+                .buildings
+                .iter()
+                .find(|building| building.id == building_id)
+                .ok_or_else(|| "门中并无此处建筑。".to_string())?;
+            let building_name = building.name.clone();
+            let elder_title = building.elder_title.clone();
+            let elder_name = if let Some(id) = disciple_id.as_deref() {
+                let candidate = state
+                    .disciples
+                    .iter()
+                    .find(|disciple| disciple.id == id && disciple.alive)
+                    .ok_or_else(|| "查无此人，或此人已不在世。".to_string())?;
+                if candidate.rank != DiscipleRank::Inner {
+                    return Err("长老须从内门弟子中择任。".into());
+                }
+                if state.sect.buildings.iter().any(|other| {
+                    other.id != building_id && other.elder_id.as_deref() == Some(id)
+                }) {
+                    return Err("此人已主持别处事务，不可兼任两席长老。".into());
+                }
+                Some(candidate.name.clone())
+            } else {
+                None
+            };
+            let building = state
+                .sect
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == building_id)
+                .expect("建筑已验证存在");
+            building.elder_id = disciple_id;
+            building.elder_action_used = false;
+            match elder_name {
+                Some(name) => format!("擢任{}为{}，自此主持{}。", name, elder_title, building_name),
+                None => format!("{}暂行空缺，{}事务仍由掌门兼领。", elder_title, building_name),
+            }
         }
         ManagementRequest::Expel { disciple_id } => {
             let index = state
@@ -329,7 +398,6 @@ fn rank_merit(rank: &DiscipleRank) -> i64 {
         DiscipleRank::Chore => 0,
         DiscipleRank::Outer => 10,
         DiscipleRank::Inner => 80,
-        DiscipleRank::Elder => 250,
     }
 }
 

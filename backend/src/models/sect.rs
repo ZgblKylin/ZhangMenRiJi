@@ -35,12 +35,45 @@ pub enum SectPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct RankRules {
+    pub outer_ratio: f32,
+    pub inner_ratio: f32,
+}
+
+impl Default for RankRules {
+    fn default() -> Self {
+        Self {
+            outer_ratio: 0.4,
+            inner_ratio: 0.3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildingKind {
+    #[default]
+    Practice,
+    Scripture,
+    Warehouse,
+    HerbHall,
+    Intelligence,
+    Affairs,
+    Logistics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Building {
     pub id: String,
     pub name: String,
+    pub kind: BuildingKind,
     pub level: i32,
     pub condition: i32,
     pub upgrading_months: i32,
+    pub elder_id: Option<String>,
+    pub elder_title: String,
+    pub elder_action_used: bool,
 }
 
 impl Default for Building {
@@ -48,9 +81,13 @@ impl Default for Building {
         Self {
             id: String::new(),
             name: String::new(),
+            kind: BuildingKind::default(),
             level: 1,
             condition: 100,
             upgrading_months: 0,
+            elder_id: None,
+            elder_title: String::new(),
+            elder_action_used: false,
         }
     }
 }
@@ -74,6 +111,7 @@ pub struct SectState {
     pub player_controlled: bool,
     pub attributes: SectAttributes,
     pub policy: SectPolicy,
+    pub rank_rules: RankRules,
     pub buildings: Vec<Building>,
     pub inventory: BTreeMap<String, i32>,
     pub public_books: Vec<String>,
@@ -91,6 +129,7 @@ impl Default for SectState {
             player_controlled: true,
             attributes: SectAttributes::default(),
             policy: SectPolicy::default(),
+            rank_rules: RankRules::default(),
             buildings: default_buildings(),
             inventory: BTreeMap::from([
                 ("粮秣".into(), 80),
@@ -107,17 +146,20 @@ impl Default for SectState {
 
 pub fn default_buildings() -> Vec<Building> {
     [
-        ("scripture", "藏经阁"),
-        ("treasury", "银库"),
-        ("pharmacy", "药库"),
-        ("inner_store", "内门仓库"),
-        ("outer_store", "外门仓库"),
-        ("practice", "演武场"),
+        ("practice", "演武场", BuildingKind::Practice, "传武长老"),
+        ("scripture", "藏经阁", BuildingKind::Scripture, "传功长老"),
+        ("warehouse", "仓库", BuildingKind::Warehouse, "司库长老"),
+        ("herb_hall", "百草堂", BuildingKind::HerbHall, "司药长老"),
+        ("intelligence", "天枢阁", BuildingKind::Intelligence, "天枢长老"),
+        ("affairs", "执事堂", BuildingKind::Affairs, "执事长老"),
+        ("logistics", "庶务堂", BuildingKind::Logistics, "庶务长老"),
     ]
     .into_iter()
-    .map(|(id, name)| Building {
+    .map(|(id, name, kind, elder_title)| Building {
         id: id.into(),
         name: name.into(),
+        kind,
+        elder_title: elder_title.into(),
         ..Building::default()
     })
     .collect()

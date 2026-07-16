@@ -31,6 +31,10 @@ pub enum ManagementRequest {
         rank: DiscipleRank,
         department: Option<Department>,
     },
+    AssignElder {
+        building_id: String,
+        disciple_id: Option<String>,
+    },
     Expel {
         disciple_id: String,
     },

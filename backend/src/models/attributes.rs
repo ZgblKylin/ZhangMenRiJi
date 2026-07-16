@@ -116,14 +116,33 @@ pub enum DiscipleCondition {
     Dead,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscipleRank {
     Chore,
     #[default]
     Outer,
     Inner,
-    Elder,
+}
+
+impl<'de> Deserialize<'de> for DiscipleRank {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let stored = String::deserialize(deserializer)?;
+        match stored.as_str() {
+            "chore" => Ok(Self::Chore),
+            "outer" => Ok(Self::Outer),
+            // v3.0 早期存档中的长老是等级；新版载入时保留其内门身份，
+            // 再由建筑负责人字段决定是否担任长老。
+            "inner" | "elder" => Ok(Self::Inner),
+            _ => Err(serde::de::Error::unknown_variant(
+                &stored,
+                &["chore", "outer", "inner", "elder"],
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

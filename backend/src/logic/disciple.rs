@@ -542,7 +542,7 @@ fn rank_tier(rank: &DiscipleRank) -> MartialTier {
     match rank {
         DiscipleRank::Chore => MartialTier::Chore,
         DiscipleRank::Outer => MartialTier::Outer,
-        DiscipleRank::Inner | DiscipleRank::Elder => MartialTier::Inner,
+        DiscipleRank::Inner => MartialTier::Inner,
     }
 }
 
@@ -559,7 +559,6 @@ fn complete_required_skills(d: &mut Disciple, origin: &str) {
         DiscipleRank::Chore => 45,
         DiscipleRank::Outer => 90,
         DiscipleRank::Inner => 160,
-        DiscipleRank::Elder => 220,
     };
     let knowledge_id = knowledge_skill_id(origin);
     let knowledge = existing_highest.max(baseline);

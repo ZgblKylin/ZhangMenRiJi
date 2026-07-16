@@ -3,7 +3,7 @@ use crate::logic::disciple::{
 };
 use crate::models::attributes::{Department, DiscipleRank};
 use crate::models::martial_art::{all_martial_arts, knowledge_skill_id};
-use crate::models::sect::{default_buildings, Building, SectAttributes, SectPolicy, SectState};
+use crate::models::sect::{default_buildings, SectAttributes, SectPolicy, SectState};
 use crate::models::Disciple;
 use rand::{rngs::StdRng, SeedableRng};
 use std::collections::BTreeMap;
@@ -269,15 +269,13 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
     let mut disciples = Vec::with_capacity(SECTS.len() * 3 + WANDERERS.len());
 
     for (sect_index, template) in SECTS.iter().enumerate() {
+        let _traditional_landmark = template.landmark;
         let prestige = 58 + (sect_index as i32 * 7 % 35);
         let mut buildings = default_buildings();
-        buildings.push(Building {
-            id: format!("{}_landmark", template.id),
-            name: template.landmark.into(),
-            level: 2 + (sect_index as i32 % 3),
-            ..Building::default()
-        });
-        let sect = SectState {
+        for building in &mut buildings {
+            building.level = 2 + (sect_index as i32 % 3);
+        }
+        let mut sect = SectState {
             id: template.id.into(),
             name: template.name.into(),
             country_id: template.country.into(),
@@ -289,6 +287,7 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                 morale: 55 + sect_index as i32 % 30,
             },
             policy: template.policy.clone(),
+            rank_rules: Default::default(),
             buildings,
             inventory: BTreeMap::from([
                 ("粮秣".into(), 120 + sect_index as i32 * 3),
@@ -315,7 +314,7 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             disciple.name = (*name).into();
             disciple.martial_art = template.signature.into();
             disciple.rank = match member_index {
-                0 => DiscipleRank::Elder,
+                0 => DiscipleRank::Inner,
                 1 => DiscipleRank::Inner,
                 _ => DiscipleRank::Outer,
             };
@@ -333,6 +332,8 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             sync_legacy_attributes(&mut disciple);
             disciples.push(disciple);
         }
+        sect.buildings[0].elder_id = Some(format!("npc_{}_1", template.id));
+        sect.buildings[1].elder_id = Some(format!("npc_{}_2", template.id));
         sects.push(sect);
     }
 
@@ -342,7 +343,7 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
         disciple.id = format!("wanderer_{}", index + 1);
         disciple.sect_id = None;
         disciple.name = (*name).into();
-        disciple.rank = DiscipleRank::Elder;
+        disciple.rank = DiscipleRank::Inner;
         disciple.attributes.attainment = 700 + index as i64 * 65;
         disciple.attributes.reputation = 55 + index as i32 * 3;
         sync_legacy_attributes(&mut disciple);
@@ -377,6 +378,10 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
     for disciple in &mut state.npc_disciples {
         crate::logic::disciple::hydrate_v2_disciple(disciple);
     }
+    for sect in &mut state.npc_sects {
+        crate::logic::sect::normalize_buildings(sect);
+        crate::logic::sect::normalize_elder_assignments(sect, &state.npc_disciples);
+    }
 }
 
 #[cfg(test)]
@@ -405,7 +410,7 @@ mod tests {
                 .all(|id| disciple.martial_progress.proficiencies.contains_key(id)));
             let tier = match disciple.rank {
                 DiscipleRank::Outer => MartialTier::Outer,
-                DiscipleRank::Inner | DiscipleRank::Elder => MartialTier::Inner,
+                DiscipleRank::Inner => MartialTier::Inner,
                 DiscipleRank::Chore => MartialTier::Chore,
             };
             assert!(sect_combat_arts(sect_id, tier).iter().all(|art| disciple

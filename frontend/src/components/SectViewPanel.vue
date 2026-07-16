@@ -17,7 +17,7 @@ const policyNames = {
   balanced: '持中守成', martial: '崇武精进', scholarly: '研经明理',
   chivalrous: '行侠尚义', mercantile: '通商裕库', reclusive: '闭门清修',
 }
-const rankNames = { chore: '杂役', outer: '外门', inner: '内门', elder: '长老' }
+const rankNames = { chore: '杂役', outer: '外门', inner: '内门' }
 const countryName = computed(() => props.countries.find(country => country.id === props.sect.country_id)?.name || props.sect.country_id)
 const artName = (id: string) => displayArtName(props.arts, id)
 const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
