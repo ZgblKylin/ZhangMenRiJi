@@ -56,10 +56,13 @@ pub async fn advance_month(
     };
     let _ = crate::db::append_events(&state.pool, save_id, &events).await;
     game_state.autosave = save_id != id || game_state.autosave;
+    let (sect_events, world_events) = split_events(&events);
 
     Json(serde_json::json!({
         "id": save_id,
         "events": events,
+        "sect_events": sect_events,
+        "world_events": world_events,
         "tournament": tournament,
         "game_over": game_over,
         "state": game_state,
@@ -98,12 +101,55 @@ pub async fn resolve_event(
     };
     let _ = crate::db::append_events(&state.pool, save_id, &events).await;
     game_state.autosave = true;
+    let (sect_events, world_events) = split_events(&events);
     Json(serde_json::json!({
         "id": save_id,
         "events": events,
+        "sect_events": sect_events,
+        "world_events": world_events,
         "tournament": tournament,
         "game_over": game_over,
         "state": game_state,
     }))
     .into_response()
+}
+
+fn split_events(
+    events: &[crate::models::GameEvent],
+) -> (Vec<crate::models::GameEvent>, Vec<crate::models::GameEvent>) {
+    events
+        .iter()
+        .cloned()
+        .partition(|event| event.category != "world")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_events;
+    use crate::models::GameEvent;
+
+    #[test]
+    fn month_events_are_grouped_for_the_frontend() {
+        let events = vec![
+            GameEvent {
+                text: "本门弟子练功".into(),
+                mood: "good".into(),
+                year: 1,
+                month: 1,
+                category: "sect".into(),
+            },
+            GameEvent {
+                text: "武当弟子游历".into(),
+                mood: "neutral".into(),
+                year: 1,
+                month: 1,
+                category: "world".into(),
+            },
+        ];
+
+        let (sect_events, world_events) = split_events(&events);
+        assert_eq!(sect_events.len(), 1);
+        assert_eq!(world_events.len(), 1);
+        assert_eq!(world_events[0].category, "world");
+    }
 }

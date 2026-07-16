@@ -768,21 +768,33 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
     }
     sect::sync_legacy_fields(state);
     npc_logs.sort_by_key(|text| !(text.contains("经验 +") || text.contains("内力精进")));
-    logs.extend(npc_logs.into_iter().take(3));
-    if npc_actions > 0 {
-        logs.push(format!(
-            "江湖诸派亦各有动静，共推演了{}桩门人行止。",
-            npc_actions
-        ));
-    }
-    logs.into_iter()
+    let mut events: Vec<GameEvent> = logs
+        .into_iter()
         .map(|text| GameEvent {
             text,
             mood: "good".into(),
             year: state.year,
             month: state.month,
+            category: "sect".into(),
         })
-        .collect()
+        .collect();
+    events.extend(npc_logs.into_iter().take(3).map(|text| GameEvent {
+        text,
+        mood: "neutral".into(),
+        year: state.year,
+        month: state.month,
+        category: "world".into(),
+    }));
+    if npc_actions > 0 {
+        events.push(GameEvent {
+            text: format!("江湖诸派亦各有动静，共推演了{}桩门人行止。", npc_actions),
+            mood: "neutral".into(),
+            year: state.year,
+            month: state.month,
+            category: "world".into(),
+        });
+    }
+    events
 }
 
 fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {

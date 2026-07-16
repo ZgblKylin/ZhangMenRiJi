@@ -32,6 +32,7 @@ pub fn execute_decision(
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
         "train" => {
@@ -50,6 +51,7 @@ pub fn execute_decision(
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
         "mission" => {
@@ -71,6 +73,7 @@ pub fn execute_decision(
                         mood: "good".into(),
                         year: state.year,
                         month: state.month,
+                        category: "sect".into(),
                     });
                 } else {
                     d.inner_power = (d.inner_power - 5).max(5);
@@ -81,6 +84,7 @@ pub fn execute_decision(
                         mood: "bad".into(),
                         year: state.year,
                         month: state.month,
+                        category: "sect".into(),
                     });
                 }
             }
@@ -96,6 +100,7 @@ pub fn execute_decision(
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
         "diplomacy" => {
@@ -118,6 +123,7 @@ pub fn execute_decision(
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
         "rest" => {
@@ -129,6 +135,7 @@ pub fn execute_decision(
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
         "study" => {
@@ -158,6 +165,7 @@ pub fn execute_decision(
                     mood: "good".into(),
                     year: state.year,
                     month: state.month,
+                    category: "sect".into(),
                 });
             } else {
                 events.push(GameEvent {
@@ -165,6 +173,7 @@ pub fn execute_decision(
                     mood: "neutral".into(),
                     year: state.year,
                     month: state.month,
+                    category: "sect".into(),
                 });
             }
         }
@@ -195,6 +204,7 @@ pub fn execute_decision(
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
         _ => {}

@@ -107,7 +107,7 @@ export interface Country { id: string; name: string; prosperity: number; order: 
 export interface EventEffect { [key: string]: unknown }
 export interface EventChoice { id: string; label: string; result_text: string; effect: EventEffect; good: boolean }
 export interface PendingWorldEvent { id: string; category: string; title: string; text: string; choices: EventChoice[] }
-export interface ChronicleEvent { year?: number; month?: number; text: string; mood: Mood }
+export interface ChronicleEvent { year?: number; month?: number; text: string; mood: Mood; category?: 'sect' | 'world' }
 export interface Tournament { year?: number; rank: number; total_sects: number; power: number; desc_text?: string }
 
 export interface GameState {
@@ -137,7 +137,7 @@ export interface GameState {
 
 export interface ManagementRequest { action: string; [key: string]: unknown }
 export interface GameResponse { id: string; save_group_id: string; sect_name?: string; state: GameState; updated_at?: string }
-export interface AdvanceResponse { id: string; state: GameState; events?: ChronicleEvent[]; tournament?: Tournament; game_over?: boolean }
+export interface AdvanceResponse { id: string; state: GameState; events?: ChronicleEvent[]; sect_events?: ChronicleEvent[]; world_events?: ChronicleEvent[]; tournament?: Tournament; game_over?: boolean }
 export interface ManageResponse { state: GameState; events?: ChronicleEvent[] }
 
 export interface SaveRecord {

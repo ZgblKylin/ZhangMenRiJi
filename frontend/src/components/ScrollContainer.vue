@@ -7,11 +7,10 @@ const updateScale = () => {
   const body = getComputedStyle(document.body)
   const availableWidth = window.innerWidth - parseFloat(body.paddingLeft) - parseFloat(body.paddingRight)
   const availableHeight = window.innerHeight - parseFloat(body.paddingTop) - parseFloat(body.paddingBottom)
-  scale.value = Math.max(1, Math.min(availableWidth / 1048, availableHeight / 808))
+  scale.value = Math.min(availableWidth / 1388, availableHeight / 793)
 }
 onMounted(() => { updateScale(); window.addEventListener('resize', updateScale) })
 onBeforeUnmount(() => window.removeEventListener('resize', updateScale))
 </script>
 
-<template><main class="scroll-container" :style="{ transform: scale > 1 ? `scale(${scale})` : undefined }"><slot /></main></template>
-
+<template><main class="scroll-container" :style="{ transform: Math.abs(scale - 1) > .001 ? `scale(${scale})` : undefined }"><slot /></main></template>

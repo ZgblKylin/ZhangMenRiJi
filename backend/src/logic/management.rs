@@ -295,6 +295,7 @@ pub fn execute_management(
         mood: "good".into(),
         year: state.year,
         month: state.month,
+        category: "sect".into(),
     };
     state.event_log.push(event.clone());
     trim_log(state);

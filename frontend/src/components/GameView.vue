@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import type { Decision, GameState, ManagementRequest, MartialArt } from '../types'
 import TitleBar from './TitleBar.vue'
-import StatsGrid from './StatsGrid.vue'
 import DiscipleList from './DiscipleList.vue'
 import DecisionGrid from './DecisionGrid.vue'
 import AdvanceSection from './AdvanceSection.vue'
@@ -14,6 +13,8 @@ const props = defineProps<{ game: GameState; decisions: Decision[]; arts: Martia
 defineEmits<{ save: []; load: []; restart: []; decide: [id: string]; advance: []; manage: [command: ManagementRequest] }>()
 const section = ref<'month' | 'sect' | 'library' | 'world'>('month')
 const alive = computed(() => props.game.disciples?.filter(d => d.alive) || [])
+const sectChronicles = computed(() => (props.game.event_log || []).filter(event => event.category !== 'world'))
+const worldChronicles = computed(() => (props.game.event_log || []).filter(event => event.category === 'world'))
 const lastTournament = computed(() => {
   const last = (props.game.tournament_history || []).at(-1)
   return last?.year === props.game.year ? last : null
@@ -31,10 +32,9 @@ const sections = [
   </nav>
   <div class="book-layout">
     <div class="left-page">
-      <StatsGrid :game="game" />
       <DiscipleList :disciples="alive" :arts="arts" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" />
     </div>
-    <div class="right-page">
+    <div class="center-page">
       <template v-if="section === 'month'">
         <TournamentPanel v-if="game.month === 12" :tournament="lastTournament" />
         <DecisionGrid v-else :decisions="decisions" :arts="arts" :game="game" :used="used" @decide="$emit('decide', $event)" />
@@ -42,6 +42,6 @@ const sections = [
       <SectManagementPanel v-else :game="game" :arts="arts" :view="section" @manage="$emit('manage', $event)" />
       <AdvanceSection :used="game.decisions_used" :max="game.max_decisions" :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" @advance="$emit('advance')" />
     </div>
+    <ChroniclesBar :sect-entries="sectChronicles" :world-entries="worldChronicles" />
   </div>
-  <ChroniclesBar :entries="game.event_log || []" />
 </template>

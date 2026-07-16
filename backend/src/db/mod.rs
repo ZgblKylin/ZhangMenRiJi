@@ -262,8 +262,8 @@ pub async fn append_events(
         .bind(ev.month)
         .bind(&ev.mood)
         .bind(&ev.text)
-        .bind("chronicle")
-        .bind(serde_json::json!({ "mood": ev.mood }))
+        .bind(&ev.category)
+        .bind(serde_json::json!({ "mood": ev.mood, "category": ev.category }))
         .execute(pool)
         .await?;
     }

@@ -29,6 +29,7 @@ pub fn advance_month(rng: &mut impl Rng, state: &mut GameState) -> AdvanceResult
             mood: "neutral".into(),
             year: state.year,
             month: state.month,
+            category: interactive_category(&pending.category).into(),
         };
         state.pending_event = serde_json::to_value(&pending).ok();
         state.event_log.push(announcement.clone());
@@ -44,11 +45,17 @@ pub fn advance_month(rng: &mut impl Rng, state: &mut GameState) -> AdvanceResult
         disc::absorb_legacy_attributes(disciple);
     }
     let mood = if random_event.good { "good" } else { "bad" };
+    let category = if random_event.id.starts_with("jh_") {
+        "world"
+    } else {
+        "sect"
+    };
     events.push(GameEvent {
         text: random_event.text.clone(),
         mood: mood.into(),
         year: state.year,
         month: state.month,
+        category: category.into(),
     });
     for t in extra_events {
         events.push(GameEvent {
@@ -56,6 +63,7 @@ pub fn advance_month(rng: &mut impl Rng, state: &mut GameState) -> AdvanceResult
             mood: "good".into(),
             year: state.year,
             month: state.month,
+            category: category.into(),
         });
     }
     crate::logic::sect::absorb_legacy_fields(state);
@@ -74,6 +82,7 @@ pub fn resolve_pending_event(
         .ok_or_else(|| "眼下并无待决之事。".to_string())?;
     let pending: event::PendingWorldEvent =
         serde_json::from_value(value).map_err(|_| "此事卷宗已有残缺，无法处置。".to_string())?;
+    let category = interactive_category(&pending.category);
     let choice = pending
         .choices
         .iter()
@@ -97,12 +106,14 @@ pub fn resolve_pending_event(
         mood: if random_event.good { "good" } else { "bad" }.into(),
         year: state.year,
         month: state.month,
+        category: category.into(),
     }];
     events.extend(extra.into_iter().map(|text| GameEvent {
         text,
         mood: "good".into(),
         year: state.year,
         month: state.month,
+        category: category.into(),
     }));
     Ok(finish_month(rng, state, events))
 }
@@ -136,6 +147,7 @@ fn finish_month(
         mood: if income >= expense { "good" } else { "neutral" }.into(),
         year: state.year,
         month: state.month,
+        category: "sect".into(),
     });
     for npc_sect in &mut state.npc_sects {
         let members = state
@@ -161,6 +173,7 @@ fn finish_month(
             mood: "bad".into(),
             year: state.year,
             month: state.month,
+            category: "sect".into(),
         });
         state.morale = disc::clamp(state.morale - 5, 0, 100);
     }
@@ -188,6 +201,7 @@ fn finish_month(
                 mood: "bad".into(),
                 year: state.year,
                 month: state.month,
+                category: "sect".into(),
             });
         }
     }
@@ -214,6 +228,7 @@ fn finish_month(
             mood: "good".into(),
             year: state.year,
             month: 12,
+            category: "sect".into(),
         });
         Some(result)
     } else {
@@ -230,6 +245,7 @@ fn finish_month(
             mood: "neutral".into(),
             year: state.year,
             month: state.month,
+            category: "sect".into(),
         });
     }
 
@@ -250,6 +266,13 @@ fn trim_log(state: &mut GameState) {
     if state.event_log.len() > 80 {
         let excess = state.event_log.len() - 80;
         state.event_log.drain(0..excess);
+    }
+}
+
+fn interactive_category(category: &str) -> &'static str {
+    match category {
+        "江湖" | "朝廷" | "乡里" => "world",
+        _ => "sect",
     }
 }
 

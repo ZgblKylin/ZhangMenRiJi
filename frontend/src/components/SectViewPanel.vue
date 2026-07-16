@@ -45,15 +45,14 @@ const relationTone = (value: number) => value >= 40 ? 'friendly' : value < 0 ? '
         <h2>{{ sect.name }}</h2>
         <small>{{ countryName }} · {{ policyNames[sect.policy] }}</small>
       </div>
+      <div class="sect-view-header-stats">
+        <span><small>声望</small><b>{{ sect.attributes.prestige }}</b></span>
+        <span><small>库银</small><b>{{ sect.attributes.silver }}<em>两</em></b></span>
+        <span><small>道德</small><b>{{ sect.attributes.morality }}</b></span>
+        <span><small>志气</small><b>{{ sect.attributes.morale }}</b></span>
+      </div>
       <i>阅</i>
     </header>
-
-    <div class="sect-view-stats">
-      <span><small>江湖声望</small><b>{{ sect.attributes.prestige }}</b></span>
-      <span><small>库银</small><b>{{ sect.attributes.silver }}<em>两</em></b></span>
-      <span><small>门风道义</small><b>{{ sect.attributes.morality }}</b></span>
-      <span><small>门人志气</small><b>{{ sect.attributes.morale }}</b></span>
-    </div>
 
     <section class="sect-ledger-section">
       <div class="sect-ledger-title">门人名录与所习武学</div>
