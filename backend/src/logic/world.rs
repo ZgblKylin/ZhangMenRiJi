@@ -7,7 +7,7 @@ use crate::models::sect::{
     default_buildings, MoralDirection, SectAttributes, SectPolicy, SectState,
 };
 use crate::models::{Disciple, GameEvent, GameState};
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use std::collections::BTreeMap;
 
 struct SectTemplate {
@@ -397,7 +397,7 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
 /// NPC 门派按玩家相同的名额和长老规则逐月经营。
 pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
     let sect_ids: Vec<String> = state.npc_sects.iter().map(|sect| sect.id.clone()).collect();
-    let mut changed = Vec::new();
+    let mut notable_sects = std::collections::BTreeSet::new();
     for sect_id in sect_ids {
         let Some(sect_index) = state.npc_sects.iter().position(|sect| sect.id == sect_id) else {
             continue;
@@ -523,35 +523,82 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
             state.npc_sects[sect_index].attributes.silver += elder_count as i32 * 2;
         }
         if !notes.is_empty() {
-            changed.push(format!(
-                "{}{}。",
-                state.npc_sects[sect_index].name,
-                notes.join("，")
+            notable_sects.insert(sect_id);
+        }
+    }
+
+    // 江湖纪事不再按门派数组顺序截取，改由各派掌门、在任长老中随机取材。
+    // 这里只写人物行止，不把幕后经营数值直接摊在纪事中。
+    let mut figures = Vec::new();
+    for sect in &state.npc_sects {
+        let leader_id = format!("npc_{}_1", sect.id);
+        let elder_ids: std::collections::BTreeSet<&str> = sect
+            .buildings
+            .iter()
+            .filter_map(|building| building.elder_id.as_deref())
+            .collect();
+        let candidates: Vec<&Disciple> = state
+            .npc_disciples
+            .iter()
+            .filter(|disciple| {
+                disciple.alive
+                    && disciple.sect_id.as_deref() == Some(sect.id.as_str())
+                    && (disciple.id == leader_id || elder_ids.contains(disciple.id.as_str()))
+            })
+            .collect();
+        if let Some(figure) = candidates.choose(rng) {
+            figures.push((
+                sect.id.clone(),
+                sect.name.clone(),
+                figure.name.clone(),
+                if figure.id == leader_id {
+                    "掌门"
+                } else {
+                    "长老"
+                },
             ));
         }
     }
-    let total = changed.len();
-    let mut events: Vec<GameEvent> = changed
+    figures.shuffle(rng);
+    let take = rng.gen_range(2..=4).min(figures.len());
+    figures
         .into_iter()
-        .take(3)
-        .map(|text| GameEvent {
-            text,
-            mood: "neutral".into(),
-            year: state.year,
-            month: state.month,
-            category: "world".into(),
+        .take(take)
+        .map(|(sect_id, sect_name, name, role)| {
+            let text = if notable_sects.contains(&sect_id) {
+                format!(
+                    "{}{}{}召集门人整顿堂务，直到暮色漫过山门才收卷离席。",
+                    sect_name, name, role
+                )
+            } else {
+                match rng.gen_range(0..4) {
+                    0 => format!(
+                        "{}{}{}晨起巡视山门，沿途与弟子谈武论道，至午方归。",
+                        sect_name, name, role
+                    ),
+                    1 => format!(
+                        "{}{}{}在灯下校阅门中簿册，又召来几名弟子细问近况。",
+                        sect_name, name, role
+                    ),
+                    2 => format!(
+                        "{}{}{}于堂前考校门人，众弟子各展所学，山中颇为热闹。",
+                        sect_name, name, role
+                    ),
+                    _ => format!(
+                        "{}{}{}闭门会见远客，席间所谈无人知晓，只闻更鼓数声。",
+                        sect_name, name, role
+                    ),
+                }
+            };
+            GameEvent {
+                text,
+                mood: "neutral".into(),
+                year: state.year,
+                month: state.month,
+                category: "world".into(),
+            }
         })
-        .collect();
-    if total > 3 {
-        events.push(GameEvent {
-            text: format!("另有{}家门派亦在招纳门人、整顿堂务。", total - 3),
-            mood: "neutral".into(),
-            year: state.year,
-            month: state.month,
-            category: "world".into(),
-        });
-    }
-    events
+        .collect()
 }
 
 #[cfg(test)]
@@ -627,5 +674,24 @@ mod tests {
             .iter()
             .any(|disciple| disciple.rank == DiscipleRank::Chore));
         assert!(state.npc_sects.iter().all(|sect| sect.buildings.len() == 7));
+    }
+
+    #[test]
+    fn chronicles_randomly_draw_from_leaders_and_elders_across_sects() {
+        let mut state = GameState::default();
+        let (sects, disciples) = generate_npc_world(27);
+        state.npc_sects = sects;
+        state.npc_disciples = disciples;
+        let mut seen_beyond_first_two = false;
+        for seed in 0..12 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let events = run_npc_ai(&mut rng, &mut state);
+            assert!((2..=4).contains(&events.len()));
+            assert!(events.iter().all(|event| event.category == "world"));
+            seen_beyond_first_two |= events
+                .iter()
+                .any(|event| !event.text.contains("武当派") && !event.text.contains("华山派"));
+        }
+        assert!(seen_beyond_first_two);
     }
 }

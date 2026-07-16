@@ -22,15 +22,22 @@ pub fn execute_decision(
             }
             state.silver -= 50;
             let count = disc::rand_range(rng, 1, 2);
+            let mut recruits = Vec::with_capacity(count as usize);
             for _ in 0..count {
                 let bonus = if state.prestige > 50 { 10 } else { 0 };
                 let mut recruit = disc::generate_disciple(rng, bonus);
-                recruit.rank = crate::models::attributes::DiscipleRank::Chore;
-                state.disciples.push(recruit);
+                recruit.sect_id = Some("player".into());
+                recruits.push(recruit);
             }
+            crate::logic::sect::assign_recruit_ranks(&state.sect, &state.disciples, &mut recruits);
+            let names = recruits
+                .iter()
+                .map(|recruit| format!("{}（{}）", recruit.name, rank_name(&recruit.rank)))
+                .collect::<Vec<_>>();
+            state.disciples.extend(recruits);
             state.total_disciples_recruited += count;
             events.push(GameEvent {
-                text: format!("招贤榜贴出，{}人前来拜山投师。", count),
+                text: format!("招贤榜贴出，{}前来拜山投师。", names.join("、")),
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
@@ -224,4 +231,12 @@ pub fn execute_decision(
     }
 
     events
+}
+
+fn rank_name(rank: &crate::models::attributes::DiscipleRank) -> &'static str {
+    match rank {
+        crate::models::attributes::DiscipleRank::Chore => "杂役",
+        crate::models::attributes::DiscipleRank::Outer => "外门",
+        crate::models::attributes::DiscipleRank::Inner => "内门",
+    }
 }

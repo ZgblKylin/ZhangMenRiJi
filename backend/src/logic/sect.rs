@@ -112,6 +112,33 @@ pub fn rank_limits(sect: &SectState, disciples: &[Disciple]) -> (usize, usize) {
     (outer_limit, inner_limit)
 }
 
+/// 招贤榜所得新人按资质由高到低补入外门；外门名额用尽后仍从杂役起步。
+pub fn assign_recruit_ranks(sect: &SectState, disciples: &[Disciple], recruits: &mut [Disciple]) {
+    let projected_alive = disciples.iter().filter(|disciple| disciple.alive).count()
+        + recruits.iter().filter(|disciple| disciple.alive).count();
+    let outer_limit =
+        ((projected_alive as f32) * sect.rank_rules.outer_ratio.clamp(0.0, 1.0)).floor() as usize;
+    let current_outer = disciples
+        .iter()
+        .filter(|disciple| disciple.alive && disciple.rank == DiscipleRank::Outer)
+        .count();
+    let available = outer_limit.saturating_sub(current_outer);
+    let mut order: Vec<usize> = (0..recruits.len()).collect();
+    order.sort_by(|left, right| {
+        recruits[*right]
+            .talent
+            .cmp(&recruits[*left].talent)
+            .then_with(|| recruits[*left].name.cmp(&recruits[*right].name))
+    });
+    for (position, index) in order.into_iter().enumerate() {
+        recruits[index].rank = if position < available {
+            DiscipleRank::Outer
+        } else {
+            DiscipleRank::Chore
+        };
+    }
+}
+
 /// v3 以内嵌 SectState 为准，同时维护旧 API 字段以兼容已有前端。
 pub fn sync_legacy_fields(state: &mut GameState) {
     state.prestige = state.sect.attributes.prestige.clamp(0, 1000);
@@ -228,6 +255,25 @@ pub fn building_level(sect: &SectState, id: &str) -> i32 {
 mod tests {
     use super::*;
     use crate::models::attributes::DiscipleRank;
+
+    #[test]
+    fn recruit_rank_assignment_prefers_higher_talent_within_outer_limit() {
+        let mut sect = SectState::default();
+        sect.rank_rules.outer_ratio = 0.5;
+        let mut existing = vec![Disciple::default(), Disciple::default()];
+        existing[0].rank = DiscipleRank::Outer;
+        existing[1].rank = DiscipleRank::Chore;
+        let mut recruits = vec![Disciple::default(), Disciple::default()];
+        recruits[0].name = "乙".into();
+        recruits[0].talent = 18;
+        recruits[1].name = "甲".into();
+        recruits[1].talent = 30;
+
+        assign_recruit_ranks(&sect, &existing, &mut recruits);
+
+        assert_eq!(recruits[0].rank, DiscipleRank::Chore);
+        assert_eq!(recruits[1].rank, DiscipleRank::Outer);
+    }
     use crate::models::sect::Building;
 
     #[test]

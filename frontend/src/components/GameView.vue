@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { BuildingKind, Decision, Disciple, GameState, ManagementRequest, MartialArt } from '../types'
 import TitleBar from './TitleBar.vue'
 import DiscipleList from './DiscipleList.vue'
@@ -11,6 +11,8 @@ import SectManagementPanel from './SectManagementPanel.vue'
 const props = defineProps<{ game: GameState; decisions: Decision[]; arts: MartialArt[]; used: string[] }>()
 defineEmits<{ save: []; load: []; restart: []; decide: [id: string]; advance: []; manage: [command: ManagementRequest]; expel: [disciple: Disciple] }>()
 const section = ref<BuildingKind>('practice')
+const managementPanel = ref<InstanceType<typeof SectManagementPanel> | null>(null)
+watch(section, () => managementPanel.value?.closeNpcSect())
 const alive = computed(() => props.game.disciples?.filter(d => d.alive) || [])
 const sectChronicles = computed(() => (props.game.event_log || []).filter(event => event.category !== 'world'))
 const worldChronicles = computed(() => (props.game.event_log || []).filter(event => event.category === 'world'))
@@ -37,7 +39,7 @@ const sections = [
         <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}/{{ game.max_decisions }}</b></span>
       </nav>
       <TournamentPanel v-if="game.month === 12" :tournament="lastTournament" />
-      <SectManagementPanel :game="game" :arts="arts" :decisions="decisions" :used="used" :view="section" @decide="$emit('decide', $event)" @manage="$emit('manage', $event)" />
+      <SectManagementPanel ref="managementPanel" :game="game" :arts="arts" :decisions="decisions" :used="used" :view="section" @decide="$emit('decide', $event)" @manage="$emit('manage', $event)" />
     </div>
     <ChroniclesBar :sect-entries="sectChronicles" :world-entries="worldChronicles" />
   </div>

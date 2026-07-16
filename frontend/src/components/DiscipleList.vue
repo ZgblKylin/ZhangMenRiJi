@@ -23,6 +23,8 @@ const choreActions: Array<[ActionKind, string]> = [
   ['maintain', '建筑维护'], ['construct', '建造升级'], ['produce', '门中生产'], ['business', '世俗经营'], ['gather', '入山采集'], ['recover', '静养调息'],
 ]
 const actionsFor = (disciple: Disciple) => disciple.rank === 'chore' ? choreActions : disciple.rank === 'outer' ? outerActions : innerActions
+const actionName = (disciple: Disciple) => actionsFor(disciple).find(([kind]) => kind === disciple.action?.kind)?.[1] || '未安排'
+const displayedSkillCategories = skillCategories.filter(category => category.id !== 'parry')
 const rankName = { chore: '杂役', outer: '外门', inner: '内门' }
 const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
 const artName = (id: string) => displayArtName(props.arts, id)
@@ -95,7 +97,7 @@ const appoint = (disciple: Disciple) => emit('manage', {
         <button class="disciple-summary" @click="openId = openId === d.id ? null : d.id">
           <span class="disciple-name">{{ d.name }}</span>
           <span class="rank-seal">{{ rankName[d.rank] }}</span>
-          <span class="disciple-brief">{{ d.age }}岁 · {{ artName(d.martial_art) }} · 门忠{{ d.attributes?.sect_loyalty ?? d.loyalty }}</span>
+          <span class="disciple-brief">{{ d.age }}岁 · {{ artName(d.martial_art) }} · 门忠{{ d.attributes?.sect_loyalty ?? d.loyalty }} · 本月{{ actionName(d) }}</span>
           <span class="condition" :class="d.condition">{{ d.away_months ? `外出${d.away_months}月` : conditionName[d.condition] }}</span>
         </button>
         <div v-if="openId === d.id" class="disciple-detail">
@@ -114,9 +116,9 @@ const appoint = (disciple: Disciple) => emit('manage', {
           </div>
           <div class="attainment-line">造诣 {{ d.attributes.attainment }} · 功绩 {{ d.merit }} · 声名 {{ d.attributes.reputation }} · 道德 {{ d.attributes.morality }}</div>
           <div class="disciple-skills">
-            <div class="skill-caption">六艺武学谱 <small>知识限制本门战斗武学等级</small></div>
+            <div class="skill-caption">门下武学谱 <small>知识限制本门战斗武学等级</small></div>
             <div class="skill-category-grid">
-              <section v-for="category in skillCategories" :key="category.id" class="skill-category" :class="category.id">
+              <section v-for="category in displayedSkillCategories" :key="category.id" class="skill-category" :class="category.id">
                 <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
                 <label v-if="category.id !== 'knowledge' && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="equipment-picker">
                   <span>当前装备</span>

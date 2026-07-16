@@ -7,7 +7,9 @@ const updateScale = () => {
   const body = getComputedStyle(document.body)
   const availableWidth = window.innerWidth - parseFloat(body.paddingLeft) - parseFloat(body.paddingRight)
   const availableHeight = window.innerHeight - parseFloat(body.paddingTop) - parseFloat(body.paddingBottom)
-  scale.value = Math.min(availableWidth / 1388, availableHeight / 793)
+  // 卷轴本体为 1510×800，外圈纸边阴影还各占约 12px。桌面窗口只在
+  // 放不下时缩小，避免 1600×900 的默认窗口反被旧基准放大而溢出。
+  scale.value = Math.min(1, availableWidth / 1534, availableHeight / 824)
 }
 onMounted(() => { updateScale(); window.addEventListener('resize', updateScale) })
 onBeforeUnmount(() => window.removeEventListener('resize', updateScale))

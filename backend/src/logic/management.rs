@@ -150,16 +150,20 @@ pub fn execute_management(
         }
         ManagementRequest::Recruit => {
             spend(state, 50)?;
-            let count = if rng.gen_bool(0.25) { 2 } else { 1 };
-            let mut names = Vec::new();
+            let count: i32 = if rng.gen_bool(0.25) { 2 } else { 1 };
+            let mut recruits = Vec::with_capacity(count as usize);
             for _ in 0..count {
                 let mut recruit =
                     disciple::generate_disciple(rng, state.sect.attributes.prestige / 20);
                 recruit.sect_id = Some("player".into());
-                recruit.rank = DiscipleRank::Chore;
-                names.push(recruit.name.clone());
-                state.disciples.push(recruit);
+                recruits.push(recruit);
             }
+            sect::assign_recruit_ranks(&state.sect, &state.disciples, &mut recruits);
+            let names = recruits
+                .iter()
+                .map(|recruit| format!("{}（{}）", recruit.name, rank_label(&recruit.rank)))
+                .collect::<Vec<_>>();
+            state.disciples.extend(recruits);
             state.total_disciples_recruited += count;
             format!("招贤榜下新收{}，共{}人拜入山门。", names.join("、"), count)
         }
@@ -690,6 +694,14 @@ fn rank_merit(rank: &DiscipleRank) -> i64 {
         DiscipleRank::Chore => 0,
         DiscipleRank::Outer => 10,
         DiscipleRank::Inner => 80,
+    }
+}
+
+fn rank_label(rank: &DiscipleRank) -> &'static str {
+    match rank {
+        DiscipleRank::Chore => "杂役",
+        DiscipleRank::Outer => "外门",
+        DiscipleRank::Inner => "内门",
     }
 }
 

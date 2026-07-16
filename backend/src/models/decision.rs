@@ -51,17 +51,6 @@ pub fn all_decisions() -> Vec<DecisionDef> {
             req_unlearned_arts: false,
         },
         DecisionDef {
-            id: "diplomacy".into(),
-            title: "拜会邻派".into(),
-            desc: "携礼拜访周边门派，修睦关系增声望。花费库银四十两。".into(),
-            cost: 40,
-            cost_type: "silver".into(),
-            req_injury_max: None,
-            req_silver_min: Some(40),
-            req_disciples_min: None,
-            req_unlearned_arts: false,
-        },
-        DecisionDef {
             id: "rest".into(),
             title: "静养疗伤".into(),
             desc: "掌门暂歇俗务，闭关静养以疗伤势。可显著恢复掌门伤势。".into(),
