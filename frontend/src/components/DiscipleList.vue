@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import type { ActionKind, Building, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillCategory, SkillEntry } from '../types'
+import { MartialTier, SkillCategory } from '../types'
+import type { ActionKind, Building, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillEntry } from '../types'
 import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 import { issuableItems, medicineDescription } from '../medicine'
 
@@ -24,7 +25,7 @@ const choreActions: Array<[ActionKind, string]> = [
 ]
 const actionsFor = (disciple: Disciple) => disciple.rank === 'chore' ? choreActions : disciple.rank === 'outer' ? outerActions : innerActions
 const actionName = (disciple: Disciple) => actionsFor(disciple).find(([kind]) => kind === disciple.action?.kind)?.[1] || '未安排'
-const displayedSkillCategories = skillCategories.filter(category => category.id !== 'parry')
+const displayedSkillCategories = skillCategories.filter(category => category.id !== SkillCategory.Parry)
 const rankName = { chore: '杂役', outer: '外门', inner: '内门' }
 const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
 const artName = (id: string) => displayArtName(props.arts, id)
@@ -34,17 +35,17 @@ const art = (id: string) => props.arts.find(candidate => candidate.id === id)
 const skillLevel = (disciple: Disciple, id: string) =>
   disciple.skills.find(skill => skill.martial_art_id === id)?.level || 0
 const basicSkill = (disciple: Disciple, category: SkillCategory) =>
-  categorySkills(disciple, category).find(skill => art(skill.martial_art_id)?.tier === 'basic')
+  categorySkills(disciple, category).find(skill => art(skill.martial_art_id)?.tier === MartialTier.Basic)
 const combatChoices = (disciple: Disciple, basic: SkillEntry) =>
   disciple.skills
     .filter(skill => {
       const candidate = art(skill.martial_art_id)
-      return candidate?.is_combat && candidate.tier !== 'basic' && candidate.basic_skill === basic.martial_art_id
+      return candidate?.is_combat && candidate.tier !== MartialTier.Basic && candidate.basic_skill === basic.martial_art_id
     })
     .sort((a, b) => b.level - a.level || a.martial_art_id.localeCompare(b.martial_art_id))
 const equippedArt = (disciple: Disciple, basicId: string) => disciple.equipped_skills?.[basicId] || ''
 const isEquipped = (disciple: Disciple, artId: string) => Object.values(disciple.equipped_skills || {}).includes(artId)
-const highestKnowledge = (disciple: Disciple) => categorySkills(disciple, 'knowledge')[0]
+const highestKnowledge = (disciple: Disciple) => categorySkills(disciple, SkillCategory.Knowledge)[0]
 const aptitudeBonus = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') => {
   const source = {
     strength: skillLevel(disciple, 'basic_unarmed'),
@@ -120,7 +121,7 @@ const appoint = (disciple: Disciple) => emit('manage', {
             <div class="skill-category-grid">
               <section v-for="category in displayedSkillCategories" :key="category.id" class="skill-category" :class="category.id">
                 <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
-                <label v-if="category.id !== 'knowledge' && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="equipment-picker">
+                <label v-if="category.id !== SkillCategory.Knowledge && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="equipment-picker">
                   <span>当前装备</span>
                   <select class="wuxia-select" :value="equippedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="equip(d, basicSkill(d, category.id)!.martial_art_id, $event)">
                     <option v-for="skill in combatChoices(d, basicSkill(d, category.id)!)" :key="skill.martial_art_id" :value="skill.martial_art_id">
@@ -128,7 +129,7 @@ const appoint = (disciple: Disciple) => emit('manage', {
                     </option>
                   </select>
                 </label>
-                <div v-else-if="category.id === 'knowledge' && highestKnowledge(d)" class="auto-equipment">
+                <div v-else-if="category.id === SkillCategory.Knowledge && highestKnowledge(d)" class="auto-equipment">
                   自动装备 {{ artName(highestKnowledge(d)!.martial_art_id) }} · {{ highestKnowledge(d)!.level }}级
                 </div>
                 <div v-if="categorySkills(d, category.id).length" class="category-skill-list">

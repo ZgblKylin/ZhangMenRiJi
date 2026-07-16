@@ -1,5 +1,6 @@
 use crate::models::attributes::DiscipleRank;
 use crate::models::game::GameState;
+use crate::models::medicine::{Medicine, LEGACY_WOUND_MEDICINE_NAME};
 use crate::models::sect::{default_buildings, Building, SectState};
 use crate::models::Disciple;
 use std::collections::BTreeSet;
@@ -41,13 +42,16 @@ pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
 
 /// 兼容早期存档中的同音药名，并同步修正在炼任务的产物名。
 fn normalize_inventory(sect: &mut SectState) {
-    if let Some(quantity) = sect.inventory.remove("金创药") {
-        *sect.inventory.entry("金疮药".into()).or_default() += quantity;
+    if let Some(quantity) = sect.inventory.remove(LEGACY_WOUND_MEDICINE_NAME) {
+        *sect
+            .inventory
+            .entry(Medicine::Wound.name().into())
+            .or_default() += quantity;
     }
     for task in &mut sect.productions {
-        if task.output_item == "金创药" {
-            task.output_item = "金疮药".into();
-            task.name = "金疮药".into();
+        if task.output_item == LEGACY_WOUND_MEDICINE_NAME {
+            task.output_item = Medicine::Wound.name().into();
+            task.name = Medicine::Wound.name().into();
         }
     }
 }
@@ -292,19 +296,19 @@ mod tests {
     #[test]
     fn legacy_wound_medicine_name_is_migrated_in_stock_and_production() {
         let mut sect = SectState::default();
-        sect.inventory.insert("金创药".into(), 3);
+        sect.inventory.insert(LEGACY_WOUND_MEDICINE_NAME.into(), 3);
         sect.productions.push(crate::models::sect::ProductionTask {
-            name: "金创药".into(),
-            output_item: "金创药".into(),
+            name: LEGACY_WOUND_MEDICINE_NAME.into(),
+            output_item: LEGACY_WOUND_MEDICINE_NAME.into(),
             ..crate::models::sect::ProductionTask::default()
         });
 
         normalize_inventory(&mut sect);
 
-        assert!(!sect.inventory.contains_key("金创药"));
-        assert_eq!(sect.inventory["金疮药"], 3);
-        assert_eq!(sect.productions[0].name, "金疮药");
-        assert_eq!(sect.productions[0].output_item, "金疮药");
+        assert!(!sect.inventory.contains_key(LEGACY_WOUND_MEDICINE_NAME));
+        assert_eq!(sect.inventory[Medicine::Wound.name()], 3);
+        assert_eq!(sect.productions[0].name, Medicine::Wound.name());
+        assert_eq!(sect.productions[0].output_item, Medicine::Wound.name());
     }
     use crate::models::sect::Building;
 

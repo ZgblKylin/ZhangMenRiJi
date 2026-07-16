@@ -2,6 +2,7 @@ use crate::logic::{disciple, sect};
 use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::management::ManagementRequest;
 use crate::models::martial_art::all_martial_arts;
+use crate::models::medicine::{Medicine, LEGACY_WOUND_MEDICINE_NAME};
 use crate::models::sect::{BuildingKind, MoralDirection, SectOrder, SectPolicy};
 use crate::models::{GameEvent, GameState};
 use rand::Rng;
@@ -284,6 +285,7 @@ pub fn execute_management(
                 return Err("发放数目须为正数。".into());
             }
             let item = canonical_item_name(&item).to_owned();
+            let medicine = Medicine::from_name(&item);
             if !is_issuable_item(&item) {
                 return Err("此物不可直接赐予弟子使用。".into());
             }
@@ -293,8 +295,8 @@ pub fn execute_management(
             }
             *state.sect.inventory.entry(item.clone()).or_default() -= quantity;
             let disciple = player_disciple_mut(state, &disciple_id)?;
-            match item.as_str() {
-                "草药" => {
+            match (item.as_str(), medicine) {
+                ("草药", _) => {
                     disciple.attributes.qi.current = (disciple.attributes.qi.current
                         + quantity * 8)
                         .min(disciple.attributes.qi.maximum);
@@ -303,73 +305,73 @@ pub fn execute_management(
                         .min(disciple.attributes.spirit.maximum);
                     disciple::refresh_condition(disciple);
                 }
-                "粮秣" => {
+                ("粮秣", _) => {
                     disciple.attributes.sect_loyalty =
                         (disciple.attributes.sect_loyalty + quantity / 2).min(100);
                 }
-                "金疮药" => {
+                (_, Some(Medicine::Wound)) => {
                     disciple.attributes.qi.current = (disciple.attributes.qi.current
                         + quantity * 30)
                         .min(disciple.attributes.qi.maximum);
                     disciple::refresh_condition(disciple);
                 }
-                "养气丹" => {
+                (_, Some(Medicine::Qi)) => {
                     disciple.attributes.neili.current = (disciple.attributes.neili.current
                         + quantity * 25)
                         .min(disciple.attributes.neili.maximum);
                 }
-                "清神散" => {
+                (_, Some(Medicine::Spirit)) => {
                     disciple.attributes.spirit.current = (disciple.attributes.spirit.current
                         + quantity * 30)
                         .min(disciple.attributes.spirit.maximum);
                     disciple::refresh_condition(disciple);
                 }
-                "回精丸" => {
+                (_, Some(Medicine::Energy)) => {
                     disciple.attributes.energy.current = (disciple.attributes.energy.current
                         + quantity * 25)
                         .min(disciple.attributes.energy.maximum);
                 }
-                "培元丹" => {
+                (_, Some(Medicine::Foundation)) => {
                     add_permanent_qi(disciple, quantity * 10);
                 }
-                "聚气丹" => {
+                (_, Some(Medicine::GatherQi)) => {
                     let amount = quantity * 5;
                     disciple::add_permanent_neili(disciple, amount);
                     disciple.attributes.neili.current = (disciple.attributes.neili.current
                         + amount)
                         .min(disciple.attributes.neili.maximum);
                 }
-                "宁神丹" => {
+                (_, Some(Medicine::CalmSpirit)) => {
                     add_permanent_spirit(disciple, quantity * 10);
                 }
-                "回天丹" => {
+                (_, Some(Medicine::RestoreOrigin)) => {
                     let amount = quantity * 5;
                     disciple::add_permanent_energy(disciple, amount);
                     disciple.attributes.energy.current = (disciple.attributes.energy.current
                         + amount)
                         .min(disciple.attributes.energy.maximum);
                 }
-                "洗髓丹" => {
+                (_, Some(Medicine::Marrow)) => {
                     disciple.aptitudes.constitution =
                         disciple.aptitudes.constitution.saturating_add(quantity);
                     disciple::recalculate_attribute_maxima(disciple);
                 }
-                "强筋丹" => {
+                (_, Some(Medicine::Sinew)) => {
                     disciple.aptitudes.strength =
                         disciple.aptitudes.strength.saturating_add(quantity);
                     disciple::recalculate_attribute_maxima(disciple);
                 }
-                "开窍丹" => {
+                (_, Some(Medicine::Awaken)) => {
                     disciple.aptitudes.intelligence =
                         disciple.aptitudes.intelligence.saturating_add(quantity);
                     disciple::recalculate_attribute_maxima(disciple);
                 }
-                "轻身丹" => {
+                (_, Some(Medicine::Lightness)) => {
                     disciple.aptitudes.agility =
                         disciple.aptitudes.agility.saturating_add(quantity);
                     disciple::recalculate_attribute_maxima(disciple);
                 }
-                "延寿丹" => {
+                (_, Some(Medicine::Longevity)) => {
                     disciple.age = disciple.age.saturating_sub(quantity).max(15);
                     disciple::recalculate_attribute_maxima(disciple);
                 }
@@ -397,8 +399,8 @@ pub fn execute_management(
                         state.month,
                         state.sect.productions.len()
                     ),
-                    name: name.into(),
-                    output_item: name.into(),
+                    name: name.to_string(),
+                    output_item: name.to_string(),
                     quantity,
                     remaining_months: months,
                 });
@@ -542,47 +544,30 @@ fn player_disciple_mut<'a>(
 
 fn canonical_item_name(item: &str) -> &str {
     match item {
-        "金创药" => "金疮药",
+        LEGACY_WOUND_MEDICINE_NAME => Medicine::Wound.name(),
         _ => item,
     }
 }
 
 fn is_issuable_item(item: &str) -> bool {
-    matches!(
-        item,
-        "草药"
-            | "粮秣"
-            | "金疮药"
-            | "养气丹"
-            | "清神散"
-            | "回精丸"
-            | "培元丹"
-            | "聚气丹"
-            | "宁神丹"
-            | "回天丹"
-            | "洗髓丹"
-            | "强筋丹"
-            | "开窍丹"
-            | "轻身丹"
-            | "延寿丹"
-    )
+    matches!(item, "草药" | "粮秣") || Medicine::from_name(item).is_some()
 }
 
-fn pill_recipe(id: &str) -> Option<(&'static str, i32, i32, i32)> {
+fn pill_recipe(id: &str) -> Option<(Medicine, i32, i32, i32)> {
     Some(match id {
-        "wound" => ("金疮药", 4, 2, 1),
-        "qi" => ("养气丹", 6, 1, 2),
-        "spirit" => ("清神散", 5, 2, 1),
-        "energy" => ("回精丸", 6, 1, 2),
-        "foundation" => ("培元丹", 12, 1, 6),
-        "gather_qi" => ("聚气丹", 12, 1, 6),
-        "calm_spirit" => ("宁神丹", 12, 1, 6),
-        "restore_origin" => ("回天丹", 12, 1, 6),
-        "marrow" => ("洗髓丹", 20, 1, 12),
-        "sinew" => ("强筋丹", 20, 1, 12),
-        "awaken" => ("开窍丹", 20, 1, 12),
-        "lightness" => ("轻身丹", 20, 1, 12),
-        "longevity" => ("延寿丹", 24, 1, 12),
+        "wound" => (Medicine::Wound, 4, 2, 1),
+        "qi" => (Medicine::Qi, 6, 1, 2),
+        "spirit" => (Medicine::Spirit, 5, 2, 1),
+        "energy" => (Medicine::Energy, 6, 1, 2),
+        "foundation" => (Medicine::Foundation, 12, 1, 6),
+        "gather_qi" => (Medicine::GatherQi, 12, 1, 6),
+        "calm_spirit" => (Medicine::CalmSpirit, 12, 1, 6),
+        "restore_origin" => (Medicine::RestoreOrigin, 12, 1, 6),
+        "marrow" => (Medicine::Marrow, 20, 1, 12),
+        "sinew" => (Medicine::Sinew, 20, 1, 12),
+        "awaken" => (Medicine::Awaken, 20, 1, 12),
+        "lightness" => (Medicine::Lightness, 20, 1, 12),
+        "longevity" => (Medicine::Longevity, 24, 1, 12),
         _ => return None,
     })
 }
@@ -704,8 +689,12 @@ fn execute_elder_duty(
                 return Err("草药不足两份，难以开炉。".into());
             }
             *state.sect.inventory.entry("草药".into()).or_default() -= 2;
-            *state.sect.inventory.entry("金疮药".into()).or_default() += 1;
-            "试炼一炉，得金疮药一份"
+            *state
+                .sect
+                .inventory
+                .entry(Medicine::Wound.name().into())
+                .or_default() += 1;
+            Medicine::Wound.name()
         }
         "correspond" => {
             for relation in state.sect.relations.values_mut() {
@@ -757,6 +746,11 @@ fn execute_elder_duty(
             "亲临工地督造，各处营造进度俱增"
         }
         _ => unreachable!("堂务已校验"),
+    };
+    let result = if duty_id == "brew" {
+        format!("试炼一炉，得{}一份", result)
+    } else {
+        result.to_owned()
     };
     if let Some(building) = state
         .sect
@@ -1086,7 +1080,7 @@ mod tests {
             for _ in 0..months {
                 crate::logic::sect::apply_monthly_upkeep(&mut state.sect, 0);
             }
-            assert_eq!(state.sect.inventory[name], quantity);
+            assert_eq!(state.sect.inventory[name.name()], quantity);
             assert!(state.sect.productions.is_empty());
         }
     }
@@ -1105,23 +1099,9 @@ mod tests {
         disciple.attributes.spirit.current = 1;
         disciple.attributes.energy.current = 1;
         state.disciples.push(disciple);
-        let items = [
-            "金疮药",
-            "养气丹",
-            "清神散",
-            "回精丸",
-            "培元丹",
-            "聚气丹",
-            "宁神丹",
-            "回天丹",
-            "洗髓丹",
-            "强筋丹",
-            "开窍丹",
-            "轻身丹",
-            "延寿丹",
-        ];
+        let items = Medicine::ALL;
         for item in items {
-            state.sect.inventory.insert(item.into(), 1);
+            state.sect.inventory.insert(item.name().into(), 1);
         }
         let before = state.disciples[0].clone();
         let mut rng = StdRng::seed_from_u64(23);
@@ -1131,12 +1111,12 @@ mod tests {
                 &mut state,
                 ManagementRequest::IssueItem {
                     disciple_id: "medicine_target".into(),
-                    item: item.into(),
+                    item: item.name().into(),
                     quantity: 1,
                 },
             )
             .unwrap();
-            assert_eq!(state.sect.inventory[item], 0);
+            assert_eq!(state.sect.inventory[item.name()], 0);
         }
 
         let after = &state.disciples[0];

@@ -23,7 +23,7 @@ const GIVEN_FEMALE: &[&str] = &[
     "念慈", "倚天", "芷若", "飞燕", "语嫣", "龙儿", "莫愁", "秋水",
 ];
 const MARTIAL_SCHEMA_VERSION: i32 = 2;
-pub const KNOWLEDGE_EQUIPMENT_KEY: &str = "knowledge";
+pub const KNOWLEDGE_EQUIPMENT_KEY: &str = SkillCategory::Knowledge.slug();
 
 pub(crate) fn rand_range(rng: &mut impl Rng, min: i32, max: i32) -> i32 {
     rng.gen_range(min..=max)

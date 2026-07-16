@@ -22,7 +22,7 @@ impl SkillCategory {
         Self::Weapon,
     ];
 
-    pub fn slug(self) -> &'static str {
+    pub const fn slug(self) -> &'static str {
         match self {
             Self::Unarmed => "unarmed",
             Self::Parry => "parry",
@@ -56,7 +56,7 @@ pub enum MartialTier {
 }
 
 impl MartialTier {
-    pub fn slug(self) -> &'static str {
+    pub const fn slug(self) -> &'static str {
         match self {
             Self::Basic => "basic",
             Self::Chore => "chore",

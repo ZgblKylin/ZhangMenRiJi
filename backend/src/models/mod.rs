@@ -5,6 +5,7 @@ pub mod event;
 pub mod game;
 pub mod management;
 pub mod martial_art;
+pub mod medicine;
 pub mod sect;
 pub mod tournament;
 

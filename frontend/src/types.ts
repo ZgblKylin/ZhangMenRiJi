@@ -5,8 +5,38 @@ export type MoralDirection = 'righteous' | 'neutral' | 'villainous'
 export type DiscipleRank = 'chore' | 'outer' | 'inner'
 export type BuildingKind = 'practice' | 'scripture' | 'warehouse' | 'herb_hall' | 'intelligence' | 'affairs' | 'logistics'
 export type Department = 'transmission' | 'library' | 'apothecary' | 'treasury' | 'stewardship' | 'external_affairs'
-export type SkillCategory = 'unarmed' | 'parry' | 'dodge' | 'force' | 'weapon' | 'knowledge'
-export type MartialTier = 'basic' | 'chore' | 'outer' | 'inner'
+export const MedicineType = {
+  Wound: '金疮药',
+  Qi: '养气丹',
+  Spirit: '清神散',
+  Energy: '回精丸',
+  Foundation: '培元丹',
+  GatherQi: '聚气丹',
+  CalmSpirit: '宁神丹',
+  RestoreOrigin: '回天丹',
+  Marrow: '洗髓丹',
+  Sinew: '强筋丹',
+  Awaken: '开窍丹',
+  Lightness: '轻身丹',
+  Longevity: '延寿丹',
+} as const
+export type MedicineType = typeof MedicineType[keyof typeof MedicineType]
+export const SkillCategory = {
+  Unarmed: 'unarmed',
+  Parry: 'parry',
+  Dodge: 'dodge',
+  Force: 'force',
+  Weapon: 'weapon',
+  Knowledge: 'knowledge',
+} as const
+export type SkillCategory = typeof SkillCategory[keyof typeof SkillCategory]
+export const MartialTier = {
+  Basic: 'basic',
+  Chore: 'chore',
+  Outer: 'outer',
+  Inner: 'inner',
+} as const
+export type MartialTier = typeof MartialTier[keyof typeof MartialTier]
 
 export interface Decision {
   id: string

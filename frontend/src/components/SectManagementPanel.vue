@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { MedicineType } from '../types'
 import type { Building, BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy, SectState } from '../types'
 import DecisionGrid from './DecisionGrid.vue'
 import MartialArtsPanel from './MartialArtsPanel.vue'
@@ -25,7 +26,7 @@ const elderDuties: Record<BuildingKind, Array<[string, string, string]>> = {
   practice: [['instruct', '整饬教习', '本门志气提升 3 点'], ['drill', '主持月考', '所有在门弟子各添 2 点功绩']],
   scripture: [['curate', '校勘群籍', '每部公册的门派参研提升 4 点'], ['comprehend', '邀众合参', '集中参悟首部公册，门派参研提升 18 点']],
   warehouse: [['audit', '清点旧账', '追回 12 至 24 两库银'], ['purchase', '下山采买', '耗费 15 两，购入 5 份草药']],
-  herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '试炼小炉', '耗费 2 份草药，炼得 1 份金疮药']],
+  herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '试炼小炉', `耗费 2 份草药，炼得 1 份${MedicineType.Wound}`]],
   intelligence: [['correspond', '修书诸派', '与所有门派的交情各提升 2 点'], ['scout', '查探江湖', '本门声望提升 3 点']],
   affairs: [['recruit', '代访新人', '耗费 25 两，为门中访得一名新人'], ['arbitrate', '处置事务', '依门风提升道德、志气或库银']],
   logistics: [['maintain', '巡检诸堂', '所有建筑完好度恢复 4 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量']],
