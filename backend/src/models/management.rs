@@ -38,7 +38,7 @@ pub enum ManagementRequest {
         building_id: String,
         disciple_id: Option<String>,
     },
-    RunElderDuty {
+    SetElderDuty {
         building_id: String,
         duty_id: String,
     },

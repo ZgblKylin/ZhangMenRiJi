@@ -15,7 +15,7 @@ pub fn execute_management(
 ) -> Result<Vec<GameEvent>, String> {
     let spends_decision = !matches!(
         &request,
-        ManagementRequest::EquipSkill { .. } | ManagementRequest::RunElderDuty { .. }
+        ManagementRequest::EquipSkill { .. } | ManagementRequest::SetElderDuty { .. }
     );
     if state.game_over {
         return Err("山门已散，诸事皆休。".into());
@@ -252,6 +252,9 @@ pub fn execute_management(
                 .find(|building| building.id == building_id)
                 .expect("建筑已验证存在");
             building.elder_id = disciple_id;
+            if building.selected_duty.is_none() {
+                building.selected_duty = Some(building.kind.default_elder_duty().into());
+            }
             building.elder_action_used = false;
             match elder_name {
                 Some(name) => format!("擢任{}为{}，自此主持{}。", name, elder_title, building_name),
@@ -261,10 +264,23 @@ pub fn execute_management(
                 ),
             }
         }
-        ManagementRequest::RunElderDuty {
+        ManagementRequest::SetElderDuty {
             building_id,
             duty_id,
-        } => execute_elder_duty(rng, state, &building_id, &duty_id)?,
+        } => {
+            let building = state
+                .sect
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == building_id)
+                .ok_or_else(|| "门中并无此处建筑。".to_string())?;
+            if !elder_duties(&building.kind).contains(&duty_id.as_str()) {
+                return Err("这桩事务不在该堂职掌之内。".into());
+            }
+            building.selected_duty = Some(duty_id);
+            building.elder_action_used = false;
+            format!("{}已择定下月堂务，过月即依此办理。", building.elder_title)
+        }
         ManagementRequest::Expel { disciple_id } => {
             let index = state
                 .disciples
@@ -599,6 +615,57 @@ fn validate_inner_envoy(state: &GameState, id: Option<&str>) -> Result<String, S
     Ok(id.to_owned())
 }
 
+pub fn execute_monthly_elder_duties(
+    rng: &mut impl Rng,
+    state: &mut GameState,
+) -> Vec<(String, Result<String, String>)> {
+    for building in &mut state.sect.buildings {
+        building.elder_action_used = false;
+    }
+    let duties = state
+        .sect
+        .buildings
+        .iter()
+        .filter(|building| building.elder_id.is_some())
+        .filter_map(|building| {
+            building
+                .selected_duty
+                .as_ref()
+                .map(|duty| (building.id.clone(), building.name.clone(), duty.clone()))
+        })
+        .collect::<Vec<_>>();
+
+    duties
+        .into_iter()
+        .map(|(building_id, building_name, duty_id)| {
+            let result = execute_elder_duty(rng, state, &building_id, &duty_id);
+            if result.is_err() {
+                if let Some(building) = state
+                    .sect
+                    .buildings
+                    .iter_mut()
+                    .find(|building| building.id == building_id)
+                {
+                    building.elder_action_used = true;
+                }
+            }
+            (building_name, result)
+        })
+        .collect()
+}
+
+fn elder_duties(kind: &BuildingKind) -> &'static [&'static str] {
+    match kind {
+        BuildingKind::Practice => &["instruct", "drill"],
+        BuildingKind::Scripture => &["curate", "comprehend"],
+        BuildingKind::Warehouse => &["audit", "purchase"],
+        BuildingKind::HerbHall => &["treat", "brew"],
+        BuildingKind::Intelligence => &["correspond", "scout"],
+        BuildingKind::Affairs => &["recruit", "arbitrate"],
+        BuildingKind::Logistics => &["maintain", "supervise"],
+    }
+}
+
 fn execute_elder_duty(
     rng: &mut impl Rng,
     state: &mut GameState,
@@ -630,16 +697,7 @@ fn execute_elder_duty(
     }
     let elder_name = elder.name.clone();
     let kind = building.kind.clone();
-    let allowed = match kind {
-        BuildingKind::Practice => ["instruct", "drill"],
-        BuildingKind::Scripture => ["curate", "comprehend"],
-        BuildingKind::Warehouse => ["audit", "purchase"],
-        BuildingKind::HerbHall => ["treat", "brew"],
-        BuildingKind::Intelligence => ["correspond", "scout"],
-        BuildingKind::Affairs => ["recruit", "arbitrate"],
-        BuildingKind::Logistics => ["maintain", "supervise"],
-    };
-    if !allowed.contains(&duty_id) {
+    if !elder_duties(&kind).contains(&duty_id) {
         return Err("这桩事务不在该堂职掌之内。".into());
     }
 
@@ -1026,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn elder_duty_has_its_own_once_per_month_allowance() {
+    fn selecting_elder_duty_is_free_and_persistent() {
         let mut state = GameState::default();
         let mut rng = StdRng::seed_from_u64(21);
         let mut elder = disciple::generate_disciple(&mut rng, 0);
@@ -1034,14 +1092,17 @@ mod tests {
         let elder_id = elder.id.clone();
         state.disciples.push(elder);
         state.sect.buildings[0].elder_id = Some(elder_id);
-        let request = ManagementRequest::RunElderDuty {
+        let request = ManagementRequest::SetElderDuty {
             building_id: "practice".into(),
-            duty_id: "instruct".into(),
+            duty_id: "drill".into(),
         };
-        execute_management(&mut rng, &mut state, request.clone()).unwrap();
+        execute_management(&mut rng, &mut state, request).unwrap();
         assert_eq!(state.decisions_used, 0);
-        assert!(state.sect.buildings[0].elder_action_used);
-        assert!(execute_management(&mut rng, &mut state, request).is_err());
+        assert_eq!(
+            state.sect.buildings[0].selected_duty.as_deref(),
+            Some("drill")
+        );
+        assert!(!state.sect.buildings[0].elder_action_used);
     }
 
     #[test]

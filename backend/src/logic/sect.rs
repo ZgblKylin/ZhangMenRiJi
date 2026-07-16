@@ -92,6 +92,9 @@ pub fn normalize_buildings(sect: &mut SectState) {
             .unwrap_or(0);
         if let Some(current) = matches.iter().find(|old| old.id == building.id) {
             building.elder_id = current.elder_id.clone();
+            if current.selected_duty.is_some() {
+                building.selected_duty = current.selected_duty.clone();
+            }
             building.elder_action_used = current.elder_action_used;
         }
     }
@@ -221,7 +224,6 @@ pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32
     }
 
     for building in &mut sect.buildings {
-        building.elder_action_used = false;
         if building.work_required > 0 {
             let remaining = (building.work_required - building.work_invested).max(0);
             building.upgrading_months = (remaining + 9) / 10;

@@ -123,6 +123,21 @@ fn finish_month(
     state: &mut GameState,
     mut events: Vec<GameEvent>,
 ) -> AdvanceResult {
+    for (building_name, result) in
+        crate::logic::management::execute_monthly_elder_duties(rng, state)
+    {
+        let (text, mood) = match result {
+            Ok(text) => (text, "good"),
+            Err(error) => (format!("{}堂务未成：{}", building_name, error), "neutral"),
+        };
+        events.push(GameEvent {
+            text,
+            mood: mood.into(),
+            year: state.year,
+            month: state.month,
+            category: "sect".into(),
+        });
+    }
     events.extend(crate::logic::world::run_npc_ai(rng, state));
     // 所有人物仍基于定夺完成后的同一份月初快照并行行动，结果统一归并。
     events.extend(crate::logic::action::run_auto_actions(state));
@@ -306,6 +321,25 @@ mod tests {
         assert_eq!(state.month, 2);
         assert!(state.pending_event.is_none());
         assert!(!result.0.is_empty());
+    }
+
+    #[test]
+    fn advancing_month_executes_selected_elder_duty() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(31);
+        let mut elder = disc::generate_disciple(&mut rng, 0);
+        elder.rank = crate::models::attributes::DiscipleRank::Inner;
+        let elder_id = elder.id.clone();
+        state.disciples.push(elder);
+        state.sect.buildings[0].elder_id = Some(elder_id);
+        state.sect.buildings[0].selected_duty = Some("drill".into());
+
+        let merit = state.disciples[0].merit;
+        let (events, _, _) = finish_month(&mut rng, &mut state, vec![]);
+
+        assert_eq!(state.disciples[0].merit, merit + 2);
+        assert!(state.sect.buildings[0].elder_action_used);
+        assert!(events.iter().any(|event| event.text.contains("主持月考")));
     }
 
     #[test]

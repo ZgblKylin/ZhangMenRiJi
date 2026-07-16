@@ -71,6 +71,20 @@ pub enum BuildingKind {
     Logistics,
 }
 
+impl BuildingKind {
+    pub fn default_elder_duty(&self) -> &'static str {
+        match self {
+            Self::Practice => "instruct",
+            Self::Scripture => "curate",
+            Self::Warehouse => "audit",
+            Self::HerbHall => "treat",
+            Self::Intelligence => "correspond",
+            Self::Affairs => "recruit",
+            Self::Logistics => "maintain",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Building {
@@ -82,6 +96,7 @@ pub struct Building {
     pub upgrading_months: i32,
     pub elder_id: Option<String>,
     pub elder_title: String,
+    pub selected_duty: Option<String>,
     pub elder_action_used: bool,
     pub work_required: i32,
     pub work_invested: i32,
@@ -98,6 +113,7 @@ impl Default for Building {
             upgrading_months: 0,
             elder_id: None,
             elder_title: String::new(),
+            selected_duty: None,
             elder_action_used: false,
             work_required: 0,
             work_invested: 0,
@@ -190,6 +206,7 @@ pub fn default_buildings() -> Vec<Building> {
     .map(|(id, name, kind, elder_title)| Building {
         id: id.into(),
         name: name.into(),
+        selected_duty: Some(kind.default_elder_duty().into()),
         kind,
         elder_title: elder_title.into(),
         ..Building::default()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { MedicineType } from '../types'
 import type { Building, BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy, SectState } from '../types'
 import DecisionGrid from './DecisionGrid.vue'
@@ -82,7 +82,6 @@ const confirmEnvoy = () => {
   selectedEnvoy.value = ''
 }
 
-const selectedElderDuties = reactive<Record<string, string>>({})
 const recommendedElderDuty = (building: Building) => {
   switch (building.kind) {
     case 'practice': return props.game.sect.attributes.morale < 65 ? 'instruct' : 'drill'
@@ -94,12 +93,8 @@ const recommendedElderDuty = (building: Building) => {
     case 'logistics': return props.game.sect.buildings.some(item => item.work_required > item.work_invested) ? 'supervise' : 'maintain'
   }
 }
-const selectedDuty = (building: Building) => selectedElderDuties[building.id] || recommendedElderDuty(building)
-const runSelectedDuty = (building: Building) => command({ action: 'run_elder_duty', building_id: building.id, duty_id: selectedDuty(building) })
-watch(() => `${props.game.year}-${props.game.month}`, () => {
-  for (const key of Object.keys(selectedElderDuties)) delete selectedElderDuties[key]
-  for (const building of props.game.sect.buildings) selectedElderDuties[building.id] = recommendedElderDuty(building)
-}, { immediate: true })
+const selectedDuty = (building: Building) => building.selected_duty || recommendedElderDuty(building)
+const selectElderDuty = (building: Building, dutyId: string) => command({ action: 'set_elder_duty', building_id: building.id, duty_id: dutyId })
 </script>
 
 <template>
@@ -114,9 +109,8 @@ watch(() => `${props.game.year}-${props.game.month}`, () => {
       </label>
       <i>{{ elderName }}</i>
       <div class="elder-duty-actions">
-        <small>{{ currentBuilding.elder_action_used ? '本月堂务已办' : '月首已由长老择定，可改选' }}</small>
-        <button v-for="[id, label, description] in elderDuties[view]" :key="id" type="button" class="btn btn-sm elder-duty-option" :class="{ active: selectedDuty(currentBuilding) === id }" :data-tooltip="description" :aria-label="`${label}：${description}`" :disabled="!currentBuilding.elder_id || currentBuilding.elder_action_used || !!game.pending_event" @click="selectedElderDuties[currentBuilding.id] = id">{{ label }}</button>
-        <button class="btn btn-sm btn-jade elder-duty-submit" :disabled="!currentBuilding.elder_id || currentBuilding.elder_action_used || !!game.pending_event" @click="runSelectedDuty(currentBuilding)">依此办理</button>
+        <small>{{ currentBuilding.elder_action_used ? '本月堂务已办，过月仍照此办理' : '事务已择定，过月自动办理' }}</small>
+        <button v-for="[id, label, description] in elderDuties[view]" :key="id" type="button" class="btn btn-sm elder-duty-option" :class="{ active: selectedDuty(currentBuilding) === id }" :data-tooltip="description" :aria-label="`${label}：${description}`" :disabled="!currentBuilding.elder_id || !!game.pending_event" @click="selectElderDuty(currentBuilding, id)">{{ label }}</button>
       </div>
     </header>
 

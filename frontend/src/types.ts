@@ -126,6 +126,7 @@ export interface Building {
   upgrading_months: number
   elder_id?: string | null
   elder_title: string
+  selected_duty?: string | null
   elder_action_used: boolean
   work_required: number
   work_invested: number
