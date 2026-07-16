@@ -1,5 +1,5 @@
 use crate::logic::{disciple, sect};
-use crate::models::attributes::{ActionPlan, DiscipleRank};
+use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::management::ManagementRequest;
 use crate::models::martial_art::all_martial_arts;
 use crate::models::sect::{SectOrder, SectPolicy};
@@ -12,13 +12,14 @@ pub fn execute_management(
     state: &mut GameState,
     request: ManagementRequest,
 ) -> Result<Vec<GameEvent>, String> {
+    let spends_decision = !matches!(&request, ManagementRequest::EquipSkill { .. });
     if state.game_over {
         return Err("山门已散，诸事皆休。".into());
     }
-    if state.pending_event.is_some() {
+    if spends_decision && state.pending_event.is_some() {
         return Err("眼前江湖事尚未处置，不宜另发掌门令。".into());
     }
-    if state.decisions_used >= state.max_decisions {
+    if spends_decision && state.decisions_used >= state.max_decisions {
         return Err("本月可议之事已尽，请推进月份。".into());
     }
 
@@ -33,6 +34,16 @@ pub fn execute_management(
             if !disciple::can_act(disciple) {
                 return Err("此人眼下不在门中，或伤重难行。".into());
             }
+            if kind == ActionKind::CultivateNeili
+                && disciple.attributes.neili.maximum >= disciple::neili_training_cap(disciple)
+            {
+                return Err("此人现有内力已达到所装备内功的修炼上限。".into());
+            }
+            if kind == ActionKind::Meditate
+                && disciple.attributes.energy.maximum >= disciple::energy_training_cap(disciple)
+            {
+                return Err("此人现有精力已达到知识修为上限。".into());
+            }
             disciple.action = Some(ActionPlan {
                 kind,
                 target_id,
@@ -41,6 +52,19 @@ pub fn execute_management(
                 remaining_months: 1,
             });
             format!("掌门传话，命{}依令安排本月行止。", disciple.name)
+        }
+        ManagementRequest::EquipSkill {
+            disciple_id,
+            basic_skill_id,
+            martial_art_id,
+        } => {
+            let disciple = player_disciple_mut(state, &disciple_id)?;
+            disciple::equip_skill(disciple, &basic_skill_id, &martial_art_id)?;
+            format!(
+                "{}将{}改作当前运用的武学。",
+                disciple.name,
+                art_name(&martial_art_id)
+            )
         }
         ManagementRequest::SetPolicy { policy } => {
             state.sect.policy = policy;
@@ -262,7 +286,9 @@ pub fn execute_management(
         } => request_manual(state, &sect_id, &martial_art_id)?,
     };
 
-    state.decisions_used += 1;
+    if spends_decision {
+        state.decisions_used += 1;
+    }
     sect::sync_legacy_fields(state);
     let event = GameEvent {
         text,
@@ -415,6 +441,42 @@ mod tests {
         .unwrap();
         assert_eq!(state.decisions_used, 1);
         assert!(state.disciples[0].action.is_some());
+    }
+
+    #[test]
+    fn changing_equipment_is_free_and_preserves_actual_neili() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(11);
+        let mut d = disciple::generate_disciple(&mut rng, 0);
+        d.martial_progress.proficiencies.insert(
+            "basic_force".into(),
+            crate::models::attributes::SkillProgress::new(50, 0),
+        );
+        d.martial_progress.proficiencies.insert(
+            "wudang_foundation".into(),
+            crate::models::attributes::SkillProgress::new(25, 0),
+        );
+        let id = d.id.clone();
+        let actual = d.attributes.neili.maximum;
+        state.disciples.push(d);
+
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::EquipSkill {
+                disciple_id: id,
+                basic_skill_id: "basic_force".into(),
+                martial_art_id: "wudang_foundation".into(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(state.decisions_used, 0);
+        assert_eq!(state.disciples[0].attributes.neili.maximum, actual);
+        assert_eq!(
+            state.disciples[0].equipped_skills.get("basic_force"),
+            Some(&"wudang_foundation".into())
+        );
     }
 
     #[test]

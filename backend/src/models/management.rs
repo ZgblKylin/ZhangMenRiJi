@@ -11,6 +11,11 @@ pub enum ManagementRequest {
         target_id: Option<String>,
         martial_art_id: Option<String>,
     },
+    EquipSkill {
+        disciple_id: String,
+        basic_skill_id: String,
+        martial_art_id: String,
+    },
     SetPolicy {
         policy: SectPolicy,
     },

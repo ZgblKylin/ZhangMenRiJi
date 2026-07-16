@@ -24,6 +24,26 @@ impl Default for Aptitudes {
     }
 }
 
+impl Aptitudes {
+    /// 基础拳脚、知识、基础内功、基础轻功每十级分别增益一项有效天赋。
+    /// 招架与兵器只参与战斗，不直接改变人物天赋。
+    pub fn with_skill_bonuses(
+        &self,
+        unarmed_level: i32,
+        knowledge_level: i32,
+        force_level: i32,
+        dodge_level: i32,
+    ) -> Self {
+        Self {
+            strength: self.strength + unarmed_level.max(0) / 10,
+            intelligence: self.intelligence + knowledge_level.max(0) / 10,
+            constitution: self.constitution + force_level.max(0) / 10,
+            agility: self.agility + dodge_level.max(0) / 10,
+            fortune: self.fortune,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ResourcePool {
@@ -54,7 +74,7 @@ pub struct AcquiredAttributes {
     pub sect_loyalty: i32,
 }
 
-/// 丹药、事件与长期修炼带来的永久上限修正。派生上限重算时不会丢失这些值。
+/// 丹药、事件带来的永久上限修正。打坐、冥想练成的上限直接保存在资源池中。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AttributeBonuses {
@@ -213,4 +233,20 @@ pub struct MartialProgress {
     pub proficiencies: BTreeMap<String, SkillProgress>,
     pub specialties: Vec<String>,
     pub private_books: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_skills_add_one_aptitude_per_ten_levels() {
+        let innate = Aptitudes::default();
+        let effective = innate.with_skill_bonuses(39, 40, 21, 19);
+        assert_eq!(effective.strength, 23);
+        assert_eq!(effective.intelligence, 24);
+        assert_eq!(effective.constitution, 22);
+        assert_eq!(effective.agility, 21);
+        assert_eq!(effective.fortune, innate.fortune);
+    }
 }

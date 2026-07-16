@@ -24,6 +24,8 @@ pub struct Disciple {
     pub talent: i32,
     pub inner_power: i32,
     pub martial_art: String,
+    /// 基础技能 id 到当前装备战斗武学 id 的映射；知识使用 `knowledge` 键自动选择。
+    pub equipped_skills: std::collections::BTreeMap<String, String>,
     pub loyalty: i32,
     pub months_in_sect: i32,
     pub alive: bool,
@@ -31,7 +33,7 @@ pub struct Disciple {
     pub aptitudes: Aptitudes,
     pub attributes: AcquiredAttributes,
     pub attribute_bonuses: AttributeBonuses,
-    /// 0 为旧存档；1 表示已采用六类技能与派生上限公式。
+    /// 0 为旧存档；1 为六类技能；2 为装备武学与独立修炼上限。
     pub martial_schema_version: i32,
     pub condition: DiscipleCondition,
     pub rank: DiscipleRank,
@@ -55,6 +57,7 @@ impl Default for Disciple {
             talent: 20,
             inner_power: 30,
             martial_art: "hunyuan".into(),
+            equipped_skills: std::collections::BTreeMap::new(),
             loyalty: 60,
             months_in_sect: 0,
             alive: true,

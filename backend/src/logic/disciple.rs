@@ -22,6 +22,8 @@ const GIVEN_FEMALE: &[&str] = &[
     "若兰", "灵素", "紫烟", "幽月", "凝霜", "凤歌", "雪晴", "梦蝶", "碧落", "紫菱", "冰雁", "霜华",
     "念慈", "倚天", "芷若", "飞燕", "语嫣", "龙儿", "莫愁", "秋水",
 ];
+const MARTIAL_SCHEMA_VERSION: i32 = 2;
+pub const KNOWLEDGE_EQUIPMENT_KEY: &str = "knowledge";
 
 pub(crate) fn rand_range(rng: &mut impl Rng, min: i32, max: i32) -> i32 {
     rng.gen_range(min..=max)
@@ -136,7 +138,8 @@ pub fn generate_disciple(rng: &mut impl Rng, talent_bonus: i32) -> Disciple {
         specialties: vec![origin.into()],
         private_books: vec![],
     };
-    disciple.martial_schema_version = 1;
+    normalize_equipped_skills(&mut disciple);
+    disciple.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     disciple.attributes = initial_attributes(&disciple);
     sync_legacy_attributes(&mut disciple);
     disciple
@@ -154,15 +157,26 @@ fn initial_attributes(d: &Disciple) -> AcquiredAttributes {
         morality: (40 + d.aptitudes.fortune / 2).clamp(0, 100),
         ..AcquiredAttributes::default()
     };
-    let maxima = attribute_maxima(d);
+    let effective = effective_aptitudes(d);
+    let neili_cap = neili_training_cap(d);
+    let energy_cap = energy_training_cap(d);
+    let neili = (20 + effective.constitution * 2 + skill_level(d, "basic_force") / 2)
+        .min(neili_cap)
+        .max(1);
+    let energy = (20 + effective.intelligence * 2 + knowledge_level(d) / 2)
+        .min(energy_cap)
+        .max(1);
     attributes.neili = ResourcePool {
-        current: maxima.neili,
-        maximum: maxima.neili,
+        current: neili,
+        maximum: neili,
     };
     attributes.energy = ResourcePool {
-        current: maxima.energy,
-        maximum: maxima.energy,
+        current: energy,
+        maximum: energy,
     };
+    let mut derived = d.clone();
+    derived.attributes = attributes.clone();
+    let maxima = attribute_maxima(&derived);
     attributes.qi = ResourcePool {
         current: maxima.qi,
         maximum: maxima.qi,
@@ -190,6 +204,15 @@ fn skill_level(d: &Disciple, id: &str) -> i32 {
         .unwrap_or(0)
 }
 
+pub fn effective_aptitudes(d: &Disciple) -> Aptitudes {
+    d.aptitudes.with_skill_bonuses(
+        skill_level(d, "basic_unarmed"),
+        knowledge_level(d),
+        skill_level(d, "basic_force"),
+        skill_level(d, "basic_dodge"),
+    )
+}
+
 pub fn knowledge_level(d: &Disciple) -> i32 {
     let preferred = d.origin_sect_id.as_deref().unwrap_or("player");
     let preferred_id = knowledge_skill_id(preferred);
@@ -206,35 +229,40 @@ pub fn knowledge_level(d: &Disciple) -> i32 {
     )
 }
 
-pub fn force_level(d: &Disciple) -> i32 {
-    d.martial_progress
-        .proficiencies
-        .iter()
-        .filter(|(id, _)| {
-            martial_art_by_id(id).is_some_and(|art| art.category == SkillCategory::Force)
-        })
-        .map(|(_, progress)| progress.level)
-        .max()
-        .unwrap_or(0)
+pub fn equipped_skill_id<'a>(d: &'a Disciple, basic_skill_id: &str) -> Option<&'a str> {
+    d.equipped_skills.get(basic_skill_id).map(String::as_str)
 }
 
-/// 知识每 20 级提供 1 点有效悟性，用于研读、冥想与精神上限。
 pub fn effective_intelligence(d: &Disciple) -> i32 {
-    d.aptitudes.intelligence + knowledge_level(d) / 20
+    effective_aptitudes(d).intelligence
 }
 
-/// 四项派生上限：基础 + 天赋 + 对应技能 + 丹药/事件/长期修炼加成。
+/// 当前装备内功决定打坐可达到的上限；没有特殊内功时退回基本内功。
+pub fn neili_training_cap(d: &Disciple) -> i32 {
+    let force_level = equipped_skill_id(d, "basic_force")
+        .map(|id| skill_level(d, id))
+        .unwrap_or_else(|| skill_level(d, "basic_force"));
+    force_level
+        .saturating_mul(effective_aptitudes(d).constitution)
+        .saturating_mul(2)
+        / 3
+}
+
+/// 精力修炼始终自动采用人物掌握的最高知识技能。
+pub fn energy_training_cap(d: &Disciple) -> i32 {
+    knowledge_level(d).saturating_mul(effective_intelligence(d)) / 2
+}
+
+/// 气血、精神是派生上限；内力、精力是人物已经练成的实际上限。
 pub fn attribute_maxima(d: &Disciple) -> AttributeMaxima {
-    let force = force_level(d);
-    let knowledge = knowledge_level(d);
-    let neili = 20 + d.aptitudes.constitution * 2 + force / 2 + d.attribute_bonuses.neili;
-    let energy = 20 + effective_intelligence(d) * 2 + knowledge / 2 + d.attribute_bonuses.energy;
+    let effective = effective_aptitudes(d);
+    let neili = d.attributes.neili.maximum.max(1);
+    let energy = d.attributes.energy.maximum.max(1);
     AttributeMaxima {
-        neili: neili.max(1),
-        energy: energy.max(1),
-        qi: qi_maximum(d.age, &d.aptitudes, neili) + d.attribute_bonuses.qi,
-        spirit: spirit_maximum(d.age, effective_intelligence(d), energy)
-            + d.attribute_bonuses.spirit,
+        neili,
+        energy,
+        qi: qi_maximum(d.age, &effective, neili) + d.attribute_bonuses.qi,
+        spirit: spirit_maximum(d.age, effective.intelligence, energy) + d.attribute_bonuses.spirit,
     }
 }
 
@@ -242,12 +270,20 @@ pub fn recalculate_attribute_maxima(d: &mut Disciple) {
     let new = attribute_maxima(d);
     d.attributes.qi.maximum = new.qi.max(1);
     d.attributes.spirit.maximum = new.spirit.max(1);
-    d.attributes.neili.maximum = new.neili.max(1);
-    d.attributes.energy.maximum = new.energy.max(1);
+    d.attributes.neili.maximum = d.attributes.neili.maximum.max(1);
+    d.attributes.energy.maximum = d.attributes.energy.maximum.max(1);
     d.attributes.qi.current = d.attributes.qi.current.clamp(0, new.qi.max(1));
     d.attributes.spirit.current = d.attributes.spirit.current.clamp(0, new.spirit.max(1));
-    d.attributes.neili.current = d.attributes.neili.current.clamp(0, new.neili.max(1));
-    d.attributes.energy.current = d.attributes.energy.current.clamp(0, new.energy.max(1));
+    d.attributes.neili.current = d
+        .attributes
+        .neili
+        .current
+        .clamp(0, d.attributes.neili.maximum);
+    d.attributes.energy.current = d
+        .attributes
+        .energy
+        .current
+        .clamp(0, d.attributes.energy.maximum);
 }
 
 /// 35 岁前按固定年龄刻度增长，35 岁后按固定刻度衰减。
@@ -288,6 +324,111 @@ pub fn sync_legacy_attributes(d: &mut Disciple) {
     sync_skills_from_progress(d);
 }
 
+/// 保留仍合法的手动装备，为缺项选最高等级战斗武学，并自动选择最高知识。
+pub fn normalize_equipped_skills(d: &mut Disciple) {
+    let known = &d.martial_progress.proficiencies;
+    d.equipped_skills.retain(|basic_id, art_id| {
+        if basic_id == KNOWLEDGE_EQUIPMENT_KEY {
+            return false;
+        }
+        known.contains_key(basic_id)
+            && known.contains_key(art_id)
+            && martial_art_by_id(basic_id).is_some_and(|basic| basic.tier == MartialTier::Basic)
+            && martial_art_by_id(art_id).is_some_and(|art| {
+                art.is_combat && art.tier != MartialTier::Basic && art.basic_skill == *basic_id
+            })
+    });
+
+    let basic_ids: Vec<String> = d
+        .martial_progress
+        .proficiencies
+        .keys()
+        .filter(|id| martial_art_by_id(id).is_some_and(|art| art.tier == MartialTier::Basic))
+        .cloned()
+        .collect();
+    for basic_id in basic_ids {
+        if d.equipped_skills.contains_key(&basic_id) {
+            continue;
+        }
+        if let Some((art_id, _)) = d
+            .martial_progress
+            .proficiencies
+            .iter()
+            .filter(|(id, _)| {
+                martial_art_by_id(id).is_some_and(|art| {
+                    art.is_combat && art.tier != MartialTier::Basic && art.basic_skill == basic_id
+                })
+            })
+            .max_by_key(|(_, progress)| progress.level)
+        {
+            d.equipped_skills.insert(basic_id, art_id.clone());
+        }
+    }
+
+    if let Some((knowledge_id, _)) = d
+        .martial_progress
+        .proficiencies
+        .iter()
+        .filter(|(id, _)| {
+            martial_art_by_id(id).is_some_and(|art| art.category == SkillCategory::Knowledge)
+        })
+        .max_by_key(|(_, progress)| progress.level)
+    {
+        d.equipped_skills
+            .insert(KNOWLEDGE_EQUIPMENT_KEY.into(), knowledge_id.clone());
+    }
+
+    if let Some((art_id, _)) = d
+        .equipped_skills
+        .values()
+        .filter_map(|id| d.martial_progress.proficiencies.get_key_value(id))
+        .filter(|(id, _)| martial_art_by_id(id).is_some_and(|art| art.is_combat))
+        .max_by_key(|(_, progress)| progress.level)
+    {
+        d.martial_art = art_id.clone();
+    }
+}
+
+pub fn equip_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Result<(), String> {
+    let basic_skill_id = canonical_skill_id(basic_skill_id);
+    let art_id = canonical_skill_id(art_id);
+    let basic =
+        martial_art_by_id(&basic_skill_id).ok_or_else(|| "并无这门基础武学。".to_string())?;
+    let art = martial_art_by_id(&art_id).ok_or_else(|| "并无这门战斗武学。".to_string())?;
+    if basic.tier != MartialTier::Basic || basic.category == SkillCategory::Knowledge {
+        return Err("这门武学不能作为装备槽位。".into());
+    }
+    if !art.is_combat || art.tier == MartialTier::Basic || art.basic_skill != basic_skill_id {
+        return Err("这门武学与基础武学并不相配。".into());
+    }
+    if !d
+        .martial_progress
+        .proficiencies
+        .contains_key(&basic_skill_id)
+        || !d.martial_progress.proficiencies.contains_key(&art_id)
+    {
+        return Err("此人尚未掌握所选武学。".into());
+    }
+    d.equipped_skills.insert(basic_skill_id, art_id);
+    normalize_equipped_skills(d);
+    sync_legacy_attributes(d);
+    Ok(())
+}
+
+pub fn add_permanent_neili(d: &mut Disciple, amount: i32) {
+    d.attribute_bonuses.neili = d.attribute_bonuses.neili.saturating_add(amount);
+    d.attributes.neili.maximum = d.attributes.neili.maximum.saturating_add(amount).max(1);
+    recalculate_attribute_maxima(d);
+}
+
+/// 预留给丹药与事件效果；目前内置事件尚未直接奖励精力上限。
+#[allow(dead_code)]
+pub fn add_permanent_energy(d: &mut Disciple, amount: i32) {
+    d.attribute_bonuses.energy = d.attribute_bonuses.energy.saturating_add(amount);
+    d.attributes.energy.maximum = d.attributes.energy.maximum.saturating_add(amount).max(1);
+    recalculate_attribute_maxima(d);
+}
+
 /// 对外的顺序列表与内部熟练度映射保持一致，便于前端及存档直接读取个人武学。
 pub fn sync_skills_from_progress(d: &mut Disciple) {
     d.skills = d
@@ -313,8 +454,7 @@ pub fn absorb_legacy_attributes(d: &mut Disciple) {
     }
     let neili_delta = d.inner_power - d.attributes.neili.maximum;
     if neili_delta != 0 {
-        d.attribute_bonuses.neili += neili_delta;
-        recalculate_attribute_maxima(d);
+        add_permanent_neili(d, neili_delta);
     }
     d.attributes.sect_loyalty = d.loyalty.clamp(0, 100);
     refresh_condition(d);
@@ -335,6 +475,11 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
             .collect();
     }
     canonicalize_proficiencies(d);
+    let old_equipment = std::mem::take(&mut d.equipped_skills);
+    d.equipped_skills = old_equipment
+        .into_iter()
+        .map(|(basic, art)| (canonical_skill_id(&basic), canonical_skill_id(&art)))
+        .collect();
     if d.martial_progress.proficiencies.is_empty() && !d.martial_art.is_empty() {
         d.martial_progress.proficiencies.insert(
             canonical_skill_id(&d.martial_art),
@@ -346,10 +491,12 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
     d.origin_sect_id = Some(origin.clone());
     complete_required_skills(d, &origin);
 
-    if d.martial_schema_version < 1 {
-        infer_permanent_bonuses(d);
-        d.martial_schema_version = 1;
+    if d.martial_schema_version < MARTIAL_SCHEMA_VERSION {
+        d.attributes.neili.maximum = d.attributes.neili.maximum.max(d.inner_power).max(1);
+        d.attributes.energy.maximum = d.attributes.energy.maximum.max(1);
+        d.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     }
+    normalize_equipped_skills(d);
     recalculate_attribute_maxima(d);
     d.attributes.sect_loyalty = d.loyalty.clamp(0, 100);
     refresh_condition(d);
@@ -488,28 +635,11 @@ pub fn assign_sect_curriculum(d: &mut Disciple, origin: &str, combat_level: i32)
         .map(|art| art.id.clone())
         .unwrap_or_else(|| "basic_unarmed".into());
     d.martial_progress.specialties = vec![origin.into()];
-    d.martial_schema_version = 1;
-    recalculate_attribute_maxima(d);
-    d.attributes.qi.current = d.attributes.qi.maximum;
-    d.attributes.spirit.current = d.attributes.spirit.maximum;
-    d.attributes.neili.current = d.attributes.neili.maximum;
-    d.attributes.energy.current = d.attributes.energy.maximum;
+    d.equipped_skills.clear();
+    normalize_equipped_skills(d);
+    d.martial_schema_version = MARTIAL_SCHEMA_VERSION;
+    d.attributes = initial_attributes(d);
     sync_legacy_attributes(d);
-}
-
-fn infer_permanent_bonuses(d: &mut Disciple) {
-    let old = AttributeMaxima {
-        qi: d.attributes.qi.maximum.max(1),
-        spirit: d.attributes.spirit.maximum.max(1),
-        neili: d.attributes.neili.maximum.max(d.inner_power).max(1),
-        energy: d.attributes.energy.maximum.max(1),
-    };
-    let calculated = attribute_maxima(d);
-    d.attribute_bonuses.neili += (old.neili - calculated.neili).max(0);
-    d.attribute_bonuses.energy += (old.energy - calculated.energy).max(0);
-    let with_resources = attribute_maxima(d);
-    d.attribute_bonuses.qi += (old.qi - with_resources.qi).max(0);
-    d.attribute_bonuses.spirit += (old.spirit - with_resources.spirit).max(0);
 }
 
 /// 门派战斗武学不能越过对应知识等级；基础技能和知识本身不受此限制。
@@ -530,6 +660,7 @@ pub fn gain_skill_experience(d: &mut Disciple, art_id: &str, amount: i64) -> i32
         }
     }
     let gained = progress.level - old_level;
+    normalize_equipped_skills(d);
     recalculate_attribute_maxima(d);
     gained
 }
@@ -556,15 +687,15 @@ pub fn can_act(d: &Disciple) -> bool {
 pub fn generate_starting_disciples(rng: &mut impl Rng) -> Vec<Disciple> {
     let mut d1 = generate_disciple(rng, 15);
     d1.attributes.sect_loyalty = rand_range(rng, 60, 80);
-    d1.attribute_bonuses.neili += rand_range(rng, 5, 15);
-    recalculate_attribute_maxima(&mut d1);
+    let bonus = rand_range(rng, 5, 15);
+    add_permanent_neili(&mut d1, bonus);
     d1.name = generate_name(rng);
     sync_legacy_attributes(&mut d1);
 
     let mut d2 = generate_disciple(rng, 10);
     d2.attributes.sect_loyalty = rand_range(rng, 55, 75);
-    d2.attribute_bonuses.neili += rand_range(rng, 0, 10);
-    recalculate_attribute_maxima(&mut d2);
+    let bonus = rand_range(rng, 0, 10);
+    add_permanent_neili(&mut d2, bonus);
     d2.name = generate_name(rng);
     sync_legacy_attributes(&mut d2);
 
@@ -572,27 +703,28 @@ pub fn generate_starting_disciples(rng: &mut impl Rng) -> Vec<Disciple> {
 }
 
 pub fn get_combat_score(d: &Disciple) -> i32 {
-    let art = martial_art_by_id(&d.martial_art)
-        .or_else(|| martial_art_by_id("basic_unarmed"))
-        .expect("basic unarmed must exist");
-    let category_total: i32 = SkillCategory::COMBAT
-        .into_iter()
-        .map(|category| {
-            d.martial_progress
-                .proficiencies
-                .iter()
-                .filter(|(id, _)| martial_art_by_id(id).is_some_and(|art| art.category == category))
-                .map(|(_, progress)| progress.level)
-                .max()
-                .unwrap_or(0)
-        })
-        .sum();
+    let mut skill_total = 0;
+    let mut art_power = 0;
+    for (basic_id, basic_progress) in d.martial_progress.proficiencies.iter().filter(|(id, _)| {
+        martial_art_by_id(id).is_some_and(|art| art.is_combat && art.tier == MartialTier::Basic)
+    }) {
+        skill_total += basic_progress.level / 2;
+        if let Some(art_id) = equipped_skill_id(d, basic_id) {
+            skill_total += skill_level(d, art_id);
+            if let Some(art) = martial_art_by_id(art_id) {
+                art_power += art.atk + art.def + art.spd;
+            }
+        }
+    }
+    let effective = effective_aptitudes(d);
+    let combat_talent =
+        (effective.strength + effective.constitution + effective.agility + effective.fortune) / 4;
     let energy_ratio =
         d.attributes.energy.current.max(0) as f64 / d.attributes.energy.maximum.max(1) as f64;
-    (d.talent as f64 * 0.2
+    (combat_talent as f64 * 0.2
         + d.attributes.neili.maximum as f64 * 0.3
-        + category_total.min(2500) as f64 * 0.025
-        + ((art.atk + art.def + art.spd) * 3) as f64
+        + skill_total.min(2500) as f64 * 0.025
+        + (art_power * 3) as f64
         + energy_ratio.min(1.5) * 10.0
         + d.attributes.sect_loyalty as f64 * 0.05) as i32
 }
@@ -736,16 +868,28 @@ mod tests {
     }
 
     #[test]
-    fn derived_maxima_include_skills_aptitudes_and_permanent_bonuses() {
+    fn actual_resources_and_permanent_bonuses_are_separate_from_training_caps() {
         let mut d = Disciple::default();
         d.origin_sect_id = Some("wudang".into());
         d.martial_progress.proficiencies = BTreeMap::from([
-            ("basic_force".into(), SkillProgress::new(60, 0)),
+            ("basic_force".into(), SkillProgress::new(50, 0)),
+            ("wudang_foundation".into(), SkillProgress::new(60, 0)),
+            ("wudang_outer_force".into(), SkillProgress::new(30, 0)),
             ("wudang_knowledge".into(), SkillProgress::new(80, 0)),
         ]);
+        normalize_equipped_skills(&mut d);
+        d.attributes.neili.maximum = 700;
+        d.attributes.neili.current = 650;
         let before = attribute_maxima(&d);
-        d.attribute_bonuses.neili = 7;
-        d.attribute_bonuses.energy = 9;
+        assert_eq!(neili_training_cap(&d), 1_000);
+
+        equip_skill(&mut d, "basic_force", "wudang_outer_force").unwrap();
+        assert_eq!(neili_training_cap(&d), 500);
+        assert_eq!(d.attributes.neili.maximum, 700);
+        assert_eq!(d.attributes.neili.current, 650);
+
+        add_permanent_neili(&mut d, 7);
+        add_permanent_energy(&mut d, 9);
         d.attribute_bonuses.qi = 11;
         d.attribute_bonuses.spirit = 13;
         let after = attribute_maxima(&d);
@@ -753,6 +897,26 @@ mod tests {
         assert_eq!(after.energy - before.energy, 9);
         assert_eq!(after.qi - before.qi, 11 + 7 / 2);
         assert_eq!(after.spirit - before.spirit, 13 + 9 / 2);
+    }
+
+    #[test]
+    fn skill_growth_changes_aptitude_and_cap_but_not_actual_neili() {
+        let mut d = Disciple::default();
+        d.martial_progress.proficiencies = BTreeMap::from([
+            ("basic_force".into(), SkillProgress::new(49, 2_499)),
+            ("hunyuan".into(), SkillProgress::new(80, 0)),
+            ("player_knowledge".into(), SkillProgress::new(80, 0)),
+        ]);
+        normalize_equipped_skills(&mut d);
+        let actual = d.attributes.neili.maximum;
+        let cap = neili_training_cap(&d);
+        gain_skill_experience(&mut d, "basic_force", 1);
+        assert_eq!(d.attributes.neili.maximum, actual);
+        assert!(neili_training_cap(&d) > cap);
+        assert_eq!(
+            effective_aptitudes(&d).constitution,
+            d.aptitudes.constitution + 5
+        );
     }
 
     #[test]

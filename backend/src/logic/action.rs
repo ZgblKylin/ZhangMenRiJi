@@ -496,13 +496,15 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         ActionKind::CultivateNeili => {
             let art = inner_skill(d);
             let level = skill_level(d, &art).max(1);
-            let cost =
-                (10 + d.aptitudes.constitution / 4).min(d.attributes.qi.current.saturating_sub(1));
-            let cap = level
-                .saturating_mul(d.aptitudes.constitution)
-                .saturating_mul(2)
-                / 3;
-            let gain = if cost >= 10 {
+            let cap = disciple::neili_training_cap(d);
+            let at_cap = d.attributes.neili.maximum >= cap;
+            let cost = if at_cap {
+                0
+            } else {
+                (10 + disciple::effective_aptitudes(d).constitution / 4)
+                    .min(d.attributes.qi.current.saturating_sub(1))
+            };
+            let gain = if !at_cap && cost >= 10 {
                 (1 + level / 80 + d.aptitudes.constitution / 25)
                     .min((cap - d.attributes.neili.maximum).max(0))
             } else {
@@ -511,7 +513,13 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.qi -= cost;
             delta.neili_max += gain;
             delta.neili += gain;
-            log = if cost < 10 {
+            log = if at_cap {
+                format!(
+                    "{}盘膝打坐，但现有内力已达到{}所能承载的修炼上限。",
+                    d.name,
+                    art_display(&art)
+                )
+            } else if cost < 10 {
                 format!("{}气血不济，打坐片刻便只得收功。", d.name)
             } else if gain > 0 {
                 format!(
@@ -525,9 +533,14 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         ActionKind::Meditate => {
             let knowledge = disciple::knowledge_level(d).max(1);
             let intelligence = disciple::effective_intelligence(d);
-            let cost = (10 + intelligence / 4).min(d.attributes.spirit.current.saturating_sub(1));
-            let cap = knowledge.saturating_mul(intelligence) / 2;
-            let gain = if cost >= 10 {
+            let cap = disciple::energy_training_cap(d);
+            let at_cap = d.attributes.energy.maximum >= cap;
+            let cost = if at_cap {
+                0
+            } else {
+                (10 + intelligence / 4).min(d.attributes.spirit.current.saturating_sub(1))
+            };
+            let gain = if !at_cap && cost >= 10 {
                 (1 + knowledge / 100 + intelligence / 30)
                     .min((cap - d.attributes.energy.maximum).max(0))
             } else {
@@ -536,7 +549,9 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             delta.spirit -= cost;
             delta.energy_max += gain;
             delta.energy += gain;
-            log = if cost < 10 {
+            log = if at_cap {
+                format!("{}澄心冥想，但现有精力已达到知识修为上限。", d.name)
+            } else if cost < 10 {
                 format!("{}精神不济，冥想片刻便难以为继。", d.name)
             } else if gain > 0 {
                 format!(
@@ -650,18 +665,9 @@ fn practice_art(d: &Disciple) -> String {
 }
 
 fn inner_skill(d: &Disciple) -> String {
-    d.martial_progress
-        .proficiencies
-        .iter()
-        .filter(|(id, _)| {
-            id.as_str() == "basic_force"
-                || crate::models::martial_art::martial_art_by_id(id).is_some_and(|art| {
-                    art.category == crate::models::martial_art::SkillCategory::Force
-                })
-        })
-        .max_by_key(|(_, progress)| progress.level)
-        .map(|(id, _)| id.clone())
-        .unwrap_or_else(|| d.martial_art.clone())
+    disciple::equipped_skill_id(d, "basic_force")
+        .unwrap_or("basic_force")
+        .to_string()
 }
 
 fn teaching_score(d: &Disciple) -> i64 {
@@ -782,8 +788,18 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
 fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
     d.attribute_bonuses.qi += delta.qi_max;
     d.attribute_bonuses.spirit += delta.spirit_max;
-    d.attribute_bonuses.neili += delta.neili_max;
-    d.attribute_bonuses.energy += delta.energy_max;
+    d.attributes.neili.maximum = d
+        .attributes
+        .neili
+        .maximum
+        .saturating_add(delta.neili_max)
+        .max(1);
+    d.attributes.energy.maximum = d
+        .attributes
+        .energy
+        .maximum
+        .saturating_add(delta.energy_max)
+        .max(1);
     disciple::recalculate_attribute_maxima(d);
     d.attributes.qi.current =
         (d.attributes.qi.current + delta.qi).clamp(0, d.attributes.qi.maximum.max(0));
@@ -921,5 +937,28 @@ mod tests {
         assert!(state.disciples[2].attributes.spirit.current < meditate_spirit_before);
         assert!(state.disciples[2].attributes.energy.maximum > meditate_energy_before);
         assert!(logs.iter().any(|event| event.text.contains("经验 +")));
+    }
+
+    #[test]
+    fn capped_cultivation_does_not_consume_qi_or_reduce_actual_neili() {
+        let mut state = world_state();
+        state.npc_disciples.clear();
+        state.disciples.truncate(1);
+        let cap = disciple::neili_training_cap(&state.disciples[0]);
+        state.disciples[0].attributes.neili.maximum = cap + 20;
+        state.disciples[0].attributes.neili.current = cap + 10;
+        state.disciples[0].action = Some(ActionPlan {
+            kind: ActionKind::CultivateNeili,
+            ..ActionPlan::default()
+        });
+        let qi = state.disciples[0].attributes.qi.current;
+        let neili = state.disciples[0].attributes.neili.clone();
+
+        let logs = run_auto_actions(&mut state);
+
+        assert_eq!(state.disciples[0].attributes.qi.current, qi);
+        assert_eq!(state.disciples[0].attributes.neili.current, neili.current);
+        assert_eq!(state.disciples[0].attributes.neili.maximum, neili.maximum);
+        assert!(logs.iter().any(|event| event.text.contains("修炼上限")));
     }
 }

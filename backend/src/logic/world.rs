@@ -1,5 +1,5 @@
 use crate::logic::disciple::{
-    assign_sect_curriculum, generate_disciple, recalculate_attribute_maxima, sync_legacy_attributes,
+    add_permanent_neili, assign_sect_curriculum, generate_disciple, sync_legacy_attributes,
 };
 use crate::models::attributes::{Department, DiscipleRank};
 use crate::models::martial_art::{all_martial_arts, knowledge_skill_id};
@@ -327,10 +327,9 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             disciple.attributes.morality = template.morality;
             disciple.attributes.reputation = prestige / 2 + 20 - member_index as i32 * 4;
             disciple.attributes.attainment = 800 - member_index as i64 * 180 + prestige as i64 * 4;
-            disciple.attribute_bonuses.neili += 35 - member_index as i32 * 8;
+            add_permanent_neili(&mut disciple, 35 - member_index as i32 * 8);
             assign_sect_curriculum(&mut disciple, template.id, 320 - member_index as i32 * 70);
             disciple.martial_art = template.signature.into();
-            recalculate_attribute_maxima(&mut disciple);
             sync_legacy_attributes(&mut disciple);
             disciples.push(disciple);
         }
