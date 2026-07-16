@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import type { ActionKind, Disciple, DiscipleRank, ManagementRequest, MartialArt } from '../types'
+import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 
 const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; disabled?: boolean }>()
 const emit = defineEmits<{ manage: [command: ManagementRequest] }>()
@@ -14,7 +15,9 @@ const actions: Array<[ActionKind, string]> = [
 ]
 const rankName = { chore: '杂役', outer: '外门', inner: '内门', elder: '长老' }
 const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
-const artName = (id: string) => props.arts.find(art => art.id === id)?.name || id
+const artName = (id: string) => displayArtName(props.arts, id)
+const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
+  skillsInCategory(disciple.skills, props.arts, category)
 const assign = (disciple: Disciple) => emit('manage', {
   action: 'assign_action', disciple_id: disciple.id,
   kind: selected[disciple.id] || 'cultivate_neili', target_id: null, martial_art_id: null,
@@ -53,15 +56,20 @@ const expel = (disciple: Disciple) => {
           </div>
           <div class="attainment-line">造诣 {{ d.attributes.attainment }} · 功绩 {{ d.merit }} · 声名 {{ d.attributes.reputation }} · 道德 {{ d.attributes.morality }}</div>
           <div class="disciple-skills">
-            <div class="skill-caption">所习武学</div>
-            <div v-if="d.skills?.length" class="skill-list">
-              <span v-for="skill in d.skills" :key="skill.martial_art_id" class="skill-entry">
-                <b>{{ artName(skill.martial_art_id) }}</b>
-                <em>{{ skill.level }}级</em>
-                <small>经验 {{ skill.experience }}</small>
-              </span>
+            <div class="skill-caption">六艺武学谱 <small>知识限制本门战斗武学等级</small></div>
+            <div class="skill-category-grid">
+              <section v-for="category in skillCategories" :key="category.id" class="skill-category" :class="category.id">
+                <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
+                <div v-if="categorySkills(d, category.id).length" class="category-skill-list">
+                  <span v-for="skill in categorySkills(d, category.id)" :key="skill.martial_art_id" class="skill-entry">
+                    <b>{{ artName(skill.martial_art_id) }}</b>
+                    <em>{{ skill.level }}级</em>
+                    <small>经验 {{ skill.experience }}</small>
+                  </span>
+                </div>
+                <span v-else class="skill-empty">未录入</span>
+              </section>
             </div>
-            <span v-else class="skill-empty">尚未录入武学谱。</span>
           </div>
           <div class="action-assignment">
             <select v-model="selected[d.id]" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'">

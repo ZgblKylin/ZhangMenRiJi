@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Country, Disciple, MartialArt, SectState } from '../types'
+import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 
 const props = defineProps<{
   sect: SectState
@@ -18,7 +19,9 @@ const policyNames = {
 }
 const rankNames = { chore: '杂役', outer: '外门', inner: '内门', elder: '长老' }
 const countryName = computed(() => props.countries.find(country => country.id === props.sect.country_id)?.name || props.sect.country_id)
-const artName = (id: string) => props.arts.find(art => art.id === id)?.name || id
+const artName = (id: string) => displayArtName(props.arts, id)
+const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
+  skillsInCategory(disciple.skills, props.arts, category)
 const relationName = (id: string) => {
   if (id === props.playerSect.id) return props.playerSect.name
   return props.npcSects.find(sect => sect.id === id)?.name || id
@@ -61,13 +64,14 @@ const relationTone = (value: number) => value >= 40 ? 'friendly' : value < 0 ? '
             <span>{{ rankNames[disciple.rank] }} · {{ disciple.age }}岁</span>
           </div>
           <small>内力 {{ disciple.attributes.neili.current }}/{{ disciple.attributes.neili.maximum }} · 造诣 {{ disciple.attributes.attainment }} · 声名 {{ disciple.attributes.reputation }}</small>
-          <div class="npc-skill-list">
-            <span v-for="skill in disciple.skills || []" :key="skill.martial_art_id">
-              <b>{{ artName(skill.martial_art_id) }}</b>
-              <em>{{ skill.level }}级</em>
-              <small>经验 {{ skill.experience }}</small>
-            </span>
-            <small v-if="!disciple.skills?.length">武学谱暂无记载</small>
+          <div class="npc-skill-groups">
+            <section v-for="category in skillCategories" :key="category.id">
+              <header>{{ category.label }}</header>
+              <span v-for="skill in categorySkills(disciple, category.id)" :key="skill.martial_art_id">
+                <b>{{ artName(skill.martial_art_id) }}</b><em>{{ skill.level }}</em>
+              </span>
+              <small v-if="!categorySkills(disciple, category.id).length">—</small>
+            </section>
           </div>
         </article>
       </div>

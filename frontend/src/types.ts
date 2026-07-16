@@ -3,6 +3,8 @@ export type ActionKind = 'read' | 'practice' | 'teach' | 'spar' | 'temper_body' 
 export type SectPolicy = 'balanced' | 'martial' | 'scholarly' | 'chivalrous' | 'mercantile' | 'reclusive'
 export type DiscipleRank = 'chore' | 'outer' | 'inner' | 'elder'
 export type Department = 'transmission' | 'library' | 'apothecary' | 'treasury' | 'stewardship' | 'external_affairs'
+export type SkillCategory = 'unarmed' | 'parry' | 'dodge' | 'force' | 'weapon' | 'knowledge'
+export type MartialTier = 'basic' | 'chore' | 'outer' | 'inner'
 
 export interface Decision {
   id: string
@@ -18,6 +20,9 @@ export interface MartialArt {
   name: string
   type: string
   art_type?: string
+  category: SkillCategory
+  tier: MartialTier
+  is_combat: boolean
   desc: string
   atk: number
   def: number
@@ -57,6 +62,7 @@ export interface MartialProgress {
 export interface Disciple {
   id: string
   sect_id?: string | null
+  origin_sect_id?: string | null
   name: string
   alive: boolean
   age: number
@@ -66,6 +72,8 @@ export interface Disciple {
   martial_art: string
   aptitudes: Aptitudes
   attributes: AcquiredAttributes
+  attribute_bonuses?: { qi: number; spirit: number; neili: number; energy: number }
+  martial_schema_version?: number
   condition: 'healthy' | 'exhausted' | 'unconscious' | 'seriously_injured' | 'dead'
   rank: DiscipleRank
   merit: number
