@@ -18,6 +18,8 @@ const policyNames = {
   chivalrous: '行侠尚义', mercantile: '通商裕库', reclusive: '闭门清修',
 }
 const rankNames = { chore: '杂役', outer: '外门', inner: '内门' }
+const leaderId = computed(() => `npc_${props.sect.id}_1`)
+const isLeader = (disciple: Disciple) => disciple.id === leaderId.value
 const countryName = computed(() => props.countries.find(country => country.id === props.sect.country_id)?.name || props.sect.country_id)
 const artName = (id: string) => displayArtName(props.arts, id)
 const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
@@ -33,6 +35,7 @@ const relations = computed(() => {
   const values = { ...props.sect.relations }
   values[props.playerSect.id] ??= props.playerSect.relations[props.sect.id] || 0
   return Object.entries(values)
+    .filter(([id]) => id !== props.playerSect.id)
     .map(([id, value]) => ({ id, name: relationName(id), value }))
     .sort((a, b) => b.value - a.value)
 })
@@ -58,12 +61,13 @@ const relationTone = (value: number) => value >= 40 ? 'friendly' : value < 0 ? '
     </header>
 
     <section class="sect-ledger-section">
+      <div class="sect-ledger-title">掌门：{{ elderName(leaderId) }}</div>
       <div class="sect-ledger-title">门人名录与所习武学</div>
       <div class="npc-disciple-grid">
         <article v-for="disciple in disciples" :key="disciple.id" class="npc-disciple-card">
           <div class="npc-disciple-head">
             <b>{{ disciple.name }}</b>
-            <span>{{ rankNames[disciple.rank] }}<template v-if="discipleElderTitle(disciple)"> · {{ discipleElderTitle(disciple) }}</template> · {{ disciple.age }}岁</span>
+            <span>{{ isLeader(disciple) ? '掌门' : rankNames[disciple.rank] }}<template v-if="discipleElderTitle(disciple)"> · {{ discipleElderTitle(disciple) }}</template> · {{ disciple.age }}岁</span>
           </div>
           <small>内力 {{ disciple.attributes.neili.current }}/{{ disciple.attributes.neili.maximum }} · 造诣 {{ disciple.attributes.attainment }} · 声名 {{ disciple.attributes.reputation }}</small>
           <div class="npc-skill-groups">
@@ -84,7 +88,7 @@ const relationTone = (value: number) => value >= 40 ? 'friendly' : value < 0 ? '
         <div class="sect-ledger-title">山门建筑</div>
         <div class="readonly-building-list">
           <span v-for="building in sect.buildings" :key="building.id">
-            <b>{{ building.name }}</b><small>第{{ building.level }}重 · 完好 {{ building.condition }}% · {{ building.elder_title }}：{{ elderName(building.elder_id) }}</small>
+            <b>{{ building.name }}</b><small>第{{ building.level }}重 · 完好 {{ building.condition }}% · {{ building.elder_id === leaderId ? '掌门兼' : '' }}{{ building.elder_title }}：{{ elderName(building.elder_id) }}</small>
           </span>
         </div>
       </section>
