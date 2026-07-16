@@ -70,6 +70,7 @@ export interface Disciple {
   inner_power: number
   loyalty: number
   martial_art: string
+  equipped_skills?: Record<string, string>
   aptitudes: Aptitudes
   attributes: AcquiredAttributes
   attribute_bonuses?: { qi: number; spirit: number; neili: number; energy: number }

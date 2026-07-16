@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import type { ActionKind, Disciple, DiscipleRank, ManagementRequest, MartialArt } from '../types'
+import type { ActionKind, Disciple, DiscipleRank, ManagementRequest, MartialArt, SkillCategory, SkillEntry } from '../types'
 import { artName as displayArtName, skillCategories, skillsInCategory } from '../skillDisplay'
 
 const props = defineProps<{ disciples: Disciple[]; arts: MartialArt[]; disabled?: boolean }>()
@@ -18,9 +18,54 @@ const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '�
 const artName = (id: string) => displayArtName(props.arts, id)
 const categorySkills = (disciple: Disciple, category: typeof skillCategories[number]['id']) =>
   skillsInCategory(disciple.skills, props.arts, category)
+const art = (id: string) => props.arts.find(candidate => candidate.id === id)
+const skillLevel = (disciple: Disciple, id: string) =>
+  disciple.skills.find(skill => skill.martial_art_id === id)?.level || 0
+const basicSkill = (disciple: Disciple, category: SkillCategory) =>
+  categorySkills(disciple, category).find(skill => art(skill.martial_art_id)?.tier === 'basic')
+const combatChoices = (disciple: Disciple, basic: SkillEntry) =>
+  disciple.skills
+    .filter(skill => {
+      const candidate = art(skill.martial_art_id)
+      return candidate?.is_combat && candidate.tier !== 'basic' && candidate.basic_skill === basic.martial_art_id
+    })
+    .sort((a, b) => b.level - a.level || a.martial_art_id.localeCompare(b.martial_art_id))
+const equippedArt = (disciple: Disciple, basicId: string) => disciple.equipped_skills?.[basicId] || ''
+const isEquipped = (disciple: Disciple, artId: string) => Object.values(disciple.equipped_skills || {}).includes(artId)
+const highestKnowledge = (disciple: Disciple) => categorySkills(disciple, 'knowledge')[0]
+const aptitudeBonus = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') => {
+  const source = {
+    strength: skillLevel(disciple, 'basic_unarmed'),
+    intelligence: highestKnowledge(disciple)?.level || 0,
+    constitution: skillLevel(disciple, 'basic_force'),
+    agility: skillLevel(disciple, 'basic_dodge'),
+  }
+  return Math.floor(source[aptitude] / 10)
+}
+const effectiveAptitude = (disciple: Disciple, aptitude: 'strength' | 'intelligence' | 'constitution' | 'agility') =>
+  disciple.aptitudes[aptitude] + aptitudeBonus(disciple, aptitude)
+const neiliTrainingCap = (disciple: Disciple) => {
+  const force = equippedArt(disciple, 'basic_force') || 'basic_force'
+  return Math.floor(skillLevel(disciple, force) * effectiveAptitude(disciple, 'constitution') * 2 / 3)
+}
+const energyTrainingCap = (disciple: Disciple) => {
+  const knowledge = highestKnowledge(disciple)?.level || 0
+  return Math.floor(knowledge * effectiveAptitude(disciple, 'intelligence') / 2)
+}
+const equip = (disciple: Disciple, basicSkillId: string, event: Event) => {
+  const martialArtId = (event.target as HTMLSelectElement).value
+  if (!martialArtId || martialArtId === equippedArt(disciple, basicSkillId)) return
+  emit('manage', {
+    action: 'equip_skill', disciple_id: disciple.id,
+    basic_skill_id: basicSkillId, martial_art_id: martialArtId,
+  })
+}
+const actionUnavailable = (disciple: Disciple, kind: ActionKind) =>
+  (kind === 'cultivate_neili' && disciple.attributes.neili.maximum >= neiliTrainingCap(disciple))
+  || (kind === 'meditate' && disciple.attributes.energy.maximum >= energyTrainingCap(disciple))
 const assign = (disciple: Disciple) => emit('manage', {
   action: 'assign_action', disciple_id: disciple.id,
-  kind: selected[disciple.id] || 'cultivate_neili', target_id: null, martial_art_id: null,
+  kind: selected[disciple.id] || 'read', target_id: null, martial_art_id: null,
 })
 const appoint = (disciple: Disciple) => emit('manage', {
   action: 'set_personnel', disciple_id: disciple.id,
@@ -45,14 +90,17 @@ const expel = (disciple: Disciple) => {
         </button>
         <div v-if="openId === d.id" class="disciple-detail">
           <div class="aptitude-row">
-            <span>膂力<b>{{ d.aptitudes.strength }}</b></span><span>悟性<b>{{ d.aptitudes.intelligence }}</b></span>
-            <span>根骨<b>{{ d.aptitudes.constitution }}</b></span><span>身法<b>{{ d.aptitudes.agility }}</b></span><span>福源<b>{{ d.aptitudes.fortune }}</b></span>
+            <span>膂力<b>{{ effectiveAptitude(d, 'strength') }}<small v-if="aptitudeBonus(d, 'strength')">先天{{ d.aptitudes.strength }} +{{ aptitudeBonus(d, 'strength') }}</small></b></span>
+            <span>悟性<b>{{ effectiveAptitude(d, 'intelligence') }}<small v-if="aptitudeBonus(d, 'intelligence')">先天{{ d.aptitudes.intelligence }} +{{ aptitudeBonus(d, 'intelligence') }}</small></b></span>
+            <span>根骨<b>{{ effectiveAptitude(d, 'constitution') }}<small v-if="aptitudeBonus(d, 'constitution')">先天{{ d.aptitudes.constitution }} +{{ aptitudeBonus(d, 'constitution') }}</small></b></span>
+            <span>身法<b>{{ effectiveAptitude(d, 'agility') }}<small v-if="aptitudeBonus(d, 'agility')">先天{{ d.aptitudes.agility }} +{{ aptitudeBonus(d, 'agility') }}</small></b></span>
+            <span>福源<b>{{ d.aptitudes.fortune }}</b></span>
           </div>
           <div class="resource-lines">
             <span>气血 {{ d.attributes.qi.current }}/{{ d.attributes.qi.maximum }}</span>
             <span>精神 {{ d.attributes.spirit.current }}/{{ d.attributes.spirit.maximum }}</span>
-            <span>内力 {{ d.attributes.neili.current }}/{{ d.attributes.neili.maximum }}</span>
-            <span>精力 {{ d.attributes.energy.current }}/{{ d.attributes.energy.maximum }}</span>
+            <span>内力 {{ d.attributes.neili.current }}/{{ d.attributes.neili.maximum }} <small>修炼上限 {{ neiliTrainingCap(d) }}</small></span>
+            <span>精力 {{ d.attributes.energy.current }}/{{ d.attributes.energy.maximum }} <small>修炼上限 {{ energyTrainingCap(d) }}</small></span>
           </div>
           <div class="attainment-line">造诣 {{ d.attributes.attainment }} · 功绩 {{ d.merit }} · 声名 {{ d.attributes.reputation }} · 道德 {{ d.attributes.morality }}</div>
           <div class="disciple-skills">
@@ -60,10 +108,21 @@ const expel = (disciple: Disciple) => {
             <div class="skill-category-grid">
               <section v-for="category in skillCategories" :key="category.id" class="skill-category" :class="category.id">
                 <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
+                <label v-if="category.id !== 'knowledge' && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="equipment-picker">
+                  <span>当前装备</span>
+                  <select :value="equippedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="equip(d, basicSkill(d, category.id)!.martial_art_id, $event)">
+                    <option v-for="skill in combatChoices(d, basicSkill(d, category.id)!)" :key="skill.martial_art_id" :value="skill.martial_art_id">
+                      {{ artName(skill.martial_art_id) }} · {{ skill.level }}级
+                    </option>
+                  </select>
+                </label>
+                <div v-else-if="category.id === 'knowledge' && highestKnowledge(d)" class="auto-equipment">
+                  自动装备 {{ artName(highestKnowledge(d)!.martial_art_id) }} · {{ highestKnowledge(d)!.level }}级
+                </div>
                 <div v-if="categorySkills(d, category.id).length" class="category-skill-list">
-                  <span v-for="skill in categorySkills(d, category.id)" :key="skill.martial_art_id" class="skill-entry">
+                  <span v-for="skill in categorySkills(d, category.id)" :key="skill.martial_art_id" class="skill-entry" :class="{ equipped: isEquipped(d, skill.martial_art_id) }">
                     <b>{{ artName(skill.martial_art_id) }}</b>
-                    <em>{{ skill.level }}级</em>
+                    <em>{{ skill.level }}级<span v-if="isEquipped(d, skill.martial_art_id)"> · 已装备</span></em>
                     <small>经验 {{ skill.experience }}</small>
                   </span>
                 </div>
@@ -73,7 +132,9 @@ const expel = (disciple: Disciple) => {
           </div>
           <div class="action-assignment">
             <select v-model="selected[d.id]" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'">
-              <option v-for="[value, label] in actions" :key="value" :value="value">{{ label }}</option>
+              <option v-for="[value, label] in actions" :key="value" :value="value" :disabled="actionUnavailable(d, value)">
+                {{ label }}{{ actionUnavailable(d, value) ? '（已达上限）' : '' }}
+              </option>
             </select>
             <button class="btn btn-sm" :disabled="disabled || !!d.away_months || d.condition !== 'healthy'" @click="assign(d)">传令</button>
           </div>
