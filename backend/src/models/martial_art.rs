@@ -558,12 +558,7 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
         .into_iter()
         .enumerate()
     {
-        for (category_index, category) in [
-            (0, SkillCategory::Unarmed),
-            (1, SkillCategory::Dodge),
-            (2, SkillCategory::Force),
-            (3, SkillCategory::Weapon),
-        ] {
+        for (category_index, category) in SkillCategory::COMBAT.into_iter().enumerate() {
             let id = if tier == MartialTier::Chore && category == SkillCategory::Force {
                 format!("{}_foundation", template.id)
             } else if tier == MartialTier::Inner && category == template.signature_category {

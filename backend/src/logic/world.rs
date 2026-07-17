@@ -774,7 +774,7 @@ mod tests {
         let (sects, disciples) = generate_npc_world(42);
         assert_eq!(sects.len(), 24);
         let court = sects.iter().find(|sect| sect.id == "court").unwrap();
-        assert_eq!(court.name, "怯薛军");
+        assert_eq!(court.name, "金帐汗国");
         assert_eq!(court.description, "蒙古铁骑与满清朝堂合流之势");
         let song_court = sects.iter().find(|sect| sect.id == "song_court").unwrap();
         assert_eq!(song_court.name, "枢密院");
@@ -879,7 +879,7 @@ mod tests {
             .iter()
             .find(|sect| sect.id == "court")
             .unwrap();
-        assert_eq!(court.name, "怯薛军");
+        assert_eq!(court.name, "金帐汗国");
         assert_eq!(court.attributes.silver, 4321);
         assert_eq!(
             state
@@ -901,7 +901,7 @@ mod tests {
                 .count(),
             10
         );
-        assert_eq!(state.countries[0].name, "金帐汗国");
+        assert_eq!(state.countries[0].name, "大元");
     }
 
     #[test]
