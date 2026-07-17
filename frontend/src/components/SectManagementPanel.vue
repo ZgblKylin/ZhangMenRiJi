@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import type { ActionKind, Building, BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy, SectState } from '../types'
+import { computed, ref } from 'vue'
+import type { Building, BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy, SectState } from '../types'
 import DecisionGrid from './DecisionGrid.vue'
 import SectViewPanel from './SectViewPanel.vue'
 import { medicineDescription, medicines } from '../medicine'
@@ -27,17 +27,8 @@ const elderDuties: Record<BuildingKind, Array<[string, string, string]>> = {
   herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '开炉炼丹', '选择一种丹药额外炼制']],
   intelligence: [['correspond', '修书诸派', '与所有门派的交情各提升 2 点'], ['scout', '查探江湖', '本门声望提升 3 点']],
   affairs: [['recruit', '代访新人', '耗费 25 两，为门中访得一名新人'], ['arbitrate', '处置事务', '依门风提升道德、志气或库银']],
-  logistics: [['maintain', '巡检诸堂', '耗库银 8 两、精铁 2 份恢复 4 点；不足时仅恢复 2 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量'], ['expand', '督造扩建', '选取一栋建筑立项扩建，低级建筑优先']],
+  logistics: [['maintain', '巡检诸堂', '所有建筑完好度恢复 4 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量'], ['expand', '督造扩建', '选取一栋建筑立项扩建，低级建筑优先']],
 }
-const dispatchTasks: Partial<Record<BuildingKind, Array<[ActionKind, string, string]>>> = {
-  practice: [['practice', '演武练习', '持续期间每月耗私银 2 两；不足则效果减半']],
-  scripture: [['read', '入阁研读', '按月研读藏经阁典籍']],
-  warehouse: [['business', '下山采买', '为门派带回库银并赚取私银'], ['produce', '盘库整理', '整理物资并赚取私银']],
-  herb_hall: [['gather', '入山采药', '按月为百草堂采回草药']],
-}
-const dispatchDisciple = reactive<Partial<Record<BuildingKind, string>>>({})
-const dispatchKind = reactive<Partial<Record<BuildingKind, ActionKind>>>({})
-const dispatchDuration = reactive<Partial<Record<BuildingKind, number>>>({})
 const orders = [
   ['diligent', '勤修令', '三月内门人更喜练武', 60], ['righteous', '尚义令', '四月内涵养门风', 80],
   ['frugal', '节用令', '四月内节用裕库', 50], ['rest', '调息令', '两月内静养更佳', 45],
@@ -110,23 +101,6 @@ const brewTarget = (building: Building) => medicines.find(item => item.recipeId 
 const selectElderDuty = (building: Building, dutyId: string, dutyTarget?: string | null) => command({ action: 'set_elder_duty', building_id: building.id, duty_id: dutyId, duty_target: dutyTarget })
 const selectExpansionTarget = (building: Building, event: Event) => selectElderDuty(building, 'expand', (event.target as HTMLSelectElement).value || null)
 const selectBrewTarget = (building: Building, event: Event) => selectElderDuty(building, 'brew', (event.target as HTMLSelectElement).value || null)
-const dispatchCandidates = computed(() => props.game.disciples.filter(disciple =>
-  disciple.alive && !disciple.away_months && disciple.condition === 'healthy'))
-const currentDispatchTasks = computed(() => dispatchTasks[props.view] || [])
-const dispatchTask = () => {
-  const discipleId = dispatchDisciple[props.view]
-  const kind = dispatchKind[props.view] || currentDispatchTasks.value[0]?.[0]
-  if (!currentBuilding.value || !discipleId || !kind) return
-  command({
-    action: 'dispatch_task', building_id: currentBuilding.value.id, disciple_id: discipleId,
-    kind, duration_months: dispatchDuration[props.view] || 1,
-  })
-}
-const warehouseInventory = computed(() => {
-  const names = ['精铁', '粮秣', ...Object.keys(props.game.sect.inventory).filter(name => !['精铁', '粮秣'].includes(name))]
-  return names.map(name => ({ name, count: props.game.sect.inventory[name] || 0 }))
-})
-const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months * (medicine.rate === '常速' ? 2 : medicine.rate === '低速' ? 3 : 4)
 </script>
 
 <template>
@@ -159,21 +133,6 @@ const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months
 
     <DecisionGrid v-if="buildingDecisions.length" :decisions="buildingDecisions" :arts="arts" :game="game" :used="used" :title="`${currentBuilding?.name || ''}本月议事`" @decide="$emit('decide', $event)" />
 
-    <section v-if="currentDispatchTasks.length" class="dispatch-panel">
-      <div class="management-row-title">建筑派发任务</div>
-      <div class="dispatch-controls">
-        <select v-model="dispatchDisciple[view]" class="wuxia-select">
-          <option value="">选择弟子</option>
-          <option v-for="disciple in dispatchCandidates" :key="disciple.id" :value="disciple.id">{{ disciple.name }} · 私银{{ disciple.personal_silver ?? 0 }}两</option>
-        </select>
-        <select v-model="dispatchKind[view]" class="wuxia-select">
-          <option v-for="[kind, label, description] in currentDispatchTasks" :key="kind" :value="kind">{{ label }} · {{ description }}</option>
-        </select>
-        <select v-model="dispatchDuration[view]" class="wuxia-select"><option :value="1">1个月</option><option :value="2">2个月</option><option :value="3">3个月</option></select>
-        <button class="btn btn-sm" :disabled="!dispatchDisciple[view] || game.decisions_used >= game.max_decisions || !!game.pending_event" @click="dispatchTask">派发</button>
-      </div>
-    </section>
-
     <template v-if="view === 'practice'">
       <div class="management-row-title">传武授艺</div>
       <p class="building-prose">由传武长老总领门中教习、外门习武与同门陪练。弟子的个人行止可在左侧谱牒中安排。</p>
@@ -192,7 +151,7 @@ const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months
 
     <template v-else-if="view === 'warehouse'">
       <div class="management-row-title">合库总簿</div>
-      <div class="warehouse-ledger"><span v-for="item in warehouseInventory" :key="item.name" :class="{ 'medicine-tooltip': medicineDescription(item.name) }" :data-tooltip="medicineDescription(item.name)"><b>{{ item.name }}</b><em>{{ item.count }}</em></span></div>
+      <div class="warehouse-ledger"><span v-for="(count, name) in game.sect.inventory" :key="name" :class="{ 'medicine-tooltip': medicineDescription(String(name)) }" :data-tooltip="medicineDescription(String(name))"><b>{{ name }}</b><em>{{ count }}</em></span></div>
       <p class="building-prose">银库、药材与内外门物资统一由司库长老造册收发，丹药可从左侧弟子卷宗中赐予。</p>
     </template>
 
@@ -201,7 +160,7 @@ const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months
       <section v-for="rate in recipeRates" :key="rate" class="recipe-section">
         <div class="recipe-rate"><b>{{ rate }}</b><span>{{ rate === '常速' ? '调养药物' : rate === '低速' ? '永久上限丹药' : '易筋延寿丹药' }}</span></div>
         <div class="recipe-grid">
-          <button v-for="medicine in medicines.filter(item => item.rate === rate)" :key="medicine.recipeId" class="order-card medicine-tooltip" :data-tooltip="medicine.description" :aria-label="`${medicine.name}：${medicine.description}`" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'brew_pill', recipe_id: medicine.recipeId })"><b>{{ medicine.name }}</b><span>草药{{ medicine.herbCost }}份 · 库银{{ recipeSilverCost(medicine) }}两 · {{ medicine.months }}月 · 产{{ medicine.quantity }}份</span></button>
+          <button v-for="medicine in medicines.filter(item => item.rate === rate)" :key="medicine.recipeId" class="order-card medicine-tooltip" :data-tooltip="medicine.description" :aria-label="`${medicine.name}：${medicine.description}`" :disabled="game.decisions_used >= game.max_decisions" @click="command({ action: 'brew_pill', recipe_id: medicine.recipeId })"><b>{{ medicine.name }}</b><span>草药{{ medicine.herbCost }}份 · {{ medicine.months }}月 · 产{{ medicine.quantity }}份</span></button>
         </div>
       </section>
       <div v-if="game.sect.productions.length" class="active-orders">炼制中：<span v-for="task in game.sect.productions" :key="task.id">{{ task.name }}（尚余{{ task.remaining_months }}月）</span></div>
@@ -244,7 +203,7 @@ const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months
           <div class="building-actions"><button class="btn btn-sm" :disabled="!!building.work_required || game.decisions_used >= game.max_decisions" @click="command({ action: 'upgrade_building', building_id: building.id })">立项扩建</button></div>
         </div>
       </div>
-      <p class="building-prose">建筑每月自然损耗 1–3 点，低于 30% 后会加速损坏。长老“巡检诸堂”需库银 8 两与精铁 2 份，可恢复 4 点；资源不足时仅作最低维护，恢复 2 点。</p>
+      <p class="building-prose">扩建立项后须在左侧安排杂役弟子“建造升级”；日常损耗则由“建筑维护”恢复。原“修缮山门”议事已撤除。</p>
     </template>
 
     <Teleport to="body">

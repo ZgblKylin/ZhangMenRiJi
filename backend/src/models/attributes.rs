@@ -185,9 +185,6 @@ pub struct ActionPlan {
     pub martial_art_id: Option<String>,
     pub assigned_by: Option<String>,
     pub remaining_months: i32,
-    /// 外出任务的口粮是否已经从仓库申领，防止跨月重复支取。
-    #[serde(default)]
-    pub rations_claimed: bool,
 }
 
 /// 单门武学的修习进度。经验达到下一级平方后升级，沿用侠客行 MUD 的技能门槛。

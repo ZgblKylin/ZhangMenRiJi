@@ -182,9 +182,9 @@ impl Default for SectState {
             rank_rules: RankRules::default(),
             buildings: default_buildings(),
             inventory: BTreeMap::from([
-                ("粮秣".into(), 50),
+                ("粮秣".into(), 80),
                 ("草药".into(), 20),
-                ("精铁".into(), 30),
+                ("精铁".into(), 10),
             ]),
             public_books: vec!["player_knowledge".into(), "hunyuan".into()],
             martial_research: BTreeMap::new(),

@@ -54,9 +54,6 @@ fn normalize_inventory(sect: &mut SectState) {
             task.name = Medicine::Wound.name().into();
         }
     }
-    // 旧存档没有这两类物资时补零，不凭空赠送初始库存。
-    sect.inventory.entry("粮秣".into()).or_default();
-    sect.inventory.entry("精铁".into()).or_default();
 }
 
 /// 将早期 v3 的五库与药库布局迁移为七座职能建筑。
@@ -206,8 +203,9 @@ pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32
     let income_bonus = policy_bonus(sect, "income") + order_bonus(sect, "income");
     let income = base_income * (100 + income_bonus) / 100;
     let frugal = order_bonus(sect, "income") / 2;
-    // 弟子月俸已按身份直接发到个人名下；此处只保留山门杂项与建筑用度。
-    let expense = (20 + sect.buildings.len() as i32 * 2) * (100 - frugal.clamp(0, 40)) / 100;
+    let expense = (20 + disciples as i32 * 5 + sect.buildings.len() as i32 * 2)
+        * (100 - frugal.clamp(0, 40))
+        / 100;
     sect.attributes.silver = (sect.attributes.silver + income - expense).max(0);
     sect.attributes.morality =
         (sect.attributes.morality + order_bonus(sect, "morality") / 6).clamp(0, 100);
@@ -237,6 +235,8 @@ pub fn apply_monthly_upkeep(sect: &mut SectState, disciples: usize) -> (i32, i32
                 building.work_invested = 0;
                 building.upgrading_months = 0;
             }
+        } else {
+            building.condition = (building.condition - 1).max(0);
         }
     }
     for order in &mut sect.active_orders {

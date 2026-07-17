@@ -146,16 +146,6 @@ pub fn pill_recipe(id: &str) -> Option<PillRecipe> {
     PILL_RECIPES.iter().copied().find(|recipe| recipe.id == id)
 }
 
-/// 炼制一炉丹药所需的额外库银；配方越慢，炉火与看守成本越高。
-pub const fn recipe_silver_cost(recipe: PillRecipe) -> i32 {
-    let multiplier = match recipe.rate {
-        MedicineRate::Regular => 2,
-        MedicineRate::Slow => 3,
-        MedicineRate::VerySlow => 4,
-    };
-    recipe.months * multiplier
-}
-
 impl Medicine {
     pub const ALL: [Self; 13] = [
         Self::Wound,

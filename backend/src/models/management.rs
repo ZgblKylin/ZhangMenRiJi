@@ -11,12 +11,6 @@ pub enum ManagementRequest {
         target_id: Option<String>,
         martial_art_id: Option<String>,
     },
-    DispatchTask {
-        building_id: String,
-        disciple_id: String,
-        kind: ActionKind,
-        duration_months: i32,
-    },
     PrepareSkill {
         disciple_id: String,
         basic_skill_id: String,
