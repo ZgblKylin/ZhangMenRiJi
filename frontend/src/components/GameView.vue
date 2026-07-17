@@ -35,8 +35,10 @@ const sections = [
     <div class="center-page">
       <nav class="section-tabs" aria-label="中栏内容切换">
         <button v-for="[id, label] in sections" :key="id" :class="{ active: section === id }" @click="section = id">{{ label }}</button>
-        <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}/{{ game.max_decisions }}</b></span>
-        <AdvanceSection :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" :exhausted="game.decisions_used >= game.max_decisions" @advance="$emit('advance')" />
+        <div class="advance-section">
+          <span>本月尚可定夺 <b>{{ Math.max(0, game.max_decisions - game.decisions_used) }}/{{ game.max_decisions }}</b></span>
+          <AdvanceSection :december="game.month === 12" :next-year="game.year + 1" :pending="!!game.pending_event" :exhausted="game.decisions_used >= game.max_decisions" @advance="$emit('advance')" />
+        </div>
       </nav>
       <TournamentPanel v-if="game.month === 12" :tournament="lastTournament" />
       <SectManagementPanel ref="managementPanel" :game="game" :arts="arts" :decisions="decisions" :used="used" :view="section" @decide="$emit('decide', $event)" @manage="$emit('manage', $event)" />
