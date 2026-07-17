@@ -46,6 +46,12 @@ pub struct Disciple {
     pub martial_progress: MartialProgress,
     pub action: Option<ActionPlan>,
     pub away_months: i32,
+    /// 弟子自行支配的银两，旧存档缺失时从零开始。
+    #[serde(default)]
+    pub personal_silver: i32,
+    /// 已由门派发给弟子随身携带的口粮。
+    #[serde(default)]
+    pub personal_rations: i32,
 }
 
 impl Default for Disciple {
@@ -77,6 +83,8 @@ impl Default for Disciple {
             martial_progress: MartialProgress::default(),
             action: None,
             away_months: 0,
+            personal_silver: 0,
+            personal_rations: 0,
         }
     }
 }
@@ -100,5 +108,16 @@ mod tests {
         let serialized = serde_json::to_value(disciple).unwrap();
         assert!(serialized.get("prepared_skills").is_some());
         assert!(serialized.get("equipped_skills").is_none());
+    }
+
+    #[test]
+    fn legacy_disciple_defaults_personal_resources_to_zero() {
+        let disciple: Disciple = serde_json::from_value(serde_json::json!({
+            "id": "legacy"
+        }))
+        .unwrap();
+
+        assert_eq!(disciple.personal_silver, 0);
+        assert_eq!(disciple.personal_rations, 0);
     }
 }

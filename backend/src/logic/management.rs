@@ -3,7 +3,8 @@ use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::management::ManagementRequest;
 use crate::models::martial_art::all_martial_arts;
 use crate::models::medicine::{
-    pill_recipe, Medicine, MedicineRate, PillRecipe, LEGACY_WOUND_MEDICINE_NAME, PILL_RECIPES,
+    pill_recipe, recipe_silver_cost, Medicine, MedicineRate, PillRecipe,
+    LEGACY_WOUND_MEDICINE_NAME, PILL_RECIPES,
 };
 use crate::models::sect::{BuildingKind, MoralDirection, SectOrder, SectPolicy};
 use crate::models::{GameEvent, GameState};
@@ -73,8 +74,44 @@ pub fn execute_management(
                 martial_art_id,
                 assigned_by: Some("掌门".into()),
                 remaining_months: 1,
+                ..ActionPlan::default()
             });
             format!("掌门传话，命{}依令安排本月行止。", disciple.name)
+        }
+        ManagementRequest::DispatchTask {
+            building_id,
+            disciple_id,
+            kind,
+            duration_months,
+        } => {
+            if !(1..=3).contains(&duration_months) {
+                return Err("任务须持续一至三个月。".into());
+            }
+            let building = state
+                .sect
+                .buildings
+                .iter()
+                .find(|building| building.id == building_id)
+                .ok_or_else(|| "门中并无此处建筑。".to_string())?;
+            if !dispatch_task_allowed(&building.kind, &kind) {
+                return Err("这项任务不在该建筑职掌范围内。".into());
+            }
+            let building_name = building.name.clone();
+            let disciple = player_disciple_mut(state, &disciple_id)?;
+            if !disciple::can_act(disciple) {
+                return Err("此人眼下不在门中，或伤重难行。".into());
+            }
+            disciple.action = Some(ActionPlan {
+                kind,
+                target_id: Some(building_id.clone()),
+                assigned_by: Some(format!("building:{building_id}")),
+                remaining_months: duration_months,
+                ..ActionPlan::default()
+            });
+            format!(
+                "{}向{}派下{}个月堂务，过月即开始办理。",
+                building_name, disciple.name, duration_months
+            )
         }
         ManagementRequest::PrepareSkill {
             disciple_id,
@@ -333,6 +370,7 @@ pub fn execute_management(
                     disciple::refresh_condition(disciple);
                 }
                 ("粮秣", _) => {
+                    disciple.personal_rations += quantity;
                     disciple.attributes.sect_loyalty =
                         (disciple.attributes.sect_loyalty + quantity / 2).min(100);
                 }
@@ -413,6 +451,14 @@ pub fn execute_management(
             if herbs < recipe.herb_cost {
                 return Err(format!("草药不足，尚缺{}份。", recipe.herb_cost - herbs));
             }
+            let silver_cost = recipe_silver_cost(recipe);
+            if state.sect.attributes.silver < silver_cost {
+                return Err(format!(
+                    "库银不足以开炉，尚缺{}两。",
+                    silver_cost - state.sect.attributes.silver
+                ));
+            }
+            state.sect.attributes.silver -= silver_cost;
             *state.sect.inventory.entry("草药".into()).or_default() -= recipe.herb_cost;
             let remaining_months = (recipe.months * 2 + 2) / 3;
             state
@@ -432,9 +478,10 @@ pub fn execute_management(
                     remaining_months,
                 });
             format!(
-                "掌门命百草堂快速开炉炼制{}，耗草药{}份，需时{}个月。",
+                "掌门命百草堂快速开炉炼制{}，耗草药{}份、库银{}两，需时{}个月。",
                 recipe.medicine.name(),
                 recipe.herb_cost,
+                silver_cost,
                 remaining_months
             )
         }
@@ -785,6 +832,15 @@ fn execute_elder_duty(
                     recipe.herb_cost - herbs
                 ));
             }
+            let silver_cost = recipe_silver_cost(recipe);
+            if state.sect.attributes.silver < silver_cost {
+                return Err(format!(
+                    "炼制{}尚缺{}两库银。",
+                    recipe.medicine.name(),
+                    silver_cost - state.sect.attributes.silver
+                ));
+            }
+            state.sect.attributes.silver -= silver_cost;
             *state.sect.inventory.entry("草药".into()).or_default() -= recipe.herb_cost;
             *state
                 .sect
@@ -792,9 +848,10 @@ fn execute_elder_duty(
                 .entry(recipe.medicine.name().into())
                 .or_default() += recipe.quantity;
             let result = format!(
-                "试炼一炉{}，耗草药{}份，得药{}份",
+                "试炼一炉{}，耗草药{}份、库银{}两，得药{}份",
                 recipe.medicine.name(),
                 recipe.herb_cost,
+                silver_cost,
                 recipe.quantity
             );
             return finish_elder_duty(state, building_id, &elder_name, result);
@@ -834,10 +891,23 @@ fn execute_elder_duty(
             "依本派门风处置一桩江湖事务"
         }
         "maintain" => {
+            let fully_supplied = state.sect.attributes.silver >= 8
+                && state.sect.inventory.get("精铁").copied().unwrap_or(0) >= 2;
+            let recovery = if fully_supplied {
+                state.sect.attributes.silver -= 8;
+                *state.sect.inventory.entry("精铁".into()).or_default() -= 2;
+                4
+            } else {
+                2
+            };
             for building in &mut state.sect.buildings {
-                building.condition = (building.condition + 4).min(100);
+                building.condition = (building.condition + recovery).min(100);
             }
-            "督率杂役巡检诸堂，建筑损耗得以修复"
+            if fully_supplied {
+                "耗库银八两、精铁两份巡检诸堂，所有建筑完好度恢复四点"
+            } else {
+                "库银或精铁不足，仅作最低限度维护，所有建筑完好度恢复两点"
+            }
         }
         "supervise" => {
             for building in &mut state.sect.buildings {
@@ -992,6 +1062,16 @@ fn rank_allows_action(rank: &DiscipleRank, kind: &ActionKind) -> bool {
                 | ActionKind::Wander
                 | ActionKind::Recover
         ),
+    }
+}
+
+fn dispatch_task_allowed(kind: &BuildingKind, action: &ActionKind) -> bool {
+    match kind {
+        BuildingKind::Practice => matches!(action, ActionKind::Practice),
+        BuildingKind::Scripture => matches!(action, ActionKind::Read),
+        BuildingKind::Warehouse => matches!(action, ActionKind::Business | ActionKind::Produce),
+        BuildingKind::HerbHall => matches!(action, ActionKind::Gather),
+        _ => false,
     }
 }
 

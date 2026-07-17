@@ -115,6 +115,7 @@ const appoint = (disciple: Disciple) => emit('manage', {
             <span>内力 {{ d.attributes.neili.current }}/{{ d.attributes.neili.maximum }} <small>修炼上限 {{ neiliTrainingCap(d) }}</small></span>
             <span>精力 {{ d.attributes.energy.current }}/{{ d.attributes.energy.maximum }} <small>修炼上限 {{ energyTrainingCap(d) }}</small></span>
           </div>
+          <div class="personal-resource-line">私银：{{ d.personal_silver ?? 0 }} 两 · 口粮：{{ d.personal_rations ?? 0 }} 份</div>
           <div class="attainment-line">造诣 {{ d.attributes.attainment }} · 功绩 {{ d.merit }} · 声名 {{ d.attributes.reputation }} · 道德 {{ d.attributes.morality }}</div>
           <div class="disciple-skills">
             <div class="skill-caption">门下武学谱 <small>知识限制本门战斗武学等级</small></div>

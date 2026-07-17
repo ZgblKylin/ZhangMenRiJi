@@ -43,6 +43,7 @@ struct DiscipleDelta {
     reputation: i32,
     loyalty: i32,
     merit: i64,
+    personal_silver: i32,
     skill_experience: BTreeMap<String, i64>,
     away_months: Option<i32>,
     action: Option<Option<ActionPlan>>,
@@ -356,6 +357,8 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             let mut student_delta = base_delta(student);
             student_delta.spirit -= 9;
             student_delta.skill_experience.insert(art.clone(), gain);
+            settle_local_plan(&teacher.disciple, &job.kind, &mut teacher_delta);
+            settle_local_plan(&student.disciple, &job.kind, &mut student_delta);
             result.disciples.extend([teacher_delta, student_delta]);
             let player_action = teacher.player || student.player;
             result.logs.push((
@@ -386,28 +389,40 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
             let art_b = second.disciple.martial_art.clone();
             let level_a = skill_level(&first.disciple, &art_a);
             let level_b = skill_level(&second.disciple, &art_b);
-            let gain_a = skill_experience(
+            let (funded_a, cost_a) = training_funding(first, &job.kind);
+            let (funded_b, cost_b) = training_funding(second, &job.kind);
+            let mut gain_a = skill_experience(
                 &first.disciple,
                 &art_a,
                 (first.disciple.aptitudes.strength + first.disciple.aptitudes.agility) / 2,
                 90 + (level_b - level_a).clamp(0, 50),
             );
-            let gain_b = skill_experience(
+            let mut gain_b = skill_experience(
                 &second.disciple,
                 &art_b,
                 (second.disciple.aptitudes.strength + second.disciple.aptitudes.agility) / 2,
                 90 + (level_a - level_b).clamp(0, 50),
             );
+            if !funded_a {
+                gain_a = (gain_a / 2).max(1);
+            }
+            if !funded_b {
+                gain_b = (gain_b / 2).max(1);
+            }
             let mut a = base_delta(first);
+            a.personal_silver -= cost_a;
             a.qi -= rng.gen_range(5..=10);
             a.energy -= 6;
             a.attainment += 4 + level_b.max(1) as i64 / 40;
             a.skill_experience.insert(art_a.clone(), gain_a);
             let mut b = base_delta(second);
+            b.personal_silver -= cost_b;
             b.qi -= rng.gen_range(5..=10);
             b.energy -= 6;
             b.attainment += 4 + level_a.max(1) as i64 / 40;
             b.skill_experience.insert(art_b.clone(), gain_b);
+            settle_local_plan(&first.disciple, &job.kind, &mut a);
+            settle_local_plan(&second.disciple, &job.kind, &mut b);
             result.disciples.extend([a, b]);
             let player_action = first.player || second.player;
             result.logs.push((
@@ -439,6 +454,8 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
     let d = &actor.disciple;
     let mut result = JobResult::default();
     let mut delta = base_delta(actor);
+    let (training_funded, training_cost) = training_funding(actor, kind);
+    delta.personal_silver -= training_cost;
     let log;
 
     if d.away_months > 0 {
@@ -521,7 +538,10 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         ActionKind::Practice => {
             let art = practice_art(d);
             let aptitude = (d.aptitudes.strength + d.aptitudes.agility) / 2;
-            let gain = skill_experience(d, &art, aptitude, 115);
+            let mut gain = skill_experience(d, &art, aptitude, 115);
+            if !training_funded {
+                gain = (gain / 2).max(1);
+            }
             delta.qi -= 4;
             delta.neili -= 4;
             delta.energy -= 10;
@@ -535,7 +555,10 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
             );
         }
         ActionKind::TemperBody => {
-            let gain = 2 + d.aptitudes.constitution / 12;
+            let mut gain = 2 + d.aptitudes.constitution / 12;
+            if !training_funded {
+                gain = (gain / 2).max(1);
+            }
             delta.qi -= 11;
             delta.energy -= 5;
             delta.qi_max += gain;
@@ -552,12 +575,15 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
                 (10 + disciple::effective_aptitudes(d).constitution / 4)
                     .min(d.attributes.qi.current.saturating_sub(1))
             };
-            let gain = if !at_cap && cost >= 10 {
+            let mut gain = if !at_cap && cost >= 10 {
                 (1 + level / 80 + d.aptitudes.constitution / 25)
                     .min((cap - d.attributes.neili.maximum).max(0))
             } else {
                 0
             };
+            if !training_funded {
+                gain = if gain > 0 { (gain / 2).max(1) } else { 0 };
+            }
             delta.qi -= cost;
             delta.neili_max += gain;
             delta.neili += gain;
@@ -713,7 +739,15 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
                 .or_default() += quantity;
             delta.energy -= 7;
             delta.merit += 2;
-            log = format!("{}操持门中生产，入库粮秣{}份。", d.name, quantity);
+            if dispatched_by(d, "warehouse") {
+                delta.personal_silver += 3;
+                log = format!(
+                    "{}整理仓中账物，入库粮秣{}份，并得私银3两。",
+                    d.name, quantity
+                );
+            } else {
+                log = format!("{}操持门中生产，入库粮秣{}份。", d.name, quantity);
+            }
         }
         ActionKind::Business => {
             let silver = 10 + d.aptitudes.intelligence / 2 + rng.gen_range(0..=12);
@@ -723,7 +757,12 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
                 .or_default()
                 .silver += silver;
             delta.merit += 3;
-            log = format!("{}下山经营世俗产业，带回库银{}两。", d.name, silver);
+            if dispatched_by(d, "warehouse") {
+                delta.personal_silver += 5;
+                log = format!("{}为仓库采买，带回库银{}两，并得私银5两。", d.name, silver);
+            } else {
+                log = format!("{}下山经营世俗产业，带回库银{}两。", d.name, silver);
+            }
         }
         ActionKind::Gather => {
             let herbs = 2 + d.aptitudes.fortune / 8;
@@ -738,9 +777,7 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         }
         ActionKind::Teach | ActionKind::Spar => unreachable!("独行任务已回退为研读"),
     }
-    if d.action.is_some() && !matches!(kind, ActionKind::SectMission | ActionKind::Wander) {
-        delta.action = Some(None);
-    }
+    settle_local_plan(d, kind, &mut delta);
     result.disciples.push(delta);
     result.logs.push((
         actor.player,
@@ -757,6 +794,54 @@ fn base_delta(actor: &Actor) -> DiscipleDelta {
     DiscipleDelta {
         id: actor.disciple.id.clone(),
         ..DiscipleDelta::default()
+    }
+}
+
+fn dispatched_by(disciple: &Disciple, building_id: &str) -> bool {
+    disciple
+        .action
+        .as_ref()
+        .and_then(|plan| plan.assigned_by.as_deref())
+        .is_some_and(|source| source == format!("building:{building_id}"))
+}
+
+fn settle_local_plan(disciple: &Disciple, kind: &ActionKind, delta: &mut DiscipleDelta) {
+    if let Some(plan) = disciple
+        .action
+        .as_ref()
+        .filter(|_| !matches!(kind, ActionKind::SectMission | ActionKind::Wander))
+    {
+        let mut next = plan.clone();
+        next.remaining_months -= 1;
+        delta.action = Some((next.remaining_months > 0).then_some(next));
+    }
+}
+
+fn is_martial_training(kind: &ActionKind) -> bool {
+    matches!(
+        kind,
+        ActionKind::Practice
+            | ActionKind::Spar
+            | ActionKind::TemperBody
+            | ActionKind::CultivateNeili
+    )
+}
+
+/// 返回本月是否足额备齐练武耗材，以及实际扣除的私银。
+fn training_funding(actor: &Actor, kind: &ActionKind) -> (bool, i32) {
+    if !is_martial_training(kind) {
+        return (true, 0);
+    }
+    let required =
+        if matches!(kind, ActionKind::Practice) && dispatched_by(&actor.disciple, "practice") {
+            2
+        } else {
+            1
+        };
+    if actor.disciple.personal_silver >= required {
+        (true, required)
+    } else {
+        (false, 0)
     }
 }
 
@@ -981,6 +1066,7 @@ fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
     d.attributes.reputation = (d.attributes.reputation + delta.reputation).clamp(0, 1000);
     d.attributes.sect_loyalty = (d.attributes.sect_loyalty + delta.loyalty).clamp(0, 100);
     d.merit = (d.merit + delta.merit).max(0);
+    d.personal_silver = (d.personal_silver + delta.personal_silver).max(0);
     for (art, gain) in delta.skill_experience {
         disciple::gain_skill_experience(d, &art, gain);
     }

@@ -83,6 +83,7 @@ export interface ActionPlan {
   martial_art_id?: string | null
   assigned_by?: string | null
   remaining_months: number
+  rations_claimed?: boolean
 }
 export interface SkillProgress { level: number; experience: number }
 export interface SkillEntry { martial_art_id: string; level: number; experience: number }
@@ -115,6 +116,8 @@ export interface Disciple {
   martial_progress: MartialProgress
   action?: ActionPlan | null
   away_months: number
+  personal_silver: number
+  personal_rations: number
 }
 
 export interface Building {
