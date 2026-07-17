@@ -163,6 +163,10 @@ pub struct SectState {
     pub relations: BTreeMap<String, i32>,
     pub active_orders: Vec<SectOrder>,
     pub productions: Vec<ProductionTask>,
+    /// 后台自动循环炼制所处的配方索引。
+    pub auto_brew_index: usize,
+    /// 当前自动炼制进度（月）。无长老时每两个月增加一月进度。
+    pub auto_brew_progress: i32,
 }
 
 impl Default for SectState {
@@ -187,6 +191,8 @@ impl Default for SectState {
             relations: BTreeMap::new(),
             active_orders: vec![],
             productions: vec![],
+            auto_brew_index: 0,
+            auto_brew_progress: 0,
         }
     }
 }

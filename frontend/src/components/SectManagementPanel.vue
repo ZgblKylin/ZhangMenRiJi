@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { MedicineType } from '../types'
 import type { Building, BuildingKind, Decision, GameState, ManagementRequest, MartialArt, MoralDirection, SectPolicy, SectState } from '../types'
 import DecisionGrid from './DecisionGrid.vue'
 import SectViewPanel from './SectViewPanel.vue'
@@ -25,7 +24,7 @@ const elderDuties: Record<BuildingKind, Array<[string, string, string]>> = {
   practice: [['instruct', '整饬教习', '本门志气提升 3 点'], ['drill', '主持月考', '所有在门弟子各添 2 点功绩']],
   scripture: [['curate', '校勘群籍', '每部公册的门派参研提升 4 点'], ['comprehend', '邀众合参', '集中参悟首部公册，门派参研提升 18 点']],
   warehouse: [['audit', '清点旧账', '追回 12 至 24 两库银'], ['purchase', '下山采买', '耗费 15 两，购入 5 份草药']],
-  herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '试炼小炉', `耗费 2 份草药，炼得 1 份${MedicineType.Wound}`]],
+  herb_hall: [['treat', '诊治掌门', '掌门伤势降低 8 点'], ['brew', '开炉炼丹', '选择一种丹药额外炼制']],
   intelligence: [['correspond', '修书诸派', '与所有门派的交情各提升 2 点'], ['scout', '查探江湖', '本门声望提升 3 点']],
   affairs: [['recruit', '代访新人', '耗费 25 两，为门中访得一名新人'], ['arbitrate', '处置事务', '依门风提升道德、志气或库银']],
   logistics: [['maintain', '巡检诸堂', '所有建筑完好度恢复 4 点'], ['supervise', '亲临督造', '所有在建工程各增加 6 点工作量'], ['expand', '督造扩建', '选取一栋建筑立项扩建，低级建筑优先']],
@@ -87,7 +86,7 @@ const recommendedElderDuty = (building: Building) => {
     case 'practice': return props.game.sect.attributes.morale < 65 ? 'instruct' : 'drill'
     case 'scripture': return props.game.sect.public_books.length >= 5 ? 'curate' : 'comprehend'
     case 'warehouse': return props.game.sect.attributes.silver < 120 || (props.game.sect.inventory['草药'] || 0) >= 8 ? 'audit' : 'purchase'
-    case 'herb_hall': return props.game.injury > 0 || (props.game.sect.inventory['草药'] || 0) < 2 ? 'treat' : 'brew'
+    case 'herb_hall': return props.game.injury > 0 ? 'treat' : 'brew'
     case 'intelligence': return Object.values(props.game.sect.relations).some(value => value < 10) ? 'correspond' : 'scout'
     case 'affairs': return props.game.sect.attributes.silver >= 25 ? 'recruit' : 'arbitrate'
     case 'logistics':
@@ -98,8 +97,10 @@ const recommendedElderDuty = (building: Building) => {
 }
 const selectedDuty = (building: Building) => building.selected_duty || recommendedElderDuty(building)
 const expansionTarget = (building: Building) => upgradeableBuildings.value.find(item => item.id === building.duty_target)?.id || upgradeableBuildings.value[0]?.id || null
+const brewTarget = (building: Building) => medicines.find(item => item.recipeId === building.duty_target)?.recipeId || medicines[0]?.recipeId || null
 const selectElderDuty = (building: Building, dutyId: string, dutyTarget?: string | null) => command({ action: 'set_elder_duty', building_id: building.id, duty_id: dutyId, duty_target: dutyTarget })
 const selectExpansionTarget = (building: Building, event: Event) => selectElderDuty(building, 'expand', (event.target as HTMLSelectElement).value || null)
+const selectBrewTarget = (building: Building, event: Event) => selectElderDuty(building, 'brew', (event.target as HTMLSelectElement).value || null)
 </script>
 
 <template>
@@ -115,11 +116,16 @@ const selectExpansionTarget = (building: Building, event: Event) => selectElderD
       <i>{{ elderName }}</i>
       <div class="elder-duty-actions">
         <small>{{ currentBuilding.elder_action_used ? '本月堂务已办，过月仍照此办理' : '事务已择定，过月自动办理' }}</small>
-        <button v-for="[id, label, description] in elderDuties[view]" :key="id" type="button" class="btn btn-sm elder-duty-option" :class="{ active: selectedDuty(currentBuilding) === id }" :data-tooltip="description" :aria-label="`${label}：${description}`" :disabled="!currentBuilding.elder_id || !!game.pending_event" @click="selectElderDuty(currentBuilding, id, id === 'expand' ? expansionTarget(currentBuilding) : undefined)">{{ label }}</button>
+        <button v-for="[id, label, description] in elderDuties[view]" :key="id" type="button" class="btn btn-sm elder-duty-option" :class="{ active: selectedDuty(currentBuilding) === id }" :data-tooltip="description" :aria-label="`${label}：${description}`" :disabled="!currentBuilding.elder_id || !!game.pending_event" @click="selectElderDuty(currentBuilding, id, id === 'expand' ? expansionTarget(currentBuilding) : id === 'brew' ? brewTarget(currentBuilding) : undefined)">{{ label }}</button>
         <label v-if="selectedDuty(currentBuilding) === 'expand'" class="elder-duty-target"><span>扩建目标</span>
           <select class="wuxia-select" :value="expansionTarget(currentBuilding) || ''" :disabled="!currentBuilding.elder_id || !!game.pending_event || !upgradeableBuildings.length" @change="selectExpansionTarget(currentBuilding, $event)">
             <option v-if="!upgradeableBuildings.length" value="">暂无可扩建建筑</option>
             <option v-for="building in upgradeableBuildings" :key="building.id" :value="building.id">{{ building.name }} · 第{{ building.level }}重</option>
+          </select>
+        </label>
+        <label v-if="selectedDuty(currentBuilding) === 'brew'" class="elder-duty-target"><span>丹药</span>
+          <select class="wuxia-select" :value="brewTarget(currentBuilding) || ''" :disabled="!currentBuilding.elder_id || !!game.pending_event || !medicines.length" @change="selectBrewTarget(currentBuilding, $event)">
+            <option v-for="medicine in medicines" :key="medicine.recipeId" :value="medicine.recipeId">{{ medicine.name }} · 草药{{ medicine.herbCost }}份 · 产{{ medicine.quantity }}份</option>
           </select>
         </label>
       </div>

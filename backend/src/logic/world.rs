@@ -315,6 +315,8 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
             relations: BTreeMap::new(),
             active_orders: vec![],
             productions: vec![],
+            auto_brew_index: 0,
+            auto_brew_progress: 0,
         };
 
         for (member_index, name) in template.members.iter().enumerate() {

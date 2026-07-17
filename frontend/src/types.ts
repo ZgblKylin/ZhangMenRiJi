@@ -152,6 +152,8 @@ export interface SectState {
   relations: Record<string, number>
   active_orders: SectOrder[]
   productions: ProductionTask[]
+  auto_brew_index: number
+  auto_brew_progress: number
 }
 export interface Country { id: string; name: string; prosperity: number; order: number }
 

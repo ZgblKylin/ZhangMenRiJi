@@ -2,7 +2,9 @@ use crate::logic::{disciple, sect};
 use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::management::ManagementRequest;
 use crate::models::martial_art::all_martial_arts;
-use crate::models::medicine::{Medicine, LEGACY_WOUND_MEDICINE_NAME};
+use crate::models::medicine::{
+    pill_recipe, Medicine, MedicineRate, PillRecipe, LEGACY_WOUND_MEDICINE_NAME, PILL_RECIPES,
+};
 use crate::models::sect::{BuildingKind, MoralDirection, SectOrder, SectPolicy};
 use crate::models::{GameEvent, GameState};
 use rand::Rng;
@@ -269,6 +271,11 @@ pub fn execute_management(
             duty_id,
             duty_target,
         } => {
+            if duty_id == "brew" {
+                if let Some(target) = duty_target.as_deref() {
+                    pill_recipe(target).ok_or_else(|| "百草堂中并无此方。".to_string())?;
+                }
+            }
             let building = state
                 .sect
                 .buildings
@@ -278,7 +285,7 @@ pub fn execute_management(
             if !elder_duties(&building.kind).contains(&duty_id.as_str()) {
                 return Err("这桩事务不在该堂职掌之内。".into());
             }
-            if duty_id == "expand" {
+            if matches!(duty_id.as_str(), "expand" | "brew") {
                 building.duty_target = duty_target;
             }
             building.selected_duty = Some(duty_id);
@@ -401,13 +408,13 @@ pub fn execute_management(
             format!("司库奉命，将{}{}份发予{}。", item, quantity, disciple.name)
         }
         ManagementRequest::BrewPill { recipe_id } => {
-            let (name, herb_cost, quantity, months) =
-                pill_recipe(&recipe_id).ok_or_else(|| "百草堂中并无此方。".to_string())?;
+            let recipe = pill_recipe(&recipe_id).ok_or_else(|| "百草堂中并无此方。".to_string())?;
             let herbs = state.sect.inventory.get("草药").copied().unwrap_or(0);
-            if herbs < herb_cost {
-                return Err(format!("草药不足，尚缺{}份。", herb_cost - herbs));
+            if herbs < recipe.herb_cost {
+                return Err(format!("草药不足，尚缺{}份。", recipe.herb_cost - herbs));
             }
-            *state.sect.inventory.entry("草药".into()).or_default() -= herb_cost;
+            *state.sect.inventory.entry("草药".into()).or_default() -= recipe.herb_cost;
+            let remaining_months = (recipe.months * 2 + 2) / 3;
             state
                 .sect
                 .productions
@@ -419,14 +426,16 @@ pub fn execute_management(
                         state.month,
                         state.sect.productions.len()
                     ),
-                    name: name.to_string(),
-                    output_item: name.to_string(),
-                    quantity,
-                    remaining_months: months,
+                    name: recipe.medicine.name().to_string(),
+                    output_item: recipe.medicine.name().to_string(),
+                    quantity: recipe.quantity,
+                    remaining_months,
                 });
             format!(
-                "百草堂开炉炼制{}，耗草药{}份，需时{}个月。",
-                name, herb_cost, months
+                "掌门命百草堂快速开炉炼制{}，耗草药{}份，需时{}个月。",
+                recipe.medicine.name(),
+                recipe.herb_cost,
+                remaining_months
             )
         }
         ManagementRequest::IssueOrder { order_id } => {
@@ -578,25 +587,6 @@ fn is_issuable_item(item: &str) -> bool {
     matches!(item, "草药" | "粮秣") || Medicine::from_name(item).is_some()
 }
 
-fn pill_recipe(id: &str) -> Option<(Medicine, i32, i32, i32)> {
-    Some(match id {
-        "wound" => (Medicine::Wound, 4, 2, 1),
-        "qi" => (Medicine::Qi, 6, 1, 2),
-        "spirit" => (Medicine::Spirit, 5, 2, 1),
-        "energy" => (Medicine::Energy, 6, 1, 2),
-        "foundation" => (Medicine::Foundation, 12, 1, 6),
-        "gather_qi" => (Medicine::GatherQi, 12, 1, 6),
-        "calm_spirit" => (Medicine::CalmSpirit, 12, 1, 6),
-        "restore_origin" => (Medicine::RestoreOrigin, 12, 1, 6),
-        "marrow" => (Medicine::Marrow, 20, 1, 12),
-        "sinew" => (Medicine::Sinew, 20, 1, 12),
-        "awaken" => (Medicine::Awaken, 20, 1, 12),
-        "lightness" => (Medicine::Lightness, 20, 1, 12),
-        "longevity" => (Medicine::Longevity, 24, 1, 12),
-        _ => return None,
-    })
-}
-
 fn add_permanent_qi(disciple: &mut crate::models::Disciple, amount: i32) {
     disciple.attribute_bonuses.qi = disciple.attribute_bonuses.qi.saturating_add(amount);
     disciple::recalculate_attribute_maxima(disciple);
@@ -673,6 +663,35 @@ fn elder_duties(kind: &BuildingKind) -> &'static [&'static str] {
         BuildingKind::Affairs => &["recruit", "arbitrate"],
         BuildingKind::Logistics => &["maintain", "supervise", "expand"],
     }
+}
+
+fn elder_brew_weight(recipe: PillRecipe, herbs: i32) -> i32 {
+    let rate_weight = match recipe.rate {
+        MedicineRate::Regular => 9,
+        MedicineRate::Slow => 3,
+        MedicineRate::VerySlow => 1,
+    };
+    if herbs < recipe.herb_cost {
+        rate_weight
+    } else {
+        rate_weight * 3
+    }
+}
+
+fn random_elder_brew_recipe(rng: &mut impl Rng, herbs: i32) -> PillRecipe {
+    let total_weight = PILL_RECIPES
+        .iter()
+        .map(|recipe| elder_brew_weight(*recipe, herbs))
+        .sum::<i32>();
+    let mut roll = rng.gen_range(0..total_weight);
+    PILL_RECIPES
+        .iter()
+        .copied()
+        .find(|recipe| {
+            roll -= elder_brew_weight(*recipe, herbs);
+            roll < 0
+        })
+        .expect("丹药配方权重应为正数")
 }
 
 fn execute_elder_duty(
@@ -753,16 +772,32 @@ fn execute_elder_duty(
         }
         "brew" => {
             let herbs = state.sect.inventory.get("草药").copied().unwrap_or(0);
-            if herbs < 2 {
-                return Err("草药不足两份，难以开炉。".into());
+            let recipe = match duty_target.as_deref() {
+                Some(target) => {
+                    pill_recipe(target).ok_or_else(|| "百草堂中并无此方。".to_string())?
+                }
+                None => random_elder_brew_recipe(rng, herbs),
+            };
+            if herbs < recipe.herb_cost {
+                return Err(format!(
+                    "炼制{}尚缺{}份草药。",
+                    recipe.medicine.name(),
+                    recipe.herb_cost - herbs
+                ));
             }
-            *state.sect.inventory.entry("草药".into()).or_default() -= 2;
+            *state.sect.inventory.entry("草药".into()).or_default() -= recipe.herb_cost;
             *state
                 .sect
                 .inventory
-                .entry(Medicine::Wound.name().into())
-                .or_default() += 1;
-            Medicine::Wound.name()
+                .entry(recipe.medicine.name().into())
+                .or_default() += recipe.quantity;
+            let result = format!(
+                "试炼一炉{}，耗草药{}份，得药{}份",
+                recipe.medicine.name(),
+                recipe.herb_cost,
+                recipe.quantity
+            );
+            return finish_elder_duty(state, building_id, &elder_name, result);
         }
         "correspond" => {
             for relation in state.sect.relations.values_mut() {
@@ -862,12 +897,7 @@ fn execute_elder_duty(
         }
         _ => unreachable!("堂务已校验"),
     };
-    let result = if duty_id == "brew" {
-        format!("试炼一炉，得{}一份", result)
-    } else {
-        result.to_owned()
-    };
-    finish_elder_duty(state, building_id, &elder_name, result)
+    finish_elder_duty(state, building_id, &elder_name, result.to_owned())
 }
 
 fn finish_elder_duty(
@@ -1260,42 +1290,86 @@ mod tests {
     #[test]
     fn every_pill_recipe_consumes_herbs_and_finishes_into_inventory() {
         let mut rng = StdRng::seed_from_u64(22);
-        let recipe_ids = [
-            "wound",
-            "qi",
-            "spirit",
-            "energy",
-            "foundation",
-            "gather_qi",
-            "calm_spirit",
-            "restore_origin",
-            "marrow",
-            "sinew",
-            "awaken",
-            "lightness",
-            "longevity",
-        ];
 
-        for recipe_id in recipe_ids {
+        for recipe in PILL_RECIPES {
             let mut state = GameState::default();
             state.sect.inventory.insert("草药".into(), 100);
-            let (name, herb_cost, quantity, months) = pill_recipe(recipe_id).unwrap();
             execute_management(
                 &mut rng,
                 &mut state,
                 ManagementRequest::BrewPill {
-                    recipe_id: recipe_id.into(),
+                    recipe_id: recipe.id.into(),
                 },
             )
             .unwrap();
-            assert_eq!(state.sect.inventory["草药"], 100 - herb_cost);
-            assert_eq!(state.sect.productions[0].remaining_months, months);
-            for _ in 0..months {
+            let fast_months = (recipe.months * 2 + 2) / 3;
+            assert_eq!(state.sect.inventory["草药"], 100 - recipe.herb_cost);
+            assert_eq!(state.sect.productions[0].remaining_months, fast_months);
+            for _ in 0..fast_months {
                 crate::logic::sect::apply_monthly_upkeep(&mut state.sect, 0);
             }
-            assert_eq!(state.sect.inventory[name.name()], quantity);
+            assert_eq!(
+                state.sect.inventory[recipe.medicine.name()],
+                recipe.quantity
+            );
             assert!(state.sect.productions.is_empty());
         }
+    }
+
+    #[test]
+    fn elder_brew_uses_selected_recipe_and_rate_weights() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(24);
+        let mut elder = disciple::generate_disciple(&mut rng, 0);
+        elder.rank = DiscipleRank::Inner;
+        let elder_id = elder.id.clone();
+        state.disciples.push(elder);
+        let herb_hall = state
+            .sect
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == "herb_hall")
+            .unwrap();
+        herb_hall.elder_id = Some(elder_id);
+
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::SetElderDuty {
+                building_id: "herb_hall".into(),
+                duty_id: "brew".into(),
+                duty_target: Some("foundation".into()),
+            },
+        )
+        .unwrap();
+        let result = execute_elder_duty(&mut rng, &mut state, "herb_hall", "brew").unwrap();
+
+        assert_eq!(state.sect.inventory["草药"], 8);
+        assert_eq!(state.sect.inventory[Medicine::Foundation.name()], 1);
+        assert!(result.contains("培元丹"));
+        assert_eq!(
+            state
+                .sect
+                .buildings
+                .iter()
+                .find(|building| building.id == "herb_hall")
+                .unwrap()
+                .duty_target
+                .as_deref(),
+            Some("foundation")
+        );
+
+        let regular = pill_recipe("wound").unwrap();
+        let slow = pill_recipe("foundation").unwrap();
+        let very_slow = pill_recipe("marrow").unwrap();
+        assert!(
+            elder_brew_weight(regular, 100) > elder_brew_weight(slow, 100)
+                && elder_brew_weight(slow, 100) > elder_brew_weight(very_slow, 100)
+        );
+        assert_eq!(
+            elder_brew_weight(regular, regular.herb_cost - 1) * 3,
+            elder_brew_weight(regular, regular.herb_cost)
+        );
     }
 
     #[test]

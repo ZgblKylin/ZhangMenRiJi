@@ -123,6 +123,7 @@ fn finish_month(
     state: &mut GameState,
     mut events: Vec<GameEvent>,
 ) -> AdvanceResult {
+    advance_auto_brew(state);
     for (building_name, result) in
         crate::logic::management::execute_monthly_elder_duties(rng, state)
     {
@@ -282,6 +283,43 @@ fn finish_month(
     (events, tournament_result, state.game_over)
 }
 
+/// 百草堂常设药炉后台循环炼制；无长老时以每两个月一月进度折算半速。
+fn advance_auto_brew(state: &mut GameState) {
+    use crate::models::medicine::PILL_RECIPES;
+    use crate::models::sect::BuildingKind;
+
+    state.sect.auto_brew_index %= PILL_RECIPES.len();
+    let recipe = PILL_RECIPES[state.sect.auto_brew_index];
+    let herbs = state.sect.inventory.get("草药").copied().unwrap_or(0);
+    if herbs < recipe.herb_cost {
+        return;
+    }
+
+    let has_elder = state
+        .sect
+        .buildings
+        .iter()
+        .any(|building| building.kind == BuildingKind::HerbHall && building.elder_id.is_some());
+    let elapsed_month = (state.year - 1) * 12 + state.month;
+    if !has_elder && elapsed_month % 2 != 0 {
+        return;
+    }
+
+    state.sect.auto_brew_progress += 1;
+    if state.sect.auto_brew_progress < recipe.months {
+        return;
+    }
+
+    *state.sect.inventory.entry("草药".into()).or_default() -= recipe.herb_cost;
+    *state
+        .sect
+        .inventory
+        .entry(recipe.medicine.name().into())
+        .or_default() += recipe.quantity;
+    state.sect.auto_brew_progress = 0;
+    state.sect.auto_brew_index = (state.sect.auto_brew_index + 1) % PILL_RECIPES.len();
+}
+
 fn trim_log(state: &mut GameState) {
     if state.event_log.len() > 80 {
         let excess = state.event_log.len() - 80;
@@ -301,6 +339,49 @@ mod tests {
     use super::*;
     use crate::logic::world;
     use rand::{rngs::StdRng, SeedableRng};
+
+    #[test]
+    fn auto_brew_with_elder_finishes_recipe_and_advances_index() {
+        let mut state = GameState::default();
+        state.sect.inventory.insert("草药".into(), 10);
+        state
+            .sect
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == "herb_hall")
+            .unwrap()
+            .elder_id = Some("elder".into());
+
+        advance_auto_brew(&mut state);
+
+        assert_eq!(state.sect.inventory["草药"], 6);
+        assert_eq!(state.sect.inventory["金疮药"], 2);
+        assert_eq!(state.sect.auto_brew_progress, 0);
+        assert_eq!(state.sect.auto_brew_index, 1);
+    }
+
+    #[test]
+    fn auto_brew_without_elder_runs_at_half_speed_and_waits_for_herbs() {
+        let mut state = GameState::default();
+        state.sect.auto_brew_index = 1;
+        state.sect.inventory.insert("草药".into(), 5);
+
+        for month in 1..=2 {
+            state.month = month;
+            advance_auto_brew(&mut state);
+        }
+        assert_eq!(state.sect.auto_brew_progress, 0, "草药不足时不应推进");
+
+        state.sect.inventory.insert("草药".into(), 6);
+        for month in 3..=6 {
+            state.month = month;
+            advance_auto_brew(&mut state);
+        }
+        assert_eq!(state.sect.inventory["草药"], 0);
+        assert_eq!(state.sect.inventory["养气丹"], 1);
+        assert_eq!(state.sect.auto_brew_progress, 0);
+        assert_eq!(state.sect.auto_brew_index, 2);
+    }
 
     #[test]
     fn resolving_pending_event_continues_the_paused_month() {
