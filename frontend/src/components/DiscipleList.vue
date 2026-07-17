@@ -43,6 +43,16 @@ const combatChoices = (disciple: Disciple, basic: SkillEntry) =>
       return candidate?.is_combat && candidate.tier !== MartialTier.Basic && candidate.basic_skill === basic.martial_art_id
     })
     .sort((a, b) => b.level - a.level || a.martial_art_id.localeCompare(b.martial_art_id))
+const parryChoices = (disciple: Disciple) =>
+  disciple.skills
+    .filter(skill => {
+      const candidate = art(skill.martial_art_id)
+      if (!candidate) return false
+      return candidate.usable_for_parry === true
+        || candidate.category === SkillCategory.Unarmed
+        || candidate.category === SkillCategory.Weapon
+    })
+    .sort((a, b) => b.level - a.level || a.martial_art_id.localeCompare(b.martial_art_id))
 const preparedArt = (disciple: Disciple, basicId: string) => disciple.prepared_skills?.[basicId] || ''
 const isPrepared = (disciple: Disciple, artId: string) => Object.values(disciple.prepared_skills || {}).includes(artId)
 const highestKnowledge = (disciple: Disciple) => categorySkills(disciple, SkillCategory.Knowledge)[0]
@@ -122,7 +132,15 @@ const appoint = (disciple: Disciple) => emit('manage', {
             <div class="skill-category-grid">
               <section v-for="category in displayedSkillCategories" :key="category.id" class="skill-category" :class="category.id">
                 <header><b>{{ category.label }}</b><small>{{ category.hint }}</small></header>
-                <label v-if="category.id !== SkillCategory.Knowledge && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="preparation-picker">
+                <label v-if="category.id === SkillCategory.Parry && parryChoices(d).length" class="preparation-picker">
+                  <span>当前准备</span>
+                  <select class="wuxia-select" :value="preparedArt(d, 'parry_slot')" @change="prepare(d, 'parry_slot', $event)">
+                    <option v-for="skill in parryChoices(d)" :key="skill.martial_art_id" :value="skill.martial_art_id">
+                      {{ artName(skill.martial_art_id) }} · {{ skill.level }}级
+                    </option>
+                  </select>
+                </label>
+                <label v-else-if="category.id !== SkillCategory.Knowledge && basicSkill(d, category.id) && combatChoices(d, basicSkill(d, category.id)!).length" class="preparation-picker">
                   <span>当前准备</span>
                   <select class="wuxia-select" :value="preparedArt(d, basicSkill(d, category.id)!.martial_art_id)" @change="prepare(d, basicSkill(d, category.id)!.martial_art_id, $event)">
                     <option v-for="skill in combatChoices(d, basicSkill(d, category.id)!)" :key="skill.martial_art_id" :value="skill.martial_art_id">

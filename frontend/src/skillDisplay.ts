@@ -3,7 +3,7 @@ import type { MartialArt, SkillEntry } from './types'
 
 export const skillCategories: Array<{ id: SkillCategory; label: string; hint: string }> = [
   { id: SkillCategory.Unarmed, label: '拳脚', hint: '拳掌指爪' },
-  { id: SkillCategory.Parry, label: '招架', hint: '拆解守御' },
+  { id: SkillCategory.Parry, label: '招架', hint: '可择拳脚兵器为招架式' },
   { id: SkillCategory.Dodge, label: '轻功', hint: '身法步法' },
   { id: SkillCategory.Force, label: '内功', hint: '内力根基' },
   { id: SkillCategory.Weapon, label: '兵器', hint: '本门器械' },

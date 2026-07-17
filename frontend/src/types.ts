@@ -62,6 +62,7 @@ export interface MartialArt {
   req_talent?: number
   sect_id?: string | null
   basic_skill?: string
+  usable_for_parry?: boolean
   difficulty?: number
 }
 
