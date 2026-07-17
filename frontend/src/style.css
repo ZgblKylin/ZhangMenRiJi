@@ -120,7 +120,7 @@ button { color: inherit; }
 .value { font-size:.88rem; line-height:1.12; }
 
 /* 中栏内容页签 */
-.section-tabs { z-index:3; position:sticky; top:-.6rem; gap:.12rem; margin:-.6rem -1.05rem .55rem; padding:.35rem .55rem 0; background:#eee0c3f2; box-shadow:0 2px 5px #6d4b2b12; }
+.section-tabs { z-index:3; position:sticky; top:-.6rem; gap:.12rem; margin:-.6rem -1.05rem .55rem; padding:.35rem 0 0 .55rem; background:#eee0c3f2; box-shadow:0 2px 5px #6d4b2b12; }
 .section-tabs button { padding:.3rem .4rem; font-size:.8rem; letter-spacing:.04em; white-space:nowrap; }
 .section-tabs > span { min-width:0; flex:1 1 auto; overflow:hidden; padding:.05rem 0 .28rem; text-align:right; text-overflow:ellipsis; font-size:.62rem; }
 .section-tabs > span b { font-size:.8rem; }
