@@ -25,7 +25,7 @@ const choreActions: Array<[ActionKind, string]> = [
 ]
 const actionsFor = (disciple: Disciple) => disciple.rank === 'chore' ? choreActions : disciple.rank === 'outer' ? outerActions : innerActions
 const actionName = (disciple: Disciple) => actionsFor(disciple).find(([kind]) => kind === disciple.action?.kind)?.[1] || '未安排'
-const displayedSkillCategories = skillCategories.filter(category => category.id !== SkillCategory.Parry)
+const displayedSkillCategories = skillCategories
 const rankName = { chore: '杂役', outer: '外门', inner: '内门' }
 const conditionName = { healthy: '安好', exhausted: '力竭', unconscious: '昏迷', seriously_injured: '重伤', dead: '亡故' }
 const artName = (id: string) => displayArtName(props.arts, id)
@@ -98,7 +98,7 @@ const appoint = (disciple: Disciple) => emit('manage', {
         <button class="disciple-summary" @click="openId = openId === d.id ? null : d.id">
           <span class="disciple-name">{{ d.name }}</span>
           <span class="rank-seal">{{ rankName[d.rank] }}</span>
-          <span class="disciple-brief">{{ d.age }}岁 · {{ artName(d.martial_art) }} · 门忠{{ d.attributes?.sect_loyalty ?? d.loyalty }} · 本月{{ actionName(d) }}</span>
+          <span class="disciple-brief">{{ d.age }}岁 · 门忠{{ d.attributes?.sect_loyalty ?? d.loyalty }} · 本月{{ actionName(d) }}</span>
           <span class="condition" :class="d.condition">{{ d.away_months ? `外出${d.away_months}月` : conditionName[d.condition] }}</span>
         </button>
         <div v-if="openId === d.id" class="disciple-detail">
