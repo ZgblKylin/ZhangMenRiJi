@@ -63,6 +63,21 @@ button { color: inherit; }
 .world-sect-card .sect-view-entry { color:var(--color-cinnabar); border-color:#c43a3166; }.sect-view { min-width:0; }.sect-view-header { position:relative; display:grid; grid-template-columns:auto minmax(120px,1fr) minmax(185px,1.35fr) auto; align-items:center; gap:.55rem; padding:.35rem .45rem .45rem; border-bottom:2px solid var(--color-cinnabar); background:linear-gradient(90deg,#e8d5a866,transparent); text-align:center; }.sect-view-header > div > span { color:var(--color-cinnabar); font:.62rem var(--font-title); letter-spacing:.12em; }.sect-view-header h2 { margin:.05rem 0; font:1.2rem var(--font-title); letter-spacing:.12em; }.sect-view-header small { color:var(--color-ink-fade); }.sect-view-header > i { display:grid; place-items:center; width:30px; height:30px; border:2px solid var(--color-cinnabar); color:var(--color-cinnabar); font:1rem var(--font-title); font-style:normal; transform:rotate(-4deg); }.sect-view-header-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:.18rem; }.sect-view-header-stats > span { min-width:0; padding:.2rem .12rem; border:1px solid var(--color-border); background:#faf3e4b8; }.sect-view-header-stats small,.sect-view-header-stats b { display:block; }.sect-view-header-stats small { color:var(--color-ink-light); font-size:.58rem; }.sect-view-header-stats b { color:var(--color-ink); font-size:.88rem; }.sect-view-header-stats em { margin-left:.06rem; color:var(--color-ink-fade); font-size:.55rem; font-style:normal; }.sect-ledger-section { margin-top:.45rem; padding:.38rem; border:1px solid var(--color-border); background:#faf3e47d; }.sect-ledger-title { margin-bottom:.28rem; color:var(--color-cinnabar); font:.72rem var(--font-title); letter-spacing:.08em; border-bottom:1px dotted var(--color-border); }.npc-disciple-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:.3rem; }.npc-disciple-card { min-width:0; padding:.3rem; border-left:3px solid var(--color-jade); background:var(--color-paper-light); }.npc-disciple-head { display:flex; justify-content:space-between; gap:.2rem; }.npc-disciple-head b { font-size:.75rem; }.npc-disciple-head span,.npc-disciple-card > small { color:var(--color-ink-fade); font-size:.55rem; }.npc-skill-groups { display:grid; grid-template-columns:1fr 1fr; gap:.14rem; margin-top:.22rem; }.npc-skill-groups section { min-width:0; padding:.14rem; background:#e8d5a84d; }.npc-skill-groups header { color:var(--color-cinnabar); font-size:.5rem; }.npc-skill-groups span { display:flex; justify-content:space-between; gap:.12rem; }.npc-skill-groups b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.52rem; }.npc-skill-groups em { color:var(--color-jade); font-size:.5rem; font-style:normal; }.npc-skill-groups small { color:var(--color-ink-fade); font-size:.48rem; }.sect-ledger-columns { display:grid; grid-template-columns:1fr 1fr; gap:.35rem; margin-top:.35rem; }.readonly-building-list { display:grid; grid-template-columns:1fr 1fr; gap:.18rem; }.readonly-building-list span { display:flex; justify-content:space-between; gap:.2rem; padding:.18rem .25rem; background:var(--color-paper-light); font-size:.58rem; }.readonly-building-list small { color:var(--color-ink-fade); font-size:.52rem; }.readonly-inventory,.readonly-relations { display:flex; flex-wrap:wrap; gap:.2rem; }.readonly-inventory span,.readonly-relations span { padding:.14rem .28rem; border:1px solid var(--color-border); background:var(--color-paper-light); font-size:.55rem; }.readonly-inventory b { margin-right:.25rem; }.relation-title { margin-top:.35rem; }.readonly-relations .friendly { color:var(--color-jade); }.readonly-relations .hostile { color:var(--color-cinnabar); }.readonly-relations .neutral { color:var(--color-ink-light); }
 .event-category { width:max-content; margin:0 auto .35rem; padding:.1rem .55rem; border:1px solid var(--color-cinnabar); color:var(--color-cinnabar); font:.7rem var(--font-title); }.event-prose { padding:.8rem; background:#e8d5a84d; border-block:1px solid var(--color-border); line-height:1.9; text-indent:2em; }.event-choices { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-top:.8rem; }.event-choices button { padding:.6rem; border:1px solid var(--color-border); background:var(--color-paper-light); text-align:left; cursor:pointer; }.event-choices button:hover:not(:disabled) { border-color:var(--color-cinnabar); transform:translateY(-1px); box-shadow:0 3px 10px #2c181026; }.event-choices b,.event-choices span { display:block; }.event-choices b { color:var(--color-cinnabar); font: .9rem var(--font-title); }.event-choices span { margin-top:.25rem; color:var(--color-ink-fade); font-size:.7rem; line-height:1.5; }.choice-warning { margin-top:.6rem; text-align:center; color:var(--color-ink-fade); font-size:.65rem; }
 
+/* 中栏内部只允许纵向卷动，卡片网格按栏宽收缩。 */
+.management-sheet { min-width:0; overflow-x:hidden; }
+.management-sheet > * { min-width:0; }
+.decision-grid,.policy-grid,.warehouse-ledger,.rank-ledger,.moral-grid,.building-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.order-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.manual-list { grid-template-columns:repeat(2,minmax(0,1fr)); overflow-x:hidden; }
+.decision-card,.policy-card,.order-card,.building-card,.manual-card,.warehouse-ledger span,.rank-ledger span,.building-actions .btn,.elder-duty-option { min-width:0; }
+.manual-card { grid-template-columns:minmax(0,1fr) auto; }
+.building-header { grid-template-columns:minmax(0,1fr) minmax(0,auto) auto; }
+.building-header > *,.elder-duty-actions { min-width:0; }
+.building-header > i { max-width:6.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.elder-duty-actions { flex-wrap:wrap; }
+.elder-duty-actions small { min-width:0; }
+.building-actions .btn,.order-card span,.manual-card div,.manual-card small { overflow-wrap:anywhere; }
+
 /* 长老月务：月首荐选、可改选，并以宣纸悬签说明效果 */
 .elder-duty-actions small { margin-right:auto; }
 .elder-duty-option { position:relative; }
@@ -105,9 +120,9 @@ button { color: inherit; }
 .value { font-size:.88rem; line-height:1.12; }
 
 /* 中栏内容页签 */
-.section-tabs { z-index:3; position:sticky; top:-.6rem; gap:.15rem; margin:-.6rem -1.05rem .55rem; padding:.35rem .55rem 0; background:#eee0c3f2; box-shadow:0 2px 5px #6d4b2b12; }
-.section-tabs button { padding:.3rem .46rem; font-size:.8rem; letter-spacing:.04em; white-space:nowrap; }
-.section-tabs > span { padding:.05rem 0 .28rem; text-align:right; font-size:.62rem; }
+.section-tabs { z-index:3; position:sticky; top:-.6rem; gap:.12rem; margin:-.6rem -1.05rem .55rem; padding:.35rem .55rem 0; background:#eee0c3f2; box-shadow:0 2px 5px #6d4b2b12; }
+.section-tabs button { padding:.3rem .4rem; font-size:.8rem; letter-spacing:.04em; white-space:nowrap; }
+.section-tabs > span { min-width:0; flex:1 1 auto; overflow:hidden; padding:.05rem 0 .28rem; text-align:right; text-overflow:ellipsis; font-size:.62rem; }
 .section-tabs > span b { font-size:.8rem; }
 
 /* 武侠宣纸下拉菜单 */
@@ -127,6 +142,8 @@ button { color: inherit; }
 .medicine-tooltip::before { content:''; z-index:41; position:absolute; left:50%; bottom:calc(100% + 4px); width:7px; height:7px; border-right:1px solid var(--color-border); border-bottom:1px solid var(--color-border); background:#fffaf0; opacity:0; transform:translateX(-50%) rotate(45deg); transition:opacity .15s; }
 .medicine-tooltip:hover::after,.medicine-tooltip:focus-within::after { opacity:1; transform:translate(-50%,0); }
 .medicine-tooltip:hover::before,.medicine-tooltip:focus-within::before { opacity:1; }
+.elder-duty-option::after,.elder-duty-option::before,.medicine-tooltip::after,.medicine-tooltip::before { display:none; }
+.elder-duty-option:hover::after,.elder-duty-option:focus-visible::after,.elder-duty-option:hover::before,.elder-duty-option:focus-visible::before,.medicine-tooltip:hover::after,.medicine-tooltip:focus-within::after,.medicine-tooltip:hover::before,.medicine-tooltip:focus-within::before { display:block; }
 .recipe-section { margin-top:.35rem; }
 .recipe-rate { display:flex; align-items:baseline; gap:.45rem; margin-bottom:.2rem; color:var(--color-cinnabar); font:.7rem var(--font-title); }
 .recipe-rate::after { content:''; flex:1; border-top:1px dotted var(--color-border); }
