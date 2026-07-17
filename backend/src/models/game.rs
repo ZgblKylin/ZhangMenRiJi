@@ -63,14 +63,16 @@ impl Default for GameState {
     }
 }
 
-/// 游戏存档摘要（列表展示用）
+/// 存档列表条目（不拉取完整 state JSONB，仅提取展示字段）
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct GameSummary {
+pub struct GameListItem {
     pub id: uuid::Uuid,
     pub save_group_id: uuid::Uuid,
     pub save_type: String,
     pub sect_name: String,
-    pub state: serde_json::Value,
+    pub autosave: bool,
+    pub year: i32,
+    pub month: i32,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 

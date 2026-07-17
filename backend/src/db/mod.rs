@@ -1,4 +1,4 @@
-use crate::models::game::{CreateGameRequest, GameState, GameSummary};
+use crate::models::game::{CreateGameRequest, GameListItem, GameState};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -147,9 +147,13 @@ pub async fn get_game_group(pool: &PgPool, id: Uuid) -> Result<Option<Uuid>, sql
         .await
 }
 
-pub async fn list_games(pool: &PgPool) -> Result<Vec<GameSummary>, sqlx::Error> {
-    sqlx::query_as::<_, GameSummary>(
-        "SELECT id, save_group_id, save_type, sect_name, state, updated_at
+pub async fn list_games(pool: &PgPool) -> Result<Vec<GameListItem>, sqlx::Error> {
+    sqlx::query_as::<_, GameListItem>(
+        "SELECT id, save_group_id, save_type, sect_name,
+                COALESCE((state->>'autosave')::bool, true) AS autosave,
+                COALESCE((state->>'year')::int, 1) AS year,
+                COALESCE((state->>'month')::int, 1) AS month,
+                updated_at
          FROM games ORDER BY updated_at DESC",
     )
     .fetch_all(pool)

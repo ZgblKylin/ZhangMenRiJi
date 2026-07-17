@@ -71,9 +71,9 @@ pub async fn list_games(State(state): State<AppState>) -> impl IntoResponse {
                     "id": game.id,
                     "save_group_id": game.save_group_id,
                     "save_type": game.save_type,
-                    "autosave": game.state.get("autosave").and_then(|v| v.as_bool()).unwrap_or(true),
-                    "year": game.state.get("year").and_then(|v| v.as_i64()).unwrap_or(1),
-                    "month": game.state.get("month").and_then(|v| v.as_i64()).unwrap_or(1),
+                    "autosave": game.autosave,
+                    "year": game.year,
+                    "month": game.month,
                     "updated_at": game.updated_at.to_rfc3339(),
                 });
                 if let Some(group) = groups.iter_mut().find(|group| {
@@ -85,8 +85,8 @@ pub async fn list_games(State(state): State<AppState>) -> impl IntoResponse {
                     groups.push(serde_json::json!({
                         "save_group_id": game.save_group_id,
                         "sect_name": game.sect_name,
-                        "year": game.state.get("year").and_then(|v| v.as_i64()).unwrap_or(1),
-                        "month": game.state.get("month").and_then(|v| v.as_i64()).unwrap_or(1),
+                        "year": game.year,
+                        "month": game.month,
                         "updated_at": game.updated_at.to_rfc3339(),
                         "saves": [save],
                     }));
