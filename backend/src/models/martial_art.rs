@@ -701,7 +701,7 @@ fn martial_art(
     };
     let is_combat = category != SkillCategory::Knowledge;
     MartialArt {
-        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "riyue_outer_force"),
+        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "riyue_outer_force") || category == SkillCategory::Parry,
         id,
         name: name.into(),
         art_type: category.display(weapon_type),
