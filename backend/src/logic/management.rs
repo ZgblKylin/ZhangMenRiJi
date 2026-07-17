@@ -1127,6 +1127,11 @@ fn request_manual(state: &mut GameState, sect_id: &str, art_id: &str) -> Result<
         .into_iter()
         .find(|art| art.id == art_id)
         .ok_or_else(|| "此武学谱录无考。".to_string())?;
+    if art.category == crate::models::martial_art::SkillCategory::Parry
+        && art.tier != crate::models::martial_art::MartialTier::Basic
+    {
+        return Err("这册旧制招架谱已不再传授。".into());
+    }
     let relation = state.sect.relations.get(sect_id).copied().unwrap_or(0);
     let required_relation = if art.id.ends_with("_foundation") {
         10

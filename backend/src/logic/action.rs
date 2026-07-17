@@ -523,35 +523,71 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
     match kind {
         ActionKind::Read => {
             let art = preferred_book(actor);
-            let gain = skill_experience(d, &art, disciple::effective_intelligence(d), 85);
+            let intelligence = disciple::effective_intelligence(d);
+            let gain = adjusted_training_experience(
+                d,
+                &art,
+                skill_experience(d, &art, intelligence, 85),
+            );
+            let foundation = accompanying_basic_training(d, &art, intelligence, 35, rng);
             delta.spirit -= 10;
             delta.energy -= 3;
             delta.skill_experience.insert(art.clone(), gain);
+            if let Some((basic, basic_gain)) = &foundation {
+                *delta.skill_experience.entry(basic.clone()).or_default() += *basic_gain;
+            }
             log = format!(
-                "{}研读{}有所领悟，{}经验 +{}。",
+                "{}研读{}有所领悟，{}经验 +{}{}。",
                 d.name,
                 art_display(&art),
                 art_display(&art),
-                gain
+                gain,
+                foundation
+                    .map(|(basic, basic_gain)| format!(
+                        "，并夯实{}，经验 +{}",
+                        art_display(&basic),
+                        basic_gain
+                    ))
+                    .unwrap_or_default()
             );
         }
         ActionKind::Practice => {
-            let art = practice_art(d);
+            let art = practice_art(d, rng);
             let aptitude = (d.aptitudes.strength + d.aptitudes.agility) / 2;
-            let mut gain = skill_experience(d, &art, aptitude, 115);
+            let mut gain = adjusted_training_experience(
+                d,
+                &art,
+                skill_experience(d, &art, aptitude, 115),
+            );
             if !training_funded {
                 gain = (gain / 2).max(1);
+            }
+            let mut foundation = accompanying_basic_training(d, &art, aptitude, 45, rng);
+            if !training_funded {
+                if let Some((_, basic_gain)) = &mut foundation {
+                    *basic_gain = (*basic_gain / 2).max(1);
+                }
             }
             delta.qi -= 4;
             delta.neili -= 4;
             delta.energy -= 10;
             delta.skill_experience.insert(art.clone(), gain);
+            if let Some((basic, basic_gain)) = &foundation {
+                *delta.skill_experience.entry(basic.clone()).or_default() += *basic_gain;
+            }
             log = format!(
-                "{}在演武场反复练习{}，{}经验 +{}。",
+                "{}在演武场反复练习{}，{}经验 +{}{}。",
                 d.name,
                 art_display(&art),
                 art_display(&art),
-                gain
+                gain,
+                foundation
+                    .map(|(basic, basic_gain)| format!(
+                        "，并夯实{}，经验 +{}",
+                        art_display(&basic),
+                        basic_gain
+                    ))
+                    .unwrap_or_default()
             );
         }
         ActionKind::TemperBody => {
@@ -867,12 +903,74 @@ fn skill_experience(d: &Disciple, art: &str, aptitude: i32, intensity: i32) -> i
     .max(1)
 }
 
-fn practice_art(d: &Disciple) -> String {
-    d.action
+fn practice_art(d: &Disciple, rng: &mut impl Rng) -> String {
+    let selected = d
+        .action
         .as_ref()
         .and_then(|plan| plan.martial_art_id.clone())
         .filter(|art| d.martial_progress.proficiencies.contains_key(art))
-        .unwrap_or_else(|| d.martial_art.clone())
+        .unwrap_or_else(|| d.martial_art.clone());
+    let selected = if selected == "basic_parry" {
+        disciple::prepared_skill_id(d, "basic_parry")
+            .unwrap_or("basic_parry")
+            .to_string()
+    } else {
+        selected
+    };
+    if d.action.is_none() && rng.gen_bool(0.25) {
+        if let Some(basic) = corresponding_basic(d, &selected) {
+            return basic;
+        }
+    }
+    selected
+}
+
+fn corresponding_basic(d: &Disciple, art_id: &str) -> Option<String> {
+    let art = crate::models::martial_art::martial_art_by_id(art_id)?;
+    (art.tier != crate::models::martial_art::MartialTier::Basic
+        && !art.basic_skill.is_empty()
+        && d.martial_progress.proficiencies.contains_key(&art.basic_skill))
+    .then_some(art.basic_skill)
+}
+
+/// 基础武学修炼多得两成半；高级武学顶到基础等级后进入半效瓶颈。
+fn adjusted_training_experience(d: &Disciple, art_id: &str, gain: i64) -> i64 {
+    let Some(art) = crate::models::martial_art::martial_art_by_id(art_id) else {
+        return gain;
+    };
+    if art.tier == crate::models::martial_art::MartialTier::Basic {
+        return (gain * 125 / 100).max(1);
+    }
+    let at_basic_cap = d
+        .martial_progress
+        .proficiencies
+        .get(&art.basic_skill)
+        .is_some_and(|basic| skill_level(d, art_id) >= basic.level);
+    if at_basic_cap {
+        (gain / 2).max(1)
+    } else {
+        gain
+    }
+}
+
+/// 研读或练习高级武学时，有三成机会同时夯实对应基础武学。
+fn accompanying_basic_training(
+    d: &Disciple,
+    art_id: &str,
+    aptitude: i32,
+    intensity: i32,
+    rng: &mut impl Rng,
+) -> Option<(String, i64)> {
+    let basic = corresponding_basic(d, art_id)?;
+    if !rng.gen_bool(0.3) {
+        return None;
+    }
+    let gain = adjusted_training_experience(
+        d,
+        &basic,
+        skill_experience(d, &basic, aptitude, intensity),
+    );
+    Some((basic, gain))
 }
 
 fn inner_skill(d: &Disciple) -> String {
@@ -1068,7 +1166,14 @@ fn apply_disciple_delta(d: &mut Disciple, delta: DiscipleDelta) {
     d.merit = (d.merit + delta.merit).max(0);
     d.personal_silver = (d.personal_silver + delta.personal_silver).max(0);
     for (art, gain) in delta.skill_experience {
-        disciple::gain_skill_experience(d, &art, gain);
+        let trained_art = if art == "basic_parry" {
+            disciple::prepared_skill_id(d, "basic_parry")
+                .unwrap_or("basic_parry")
+                .to_string()
+        } else {
+            art
+        };
+        disciple::gain_skill_experience(d, &trained_art, gain);
     }
     if let Some(months) = delta.away_months {
         d.away_months = months;

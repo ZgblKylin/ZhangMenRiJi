@@ -14,11 +14,11 @@ pub enum SkillCategory {
 }
 
 impl SkillCategory {
-    pub const COMBAT: [Self; 5] = [
+    /// 正常传授的战斗门类。招架保留为基础技能及旧存档分类，不再生成门派通用招架。
+    pub const COMBAT: [Self; 4] = [
         Self::Unarmed,
         Self::Dodge,
         Self::Force,
-        Self::Parry,
         Self::Weapon,
     ];
 
@@ -86,6 +86,9 @@ pub struct MartialArt {
     /// 对应的基础技能 id。知识技能没有此项。
     pub basic_skill: String,
     pub difficulty: i32,
+    /// 除拳脚、兵器外，是否也可准备为招架式。
+    #[serde(default)]
+    pub usable_for_parry: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -96,7 +99,7 @@ struct SectMartialTemplate {
     weapon_type: &'static str,
     signature_id: &'static str,
     signature_category: SkillCategory,
-    /// 每层依次为拳脚、轻功、内功、招架、兵器。
+    /// 每层依次为拳脚、轻功、内功、旧制招架、兵器；旧制招架仅用于存档兼容。
     tiers: [[&'static str; 5]; 3],
 }
 
@@ -681,6 +684,7 @@ fn martial_art(
     basic_skill: impl Into<String>,
     weapon_type: &str,
 ) -> MartialArt {
+    let id = id.into();
     let power = match tier {
         MartialTier::Basic => 1,
         MartialTier::Chore => 2,
@@ -697,7 +701,8 @@ fn martial_art(
     };
     let is_combat = category != SkillCategory::Knowledge;
     MartialArt {
-        id: id.into(),
+        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "riyue_outer_force"),
+        id,
         name: name.into(),
         art_type: category.display(weapon_type),
         category,
@@ -811,7 +816,12 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
         .into_iter()
         .enumerate()
     {
-        for (category_index, category) in SkillCategory::COMBAT.into_iter().enumerate() {
+        for (category_index, category) in [
+            (0, SkillCategory::Unarmed),
+            (1, SkillCategory::Dodge),
+            (2, SkillCategory::Force),
+            (4, SkillCategory::Weapon),
+        ] {
             let id = if tier == MartialTier::Chore && category == SkillCategory::Force {
                 format!("{}_foundation", template.id)
             } else if tier == MartialTier::Inner && category == template.signature_category {
@@ -821,11 +831,10 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
             };
             let basic = match category {
                 SkillCategory::Unarmed => "basic_unarmed",
-                SkillCategory::Parry => "basic_parry",
                 SkillCategory::Dodge => "basic_dodge",
                 SkillCategory::Force => "basic_force",
                 SkillCategory::Weapon => template.weapon_basic,
-                SkillCategory::Knowledge => unreachable!(),
+                SkillCategory::Parry | SkillCategory::Knowledge => unreachable!(),
             };
             arts.push(martial_art(
                 id,
@@ -841,10 +850,31 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
     arts
 }
 
+/// 旧存档中的门派招架仍需静态名称、分类和数值，故保留在兼容目录；
+/// 它们不会出现在门派课程、初始藏书或正常残卷获取池中。
+fn legacy_parry_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
+    [MartialTier::Chore, MartialTier::Outer, MartialTier::Inner]
+        .into_iter()
+        .enumerate()
+        .map(|(tier_index, tier)| {
+            martial_art(
+                format!("{}_{}_parry", template.id, tier.slug()),
+                template.tiers[tier_index][3],
+                SkillCategory::Parry,
+                tier,
+                Some(template.id),
+                "basic_parry",
+                template.weapon_type,
+            )
+        })
+        .collect()
+}
+
 fn build_martial_arts() -> Vec<MartialArt> {
     let mut arts = basic_arts();
     arts.extend(player_arts());
     arts.extend(SECT_MARTIALS.iter().flat_map(sect_arts));
+    arts.extend(SECT_MARTIALS.iter().flat_map(legacy_parry_arts));
     arts
 }
 
@@ -896,7 +926,12 @@ pub fn sect_ids() -> impl Iterator<Item = &'static str> {
 pub fn sect_combat_arts(sect_id: &str, tier: MartialTier) -> Vec<MartialArt> {
     martial_registry()
         .iter()
-        .filter(|art| art.sect_id.as_deref() == Some(sect_id) && art.is_combat && art.tier == tier)
+        .filter(|art| {
+            art.sect_id.as_deref() == Some(sect_id)
+                && art.is_combat
+                && art.category != SkillCategory::Parry
+                && art.tier == tier
+        })
         .cloned()
         .collect()
 }

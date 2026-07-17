@@ -307,7 +307,12 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                 .chain(
                     all_martial_arts()
                         .into_iter()
-                        .filter(|art| art.sect_id.as_deref() == Some(template.id) && art.is_combat)
+                        .filter(|art| {
+                            art.sect_id.as_deref() == Some(template.id)
+                                && art.is_combat
+                                && art.category
+                                    != crate::models::martial_art::SkillCategory::Parry
+                        })
                         .map(|art| art.id),
                 )
                 .collect(),

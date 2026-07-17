@@ -633,7 +633,15 @@ pub fn apply_event_effect(
             "manual" => {
                 let learned = &state.martial_arts_learned;
                 let arts = all_martial_arts();
-                let unlearned: Vec<_> = arts.iter().filter(|a| !learned.contains(&a.id)).collect();
+                let unlearned: Vec<_> = arts
+                    .iter()
+                    .filter(|a| {
+                        !learned.contains(&a.id)
+                            && !(a.category
+                                == crate::models::martial_art::SkillCategory::Parry
+                                && a.tier != crate::models::martial_art::MartialTier::Basic)
+                    })
+                    .collect();
                 if !unlearned.is_empty() {
                     let art = unlearned[rng.gen_range(0..unlearned.len())];
                     state.martial_arts_learned.push(art.id.clone());

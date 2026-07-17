@@ -334,9 +334,8 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
         known.contains_key(basic_id)
             && known.contains_key(art_id)
             && martial_art_by_id(basic_id).is_some_and(|basic| basic.tier == MartialTier::Basic)
-            && martial_art_by_id(art_id).is_some_and(|art| {
-                art.is_combat && art.tier != MartialTier::Basic && art.basic_skill == *basic_id
-            })
+            && martial_art_by_id(art_id)
+                .is_some_and(|art| can_prepare_for_slot(basic_id, &art, known))
     });
 
     let basic_ids: Vec<String> = d
@@ -355,9 +354,8 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
             .proficiencies
             .iter()
             .filter(|(id, _)| {
-                martial_art_by_id(id).is_some_and(|art| {
-                    art.is_combat && art.tier != MartialTier::Basic && art.basic_skill == basic_id
-                })
+                martial_art_by_id(id)
+                    .is_some_and(|art| can_prepare_for_slot(&basic_id, &art, known))
             })
             .max_by_key(|(_, progress)| progress.level)
         {
@@ -389,6 +387,24 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
     }
 }
 
+fn can_prepare_for_slot(
+    basic_skill_id: &str,
+    art: &crate::models::martial_art::MartialArt,
+    known: &BTreeMap<String, SkillProgress>,
+) -> bool {
+    if !art.is_combat || art.tier == MartialTier::Basic {
+        return false;
+    }
+    if basic_skill_id == "basic_parry" {
+        return art.category == SkillCategory::Parry
+            || art.usable_for_parry
+            || (matches!(art.category, SkillCategory::Unarmed | SkillCategory::Weapon)
+                && !art.basic_skill.is_empty()
+                && known.contains_key(&art.basic_skill));
+    }
+    art.basic_skill == basic_skill_id
+}
+
 pub fn prepare_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Result<(), String> {
     let basic_skill_id = canonical_skill_id(basic_skill_id);
     let art_id = canonical_skill_id(art_id);
@@ -398,7 +414,11 @@ pub fn prepare_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Re
     if basic.tier != MartialTier::Basic || basic.category == SkillCategory::Knowledge {
         return Err("这门武学不能作为准备槽位。".into());
     }
-    if !art.is_combat || art.tier == MartialTier::Basic || art.basic_skill != basic_skill_id {
+    if !can_prepare_for_slot(
+        &basic_skill_id,
+        &art,
+        &d.martial_progress.proficiencies,
+    ) {
         return Err("这门武学与基础武学并不相配。".into());
     }
     if !d
@@ -640,16 +660,25 @@ pub fn assign_sect_curriculum(d: &mut Disciple, origin: &str, combat_level: i32)
     sync_legacy_attributes(d);
 }
 
-/// 门派战斗武学不能越过对应知识等级；基础技能和知识本身不受此限制。
+/// 高级武学不能越过对应基础武学及门派知识等级；已有旧修为不会被倒扣。
 pub fn gain_skill_experience(d: &mut Disciple, art_id: &str, amount: i64) -> i32 {
     let art_id = canonical_skill_id(art_id);
-    let cap = knowledge_skill_for_art(&art_id).map(|knowledge_id| skill_level(d, &knowledge_id));
+    let art = martial_art_by_id(&art_id);
+    let knowledge_cap = knowledge_skill_for_art(&art_id)
+        .map(|knowledge_id| skill_level(d, &knowledge_id));
+    let basic_cap = art.as_ref().and_then(|art| {
+        (art.tier != MartialTier::Basic && !art.basic_skill.is_empty())
+            .then(|| d.martial_progress.proficiencies.get(&art.basic_skill).map(|p| p.level))
+            .flatten()
+    });
+    let cap = knowledge_cap.into_iter().chain(basic_cap).min();
     let progress = d.martial_progress.proficiencies.entry(art_id).or_default();
     let old_level = progress.level;
     progress.gain_experience(amount);
     if let Some(cap) = cap {
-        progress.level = progress.level.min(cap);
-        if progress.level >= cap {
+        let effective_cap = cap.max(old_level);
+        progress.level = progress.level.min(effective_cap);
+        if progress.level >= effective_cap {
             progress.experience = progress.experience.min(
                 i64::from(progress.level.saturating_add(1))
                     .pow(2)
