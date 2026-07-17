@@ -99,8 +99,8 @@ struct SectMartialTemplate {
     weapon_type: &'static str,
     signature_id: &'static str,
     signature_category: SkillCategory,
-    /// 每层依次为拳脚、轻功、内功、旧制招架、兵器；旧制招架仅用于存档兼容。
-    tiers: [[&'static str; 5]; 3],
+    /// 每层依次为拳脚、轻功、内功、兵器。
+    tiers: [[&'static str; 4]; 3],
 }
 
 const SECT_MARTIALS: &[SectMartialTemplate] = &[
@@ -112,21 +112,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "taiji",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "武当长拳",
-                "武当身法",
-                "太极心法（初）",
-                "武当招架（初）",
-                "武当剑法（初）",
-            ],
-            [
-                "太极拳",
-                "梯云纵（初）",
-                "太极心法（中）",
-                "武当招架（中）",
-                "武当剑法（中）",
-            ],
-            ["太极拳经", "梯云纵", "太极神功", "太极招架", "太极剑法"],
+            ["武当长拳", "武当身法", "太极心法（初）", "武当剑法（初）"],
+            ["太极拳", "梯云纵（初）", "太极心法（中）", "武当剑法（中）"],
+            ["太极拳经", "梯云纵", "太极神功", "太极剑法"],
         ],
     },
     SectMartialTemplate {
@@ -137,21 +125,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "dugu",
         signature_category: SkillCategory::Weapon,
         tiers: [
-            [
-                "华山长拳",
-                "华山身法",
-                "华山心法（初）",
-                "华山招架（初）",
-                "华山剑法（初）",
-            ],
-            [
-                "劈石破玉拳",
-                "华山轻功",
-                "紫霞功（初）",
-                "华山招架（中）",
-                "华山剑法",
-            ],
-            ["混元掌", "神行百变", "紫霞神功", "独孤招架", "独孤九剑"],
+            ["华山长拳", "华山身法", "华山心法（初）", "华山剑法（初）"],
+            ["劈石破玉拳", "华山轻功", "紫霞功（初）", "华山剑法"],
+            ["混元掌", "神行百变", "紫霞神功", "独孤九剑"],
         ],
     },
     SectMartialTemplate {
@@ -162,27 +138,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "qiankun",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "明教长拳",
-                "光明身法",
-                "圣火功（初）",
-                "明教招架（初）",
-                "烈焰刀法",
-            ],
-            [
-                "鹰爪擒拿手",
-                "青蝠身法",
-                "圣火功（中）",
-                "明教招架（中）",
-                "风雷刀法",
-            ],
-            [
-                "七伤拳",
-                "乾坤挪移身法",
-                "乾坤大挪移",
-                "乾坤招架",
-                "圣火令法",
-            ],
+            ["明教长拳", "光明身法", "圣火功（初）", "烈焰刀法"],
+            ["鹰爪擒拿手", "青蝠身法", "圣火功（中）", "风雷刀法"],
+            ["七伤拳", "乾坤挪移身法", "乾坤大挪移", "圣火令法"],
         ],
     },
     SectMartialTemplate {
@@ -193,21 +151,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "xiantian",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "全真长拳",
-                "金雁功（初）",
-                "全真心法",
-                "全真招架（初）",
-                "全真剑法（初）",
-            ],
-            [
-                "三花聚顶掌",
-                "金雁功",
-                "先天功（初）",
-                "全真招架（中）",
-                "全真剑法",
-            ],
-            ["空明拳", "天罡北斗步", "先天功", "北斗招架", "一炁化三清剑"],
+            ["全真长拳", "金雁功（初）", "全真心法", "全真剑法（初）"],
+            ["三花聚顶掌", "金雁功", "先天功（初）", "全真剑法"],
+            ["空明拳", "天罡北斗步", "先天功", "一炁化三清剑"],
         ],
     },
     SectMartialTemplate {
@@ -218,21 +164,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "liumai",
         signature_category: SkillCategory::Unarmed,
         tiers: [
-            [
-                "天龙指法",
-                "天龙身法",
-                "枯禅心法",
-                "天龙招架（初）",
-                "慈悲剑法",
-            ],
-            [
-                "一阳指（初）",
-                "段氏身法",
-                "枯荣禅功",
-                "天龙招架（中）",
-                "哀牢山剑法",
-            ],
-            ["六脉神剑", "凌波微步", "枯荣神功", "枯荣招架", "六脉剑阵"],
+            ["天龙指法", "天龙身法", "枯禅心法", "慈悲剑法"],
+            ["一阳指（初）", "段氏身法", "枯荣禅功", "哀牢山剑法"],
+            ["六脉神剑", "凌波微步", "枯荣神功", "六脉剑阵"],
         ],
     },
     SectMartialTemplate {
@@ -243,21 +177,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "luoying",
         signature_category: SkillCategory::Unarmed,
         tiers: [
-            [
-                "碧波掌法",
-                "桃花身法",
-                "碧波心法",
-                "桃花招架（初）",
-                "落英剑法（初）",
-            ],
-            [
-                "兰花拂穴手",
-                "灵鳌步",
-                "碧海潮生功",
-                "桃花招架（中）",
-                "玉箫剑法",
-            ],
-            ["落英神剑掌", "旋风扫叶腿", "奇门玄功", "弹指招架", "玉箫剑"],
+            ["碧波掌法", "桃花身法", "碧波心法", "落英剑法（初）"],
+            ["兰花拂穴手", "灵鳌步", "碧海潮生功", "玉箫剑法"],
+            ["落英神剑掌", "旋风扫叶腿", "奇门玄功", "玉箫剑"],
         ],
     },
     SectMartialTemplate {
@@ -268,15 +190,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "yijin",
         signature_category: SkillCategory::Force,
         tiers: [
-            ["罗汉拳", "少林身法", "少林心法", "少林招架（初）", "韦陀棍"],
-            [
-                "大金刚拳",
-                "一苇渡江",
-                "混元一气功",
-                "少林招架（中）",
-                "伏魔棍法",
-            ],
-            ["拈花指", "八步赶蝉", "易筋经", "金刚不坏体", "达摩剑法"],
+            ["罗汉拳", "少林身法", "少林心法", "韦陀棍"],
+            ["大金刚拳", "一苇渡江", "混元一气功", "伏魔棍法"],
+            ["拈花指", "八步赶蝉", "易筋经", "达摩剑法"],
         ],
     },
     SectMartialTemplate {
@@ -287,27 +203,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "yunu",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "美女拳法",
-                "古墓身法",
-                "古墓心法（初）",
-                "古墓招架（初）",
-                "玉女剑法（初）",
-            ],
-            [
-                "天罗地网掌",
-                "捕雀功",
-                "玉女心法",
-                "古墓招架（中）",
-                "玉女剑法",
-            ],
-            [
-                "黯然销魂掌",
-                "玉女身法",
-                "玉女心经",
-                "玉女招架",
-                "玉女素心剑",
-            ],
+            ["美女拳法", "古墓身法", "古墓心法（初）", "玉女剑法（初）"],
+            ["天罗地网掌", "捕雀功", "玉女心法", "玉女剑法"],
+            ["黯然销魂掌", "玉女身法", "玉女心经", "玉女素心剑"],
         ],
     },
     SectMartialTemplate {
@@ -318,15 +216,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "dagou",
         signature_category: SkillCategory::Weapon,
         tiers: [
-            [
-                "丐帮长拳",
-                "逍遥游（初）",
-                "混天气功（初）",
-                "丐帮招架（初）",
-                "叫花棒法",
-            ],
-            ["莲花掌", "逍遥游", "混天气功", "丐帮招架（中）", "疯魔杖法"],
-            ["降龙十八掌", "四方步", "擒龙功", "降龙招架", "打狗棒法"],
+            ["丐帮长拳", "逍遥游（初）", "混天气功（初）", "叫花棒法"],
+            ["莲花掌", "逍遥游", "混天气功", "疯魔杖法"],
+            ["降龙十八掌", "四方步", "擒龙功", "打狗棒法"],
         ],
     },
     SectMartialTemplate {
@@ -337,21 +229,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "jiuyin",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "金顶绵掌",
-                "峨嵋身法",
-                "峨嵋心法",
-                "峨嵋招架（初）",
-                "峨嵋剑法（初）",
-            ],
-            [
-                "飘雪穿云掌",
-                "诸天化身步",
-                "临济十二庄",
-                "峨嵋招架（中）",
-                "回风拂柳剑",
-            ],
-            ["截手九式", "金顶云踪", "九阴真经", "佛光招架", "灭绝剑法"],
+            ["金顶绵掌", "峨嵋身法", "峨嵋心法", "峨嵋剑法（初）"],
+            ["飘雪穿云掌", "诸天化身步", "临济十二庄", "回风拂柳剑"],
+            ["截手九式", "金顶云踪", "九阴真经", "灭绝剑法"],
         ],
     },
     SectMartialTemplate {
@@ -362,21 +242,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "kuihua",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "日月掌法",
-                "日月身法",
-                "日月心法",
-                "日月招架（初）",
-                "日月剑法",
-            ],
-            [
-                "吸星掌",
-                "鬼魅身法",
-                "吸星大法",
-                "日月招架（中）",
-                "辟邪剑法（初）",
-            ],
-            ["葵花指", "葵花身法", "葵花宝典", "葵花招架", "辟邪剑法"],
+            ["日月掌法", "日月身法", "日月心法", "日月剑法"],
+            ["吸星掌", "鬼魅身法", "吸星大法", "辟邪剑法（初）"],
+            ["葵花指", "葵花身法", "葵花宝典", "辟邪剑法"],
         ],
     },
     SectMartialTemplate {
@@ -387,21 +255,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "huagong",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "星宿掌",
-                "星宿身法",
-                "星宿心法",
-                "星宿招架（初）",
-                "星宿杖法",
-            ],
-            [
-                "抽髓掌",
-                "摘星身法",
-                "化功心法",
-                "星宿招架（中）",
-                "天山杖法",
-            ],
-            ["三阴蜈蚣爪", "飞星术", "化功大法", "毒功招架", "天山杖"],
+            ["星宿掌", "星宿身法", "星宿心法", "星宿杖法"],
+            ["抽髓掌", "摘星身法", "化功心法", "天山杖法"],
+            ["三阴蜈蚣爪", "飞星术", "化功大法", "天山杖"],
         ],
     },
     SectMartialTemplate {
@@ -412,15 +268,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "douzhuan",
         signature_category: SkillCategory::Dodge,
         tiers: [
-            [
-                "慕容长拳",
-                "燕子身法",
-                "慕容心法",
-                "慕容招架（初）",
-                "慕容剑法",
-            ],
-            ["参合指", "燕灵身法", "参合功", "以彼之道", "龙城剑法"],
-            ["参合指法", "斗转星移", "斗转心法", "斗转招架", "慕容家传剑"],
+            ["慕容长拳", "燕子身法", "慕容心法", "慕容剑法"],
+            ["参合指", "燕灵身法", "参合功", "龙城剑法"],
+            ["参合指法", "斗转星移", "斗转心法", "慕容家传剑"],
         ],
     },
     SectMartialTemplate {
@@ -431,21 +281,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "longxiang",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "大轮掌",
-                "雪山身法",
-                "密宗心法",
-                "大轮招架（初）",
-                "金刚杵法",
-            ],
-            [
-                "大手印",
-                "移形换位",
-                "龙象功（初）",
-                "大轮招架（中）",
-                "降魔杵法",
-            ],
-            ["火焰刀", "无上大挪移", "龙象般若功", "龙象招架", "五轮大转"],
+            ["大轮掌", "雪山身法", "密宗心法", "金刚杵法"],
+            ["大手印", "移形换位", "龙象功（初）", "降魔杵法"],
+            ["火焰刀", "无上大挪移", "龙象般若功", "五轮大转"],
         ],
     },
     SectMartialTemplate {
@@ -456,15 +294,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "xuantian",
         signature_category: SkillCategory::Force,
         tiers: [
-            ["御前拳法", "御前身法", "宫门心法", "御前招架", "御林刀法"],
-            [
-                "大擒拿手",
-                "八方步",
-                "玄天功（初）",
-                "大内招架",
-                "血滴子刀法",
-            ],
-            ["凝血神爪", "神行百变", "玄天无极功", "玄天招架", "金蛇剑法"],
+            ["御前拳法", "御前身法", "宫门心法", "御林刀法"],
+            ["大擒拿手", "八方步", "玄天功（初）", "血滴子刀法"],
+            ["凝血神爪", "神行百变", "玄天无极功", "金蛇剑法"],
         ],
     },
     SectMartialTemplate {
@@ -475,27 +307,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "bahuang",
         signature_category: SkillCategory::Force,
         tiers: [
-            [
-                "灵鹫掌法",
-                "灵鹫身法",
-                "灵鹫心法",
-                "灵鹫招架（初）",
-                "灵鹫剑法",
-            ],
-            [
-                "天山折梅手",
-                "月影舞步",
-                "小无相功",
-                "灵鹫招架（中）",
-                "天羽奇剑",
-            ],
-            [
-                "天山六阳掌",
-                "凌波微步",
-                "八荒六合唯我独尊功",
-                "逍遥招架",
-                "逍遥剑法",
-            ],
+            ["灵鹫掌法", "灵鹫身法", "灵鹫心法", "灵鹫剑法"],
+            ["天山折梅手", "月影舞步", "小无相功", "天羽奇剑"],
+            ["天山六阳掌", "凌波微步", "八荒六合唯我独尊功", "逍遥剑法"],
         ],
     },
     SectMartialTemplate {
@@ -506,21 +320,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "hamagong",
         signature_category: SkillCategory::Unarmed,
         tiers: [
-            [
-                "白驼掌",
-                "白驼身法",
-                "白驼心法",
-                "白驼招架（初）",
-                "灵蛇杖法（初）",
-            ],
-            [
-                "灵蛇拳",
-                "瞬息千里",
-                "逆行经脉",
-                "白驼招架（中）",
-                "灵蛇杖法",
-            ],
-            ["蛤蟆功", "蛇行狸翻", "九阴逆运", "蛤蟆招架", "神驼雪山掌杖"],
+            ["白驼掌", "白驼身法", "白驼心法", "灵蛇杖法（初）"],
+            ["灵蛇拳", "瞬息千里", "逆行经脉", "灵蛇杖法"],
+            ["蛤蟆功", "蛇行狸翻", "九阴逆运", "神驼雪山掌杖"],
         ],
     },
     SectMartialTemplate {
@@ -531,21 +333,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "xueshan",
         signature_category: SkillCategory::Weapon,
         tiers: [
-            [
-                "雪山掌法",
-                "雪山身法",
-                "雪山心法（初）",
-                "雪山招架（初）",
-                "入门十三剑",
-            ],
-            [
-                "雪影擒拿手",
-                "踏雪无痕",
-                "雪山心法",
-                "雪山招架（中）",
-                "雪山剑法（初）",
-            ],
-            ["金乌刀掌", "凌霄飞渡", "雪山神功", "凌霄招架", "雪山剑法"],
+            ["雪山掌法", "雪山身法", "雪山心法（初）", "入门十三剑"],
+            ["雪影擒拿手", "踏雪无痕", "雪山心法", "雪山剑法（初）"],
+            ["金乌刀掌", "凌霄飞渡", "雪山神功", "雪山剑法"],
         ],
     },
     SectMartialTemplate {
@@ -556,15 +346,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "ningxue",
         signature_category: SkillCategory::Unarmed,
         tiers: [
-            ["洪门拳", "洪门身法", "洪门心法", "洪门招架", "地堂刀法"],
-            [
-                "凝血爪（初）",
-                "百胜步",
-                "凝血心法",
-                "天地会招架",
-                "百胜刀法",
-            ],
-            ["凝血神爪", "神行百变", "凝血神功", "英雄招架", "英雄刀法"],
+            ["洪门拳", "洪门身法", "洪门心法", "地堂刀法"],
+            ["凝血爪（初）", "百胜步", "凝血心法", "百胜刀法"],
+            ["凝血神爪", "神行百变", "凝血神功", "英雄刀法"],
         ],
     },
     SectMartialTemplate {
@@ -575,21 +359,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "shenlong",
         signature_category: SkillCategory::Unarmed,
         tiers: [
-            [
-                "神龙掌",
-                "蛇岛身法",
-                "神龙心法",
-                "神龙招架（初）",
-                "腾蛇杖法",
-            ],
-            [
-                "化骨绵掌",
-                "游蛇步",
-                "神龙心法（中）",
-                "神龙招架（中）",
-                "五蛇杖法",
-            ],
-            ["神龙八式", "神龙无影步", "神龙神功", "神龙招架", "神龙杖法"],
+            ["神龙掌", "蛇岛身法", "神龙心法", "腾蛇杖法"],
+            ["化骨绵掌", "游蛇步", "神龙心法（中）", "五蛇杖法"],
+            ["神龙八式", "神龙无影步", "神龙神功", "神龙杖法"],
         ],
     },
     SectMartialTemplate {
@@ -600,21 +372,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "yinyang",
         signature_category: SkillCategory::Weapon,
         tiers: [
-            [
-                "绝情掌",
-                "绝情身法",
-                "绝情心法（初）",
-                "绝情招架（初）",
-                "绝情刀法",
-            ],
-            [
-                "闭穴功",
-                "铁掌身法",
-                "阴阳心法",
-                "绝情招架（中）",
-                "阴阳双刃",
-            ],
-            ["铁掌功", "水上漂", "阴阳神功", "阴阳招架", "阴阳倒乱刃法"],
+            ["绝情掌", "绝情身法", "绝情心法（初）", "绝情刀法"],
+            ["闭穴功", "铁掌身法", "阴阳心法", "阴阳双刃"],
+            ["铁掌功", "水上漂", "阴阳神功", "阴阳倒乱刃法"],
         ],
     },
     SectMartialTemplate {
@@ -625,21 +385,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "wudu",
         signature_category: SkillCategory::Unarmed,
         tiers: [
-            [
-                "五毒掌",
-                "五毒身法",
-                "五毒心法",
-                "五毒招架（初）",
-                "软索鞭法",
-            ],
-            [
-                "千蛛万毒手",
-                "金蛇游身",
-                "五毒真气",
-                "五毒招架（中）",
-                "金蛇鞭法",
-            ],
-            ["五毒神掌", "幻雾身法", "五毒神功", "毒砂招架", "金蛇锥法"],
+            ["五毒掌", "五毒身法", "五毒心法", "软索鞭法"],
+            ["千蛛万毒手", "金蛇游身", "五毒真气", "金蛇鞭法"],
+            ["五毒神掌", "幻雾身法", "五毒神功", "金蛇锥法"],
         ],
     },
     SectMartialTemplate {
@@ -650,27 +398,9 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         signature_id: "songfeng",
         signature_category: SkillCategory::Weapon,
         tiers: [
-            [
-                "青城长拳",
-                "青城身法",
-                "青城心法",
-                "青城招架（初）",
-                "松风剑法（初）",
-            ],
-            [
-                "摧心掌",
-                "无影幻脚",
-                "鹤唳心法",
-                "青城招架（中）",
-                "松风剑法",
-            ],
-            [
-                "青城摧心掌",
-                "蜀道难",
-                "鹤唳九霄神功",
-                "松风招架",
-                "青城绝命剑",
-            ],
+            ["青城长拳", "青城身法", "青城心法", "松风剑法（初）"],
+            ["摧心掌", "无影幻脚", "鹤唳心法", "松风剑法"],
+            ["青城摧心掌", "蜀道难", "鹤唳九霄神功", "青城绝命剑"],
         ],
     },
 ];
@@ -820,7 +550,7 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
             (0, SkillCategory::Unarmed),
             (1, SkillCategory::Dodge),
             (2, SkillCategory::Force),
-            (4, SkillCategory::Weapon),
+            (3, SkillCategory::Weapon),
         ] {
             let id = if tier == MartialTier::Chore && category == SkillCategory::Force {
                 format!("{}_foundation", template.id)
