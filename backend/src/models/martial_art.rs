@@ -304,12 +304,12 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
         knowledge: "逍遥心法",
         weapon_basic: "basic_sword",
         weapon_type: "剑法",
-        signature_id: "bahuang",
+        signature_id: "beiming",
         signature_category: SkillCategory::Force,
         tiers: [
             ["灵鹫掌法", "灵鹫身法", "灵鹫心法", "灵鹫剑法"],
             ["天山折梅手", "月影舞步", "小无相功", "天羽奇剑"],
-            ["天山六阳掌", "凌波微步", "八荒六合唯我独尊功", "逍遥剑法"],
+            ["天山六阳掌", "凌波微步", "北冥神功", "逍遥剑法"],
         ],
     },
     SectMartialTemplate {
@@ -431,7 +431,7 @@ fn martial_art(
     };
     let is_combat = category != SkillCategory::Knowledge;
     MartialArt {
-        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "riyue_outer_force"),
+        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "beiming" | "riyue_outer_force"),
         id,
         name: name.into(),
         art_type: category.display(weapon_type),
