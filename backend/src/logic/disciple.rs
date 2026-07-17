@@ -1043,7 +1043,7 @@ mod tests {
         assert!(base_skill_ids("wudang")
             .iter()
             .all(|id| d.martial_progress.proficiencies.contains_key(id)));
-        assert_eq!(sect_combat_arts("wudang", MartialTier::Outer).len(), 5);
+        assert_eq!(sect_combat_arts("wudang", MartialTier::Outer).len(), 4);
         assert!(sect_combat_arts("wudang", MartialTier::Outer)
             .iter()
             .all(|art| d.martial_progress.proficiencies.contains_key(&art.id)));

@@ -977,7 +977,7 @@ mod tests {
                 .all(|id| arts.iter().any(|art| &art.id == id)));
             for tier in [MartialTier::Chore, MartialTier::Outer, MartialTier::Inner] {
                 let tier_arts = sect_combat_arts(sect_id, tier);
-                assert_eq!(tier_arts.len(), 5, "{sect_id} {tier:?}");
+                assert_eq!(tier_arts.len(), 4, "{sect_id} {tier:?}");
                 assert_eq!(
                     tier_arts
                         .iter()
