@@ -164,7 +164,7 @@ const SECTS: &[SectTemplate] = &[
     },
     SectTemplate {
         id: "court",
-        name: "怯薛军",
+        name: "金帐汗国",
         country: "yuan",
         policy: SectPolicy::Mercantile,
         signature: "xuantian",

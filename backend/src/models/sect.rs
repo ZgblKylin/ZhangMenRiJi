@@ -244,7 +244,7 @@ pub fn default_countries() -> Vec<Country> {
     vec![
         Country {
             id: "yuan".into(),
-            name: "金帐汗国".into(),
+            name: "大元".into(),
             prosperity: 72,
             order: 68,
         },
