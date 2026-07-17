@@ -701,7 +701,7 @@ fn martial_art(
     };
     let is_combat = category != SkillCategory::Knowledge;
     MartialArt {
-        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "riyue_outer_force") || category == SkillCategory::Parry,
+        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "riyue_outer_force"),
         id,
         name: name.into(),
         art_type: category.display(weapon_type),
@@ -850,31 +850,10 @@ fn sect_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
     arts
 }
 
-/// 旧存档中的门派招架仍需静态名称、分类和数值，故保留在兼容目录；
-/// 它们不会出现在门派课程、初始藏书或正常残卷获取池中。
-fn legacy_parry_arts(template: &SectMartialTemplate) -> Vec<MartialArt> {
-    [MartialTier::Chore, MartialTier::Outer, MartialTier::Inner]
-        .into_iter()
-        .enumerate()
-        .map(|(tier_index, tier)| {
-            martial_art(
-                format!("{}_{}_parry", template.id, tier.slug()),
-                template.tiers[tier_index][3],
-                SkillCategory::Parry,
-                tier,
-                Some(template.id),
-                "basic_parry",
-                template.weapon_type,
-            )
-        })
-        .collect()
-}
-
 fn build_martial_arts() -> Vec<MartialArt> {
     let mut arts = basic_arts();
     arts.extend(player_arts());
     arts.extend(SECT_MARTIALS.iter().flat_map(sect_arts));
-    arts.extend(SECT_MARTIALS.iter().flat_map(legacy_parry_arts));
     arts
 }
 
