@@ -174,6 +174,9 @@ fn finish_month(
         });
     }
     events.extend(crate::logic::world::run_npc_ai(rng, state));
+    events.extend(crate::logic::interaction::run_monthly_interactions(
+        rng, state,
+    ));
     // 所有人物仍基于定夺完成后的同一份月初快照并行行动，结果统一归并。
     events.extend(crate::logic::action::run_auto_actions(state));
     // 自主决定本月外出的弟子会在行动结算后得到实际行期，此时补办一次申领。

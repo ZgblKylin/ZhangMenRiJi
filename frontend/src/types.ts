@@ -143,6 +143,8 @@ export interface SectAttributes { prestige: number; silver: number; morality: nu
 export interface SectState {
   id: string
   name: string
+  description: string
+  landmark: string
   country_id: string
   player_controlled: boolean
   attributes: SectAttributes

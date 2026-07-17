@@ -150,6 +150,12 @@ pub struct ProductionTask {
 pub struct SectState {
     pub id: String,
     pub name: String,
+    /// 门派卷宗中的简述；旧存档缺失时为空。
+    #[serde(default)]
+    pub description: String,
+    /// 门派驻地或朝廷中枢；旧存档缺失时为空。
+    #[serde(default)]
+    pub landmark: String,
     pub country_id: String,
     pub player_controlled: bool,
     pub attributes: SectAttributes,
@@ -174,6 +180,8 @@ impl Default for SectState {
         Self {
             id: "player".into(),
             name: "无名派".into(),
+            description: "新立山门，百业待兴。".into(),
+            landmark: "山门".into(),
             country_id: "song".into(),
             player_controlled: true,
             attributes: SectAttributes::default(),
@@ -236,7 +244,7 @@ pub fn default_countries() -> Vec<Country> {
     vec![
         Country {
             id: "yuan".into(),
-            name: "大元".into(),
+            name: "金帐汗国".into(),
             prosperity: 72,
             order: 68,
         },
@@ -263,7 +271,7 @@ pub fn default_countries() -> Vec<Country> {
 
 #[cfg(test)]
 mod tests {
-    use super::Building;
+    use super::{Building, SectState};
 
     #[test]
     fn legacy_building_without_duty_target_deserializes() {
@@ -278,5 +286,17 @@ mod tests {
         assert_eq!(building.id, "logistics");
         assert_eq!(building.level, 2);
         assert_eq!(building.duty_target, None);
+    }
+
+    #[test]
+    fn legacy_sect_defaults_new_roll_fields() {
+        let sect: SectState = serde_json::from_value(serde_json::json!({
+            "id": "legacy",
+            "name": "旧门派"
+        }))
+        .unwrap();
+
+        assert_eq!(sect.description, "");
+        assert_eq!(sect.landmark, "");
     }
 }

@@ -49,7 +49,8 @@ const relationTone = (value: number) => value >= 40 ? 'friendly' : value < 0 ? '
       <div>
         <span>江湖门派卷宗 · 只读</span>
         <h2>{{ sect.name }}</h2>
-        <small>{{ countryName }} · {{ policyNames[sect.policy] }}</small>
+        <small>{{ countryName }} · {{ policyNames[sect.policy] }} · {{ sect.landmark }}</small>
+        <small v-if="sect.description">{{ sect.description }}</small>
       </div>
       <div class="sect-view-header-stats">
         <span><small>声望</small><b>{{ sect.attributes.prestige }}</b></span>

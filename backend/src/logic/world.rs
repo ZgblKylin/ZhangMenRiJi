@@ -164,13 +164,22 @@ const SECTS: &[SectTemplate] = &[
     },
     SectTemplate {
         id: "court",
-        name: "朝廷",
+        name: "怯薛军",
         country: "yuan",
         policy: SectPolicy::Mercantile,
         signature: "xuantian",
-        landmark: "神武门",
+        landmark: "黄金大帐",
         morality: 47,
-        members: &["韦小宝", "多隆", "海大富"],
+        members: &[
+            "忽必烈",
+            "哲别",
+            "木华黎",
+            "康熙",
+            "年羹尧",
+            "韦小宝",
+            "多隆",
+            "海大富",
+        ],
     },
     SectTemplate {
         id: "lingjiu",
@@ -252,6 +261,27 @@ const SECTS: &[SectTemplate] = &[
         morality: 44,
         members: &["余沧海", "侯人英", "洪人雄"],
     },
+    SectTemplate {
+        id: "song_court",
+        name: "枢密院",
+        country: "song",
+        policy: SectPolicy::Scholarly,
+        signature: "wumu",
+        landmark: "垂拱殿",
+        morality: 68,
+        members: &[
+            "宋江",
+            "卢俊义",
+            "花荣",
+            "岳飞",
+            "郭靖",
+            "黄蓉",
+            "萧峰",
+            "令狐冲",
+            "杨过",
+            "张无忌",
+        ],
+    },
 ];
 
 const WANDERERS: &[&str] = &[
@@ -271,7 +301,6 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
     let mut disciples = Vec::with_capacity(SECTS.len() * 3 + WANDERERS.len());
 
     for (sect_index, template) in SECTS.iter().enumerate() {
-        let _traditional_landmark = template.landmark;
         let prestige = 58 + (sect_index as i32 * 7 % 35);
         let mut buildings = default_buildings();
         for building in &mut buildings {
@@ -280,6 +309,8 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
         let mut sect = SectState {
             id: template.id.into(),
             name: template.name.into(),
+            description: sect_description(template.id).into(),
+            landmark: template.landmark.into(),
             country_id: template.country.into(),
             player_controlled: false,
             attributes: SectAttributes {
@@ -310,8 +341,7 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                         .filter(|art| {
                             art.sect_id.as_deref() == Some(template.id)
                                 && art.is_combat
-                                && art.category
-                                    != crate::models::martial_art::SkillCategory::Parry
+                                && art.category != crate::models::martial_art::SkillCategory::Parry
                         })
                         .map(|art| art.id),
                 )
@@ -369,6 +399,14 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
     (sects, disciples)
 }
 
+fn sect_description(sect_id: &str) -> &'static str {
+    match sect_id {
+        "court" => "蒙古铁骑与满清朝堂合流之势",
+        "song_court" => "总领大宋军政机要，延揽忠义豪杰",
+        _ => "江湖中传承已久的一方门派",
+    }
+}
+
 fn initialize_relations(sects: &mut [SectState]) {
     let snapshot: Vec<(String, i32)> = sects
         .iter()
@@ -391,13 +429,107 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
         let (sects, disciples) = generate_npc_world(state.world_seed);
         state.npc_sects = sects;
         state.npc_disciples = disciples;
+    } else {
+        migrate_courts(state);
     }
+    hydrate_countries(state);
     for disciple in &mut state.npc_disciples {
         crate::logic::disciple::hydrate_v2_disciple(disciple);
     }
     for sect in &mut state.npc_sects {
         crate::logic::sect::normalize_buildings(sect);
         crate::logic::sect::normalize_elder_assignments(sect, &state.npc_disciples);
+    }
+    ensure_relations(&mut state.npc_sects);
+}
+
+/// 不重置旧世界的经营进度，只更新两座朝廷模板并补入旧档缺失的枢密院。
+fn migrate_courts(state: &mut GameState) {
+    let (canonical_sects, canonical_disciples) = generate_npc_world(state.world_seed);
+    for court_id in ["court", "song_court"] {
+        let Some(canonical) = canonical_sects.iter().find(|sect| sect.id == court_id) else {
+            continue;
+        };
+        let existing_index = state.npc_sects.iter().position(|sect| sect.id == court_id);
+        let refresh_roster = if let Some(index) = existing_index {
+            let existing = &mut state.npc_sects[index];
+            let legacy_identity =
+                existing.name != canonical.name || existing.description.is_empty();
+            existing.name = canonical.name.clone();
+            existing.description = canonical.description.clone();
+            existing.landmark = canonical.landmark.clone();
+            existing.country_id = canonical.country_id.clone();
+            existing.policy = canonical.policy.clone();
+            for book in &canonical.public_books {
+                if !existing.public_books.contains(book) {
+                    existing.public_books.push(book.clone());
+                }
+            }
+            legacy_identity
+        } else {
+            state.npc_sects.push(canonical.clone());
+            true
+        };
+
+        // 新模板已经落盘后不再重建名册，以免把后续叛逃的弟子强行召回原派。
+        if !refresh_roster {
+            continue;
+        }
+
+        for canonical_member in canonical_disciples
+            .iter()
+            .filter(|disciple| disciple.sect_id.as_deref() == Some(court_id))
+        {
+            if state
+                .disciples
+                .iter()
+                .any(|disciple| disciple.id == canonical_member.id)
+            {
+                continue;
+            }
+            if let Some(existing) = state
+                .npc_disciples
+                .iter_mut()
+                .find(|disciple| disciple.id == canonical_member.id)
+            {
+                existing.name = canonical_member.name.clone();
+                existing.sect_id = Some(court_id.into());
+                existing.origin_sect_id = Some(court_id.into());
+            } else {
+                state.npc_disciples.push(canonical_member.clone());
+            }
+        }
+    }
+}
+
+fn hydrate_countries(state: &mut GameState) {
+    for canonical in crate::models::sect::default_countries() {
+        if let Some(existing) = state
+            .countries
+            .iter_mut()
+            .find(|country| country.id == canonical.id)
+        {
+            existing.name = canonical.name;
+        } else {
+            state.countries.push(canonical);
+        }
+    }
+}
+
+fn ensure_relations(sects: &mut [SectState]) {
+    let snapshot: Vec<(String, i32)> = sects
+        .iter()
+        .map(|sect| (sect.id.clone(), sect.attributes.morality))
+        .collect();
+    for sect in sects {
+        for (other_id, morality) in &snapshot {
+            if other_id == &sect.id || sect.relations.contains_key(other_id) {
+                continue;
+            }
+            let relation = 30 - (sect.attributes.morality - morality).abs();
+            sect.relations
+                .insert(other_id.clone(), relation.clamp(-80, 60));
+        }
     }
 }
 
@@ -640,7 +772,55 @@ mod tests {
     #[test]
     fn world_contains_all_required_factions_and_people() {
         let (sects, disciples) = generate_npc_world(42);
-        assert_eq!(sects.len(), 23);
+        assert_eq!(sects.len(), 24);
+        let court = sects.iter().find(|sect| sect.id == "court").unwrap();
+        assert_eq!(court.name, "怯薛军");
+        assert_eq!(court.description, "蒙古铁骑与满清朝堂合流之势");
+        let song_court = sects.iter().find(|sect| sect.id == "song_court").unwrap();
+        assert_eq!(song_court.name, "枢密院");
+        assert_eq!(song_court.landmark, "垂拱殿");
+        let court_members: std::collections::BTreeSet<&str> = disciples
+            .iter()
+            .filter(|disciple| disciple.sect_id.as_deref() == Some("court"))
+            .map(|disciple| disciple.name.as_str())
+            .collect();
+        assert_eq!(
+            court_members,
+            [
+                "忽必烈",
+                "哲别",
+                "木华黎",
+                "康熙",
+                "年羹尧",
+                "韦小宝",
+                "多隆",
+                "海大富",
+            ]
+            .into_iter()
+            .collect()
+        );
+        let song_court_members: std::collections::BTreeSet<&str> = disciples
+            .iter()
+            .filter(|disciple| disciple.sect_id.as_deref() == Some("song_court"))
+            .map(|disciple| disciple.name.as_str())
+            .collect();
+        assert_eq!(
+            song_court_members,
+            [
+                "宋江",
+                "卢俊义",
+                "花荣",
+                "岳飞",
+                "郭靖",
+                "黄蓉",
+                "萧峰",
+                "令狐冲",
+                "杨过",
+                "张无忌",
+            ]
+            .into_iter()
+            .collect()
+        );
         assert!(sects.iter().all(|sect| sect.buildings.len() >= 7));
         assert!(sects.iter().all(|sect| sect.public_books.len() >= 2));
         assert!(sects.iter().all(|sect| {
@@ -666,6 +846,62 @@ mod tests {
                 .proficiencies
                 .contains_key(&art.id)));
         }
+    }
+
+    #[test]
+    fn legacy_world_gains_new_court_without_losing_progress() {
+        let mut state = GameState::default();
+        let (mut sects, mut disciples) = generate_npc_world(17);
+        sects.retain(|sect| sect.id != "song_court");
+        let court = sects.iter_mut().find(|sect| sect.id == "court").unwrap();
+        court.name = "朝廷".into();
+        court.attributes.silver = 4321;
+        disciples
+            .iter_mut()
+            .find(|disciple| disciple.id == "npc_court_1")
+            .unwrap()
+            .martial_progress
+            .proficiencies
+            .get_mut("xuantian")
+            .unwrap()
+            .level = 777;
+        state.npc_sects = sects;
+        state.npc_disciples = disciples
+            .into_iter()
+            .filter(|disciple| disciple.sect_id.as_deref() != Some("song_court"))
+            .collect();
+        state.countries[0].name = "大元".into();
+
+        hydrate_world(&mut state);
+
+        let court = state
+            .npc_sects
+            .iter()
+            .find(|sect| sect.id == "court")
+            .unwrap();
+        assert_eq!(court.name, "怯薛军");
+        assert_eq!(court.attributes.silver, 4321);
+        assert_eq!(
+            state
+                .npc_disciples
+                .iter()
+                .find(|disciple| disciple.id == "npc_court_1")
+                .unwrap()
+                .martial_progress
+                .proficiencies["xuantian"]
+                .level,
+            777
+        );
+        assert!(state.npc_sects.iter().any(|sect| sect.id == "song_court"));
+        assert_eq!(
+            state
+                .npc_disciples
+                .iter()
+                .filter(|disciple| disciple.sect_id.as_deref() == Some("song_court"))
+                .count(),
+            10
+        );
+        assert_eq!(state.countries[0].name, "金帐汗国");
     }
 
     #[test]

@@ -15,12 +15,7 @@ pub enum SkillCategory {
 
 impl SkillCategory {
     /// 正常传授的战斗门类。招架保留为基础技能及旧存档分类，不再生成门派通用招架。
-    pub const COMBAT: [Self; 4] = [
-        Self::Unarmed,
-        Self::Dodge,
-        Self::Force,
-        Self::Weapon,
-    ];
+    pub const COMBAT: [Self; 4] = [Self::Unarmed, Self::Dodge, Self::Force, Self::Weapon];
 
     pub const fn slug(self) -> &'static str {
         match self {
@@ -288,15 +283,15 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
     },
     SectMartialTemplate {
         id: "court",
-        knowledge: "兵法韬略",
-        weapon_basic: "basic_blade",
-        weapon_type: "刀法",
+        knowledge: "草原兵法",
+        weapon_basic: "basic_spear",
+        weapon_type: "枪法",
         signature_id: "xuantian",
         signature_category: SkillCategory::Force,
         tiers: [
-            ["御前拳法", "御前身法", "宫门心法", "御林刀法"],
-            ["大擒拿手", "八方步", "玄天功（初）", "血滴子刀法"],
-            ["凝血神爪", "神行百变", "玄天无极功", "金蛇剑法"],
+            ["摔跤手", "骑射身法", "草原吐纳法", "怯薛枪法（初）"],
+            ["搏克擒拿手", "踏镫纵身", "苍狼劲", "怯薛枪法"],
+            ["铁骑摧锋手", "万里追风", "玄天长生功", "怯薛铁骑枪"],
         ],
     },
     SectMartialTemplate {
@@ -403,6 +398,19 @@ const SECT_MARTIALS: &[SectMartialTemplate] = &[
             ["青城摧心掌", "蜀道难", "鹤唳九霄神功", "青城绝命剑"],
         ],
     },
+    SectMartialTemplate {
+        id: "song_court",
+        knowledge: "武穆兵法",
+        weapon_basic: "basic_spear",
+        weapon_type: "枪法",
+        signature_id: "wumu",
+        signature_category: SkillCategory::Force,
+        tiers: [
+            ["军体长拳", "雁行步", "行伍吐纳法", "禁军枪法（初）"],
+            ["擒敌手", "八阵步", "忠武心法", "禁军枪法"],
+            ["岳家散手", "踏雪追锋", "武穆神功", "岳家枪法"],
+        ],
+    },
 ];
 
 fn martial_art(
@@ -431,7 +439,10 @@ fn martial_art(
     };
     let is_combat = category != SkillCategory::Knowledge;
     MartialArt {
-        usable_for_parry: matches!(id.as_str(), "douzhuan" | "qiankun" | "beiming" | "riyue_outer_force"),
+        usable_for_parry: matches!(
+            id.as_str(),
+            "douzhuan" | "qiankun" | "beiming" | "riyue_outer_force"
+        ),
         id,
         name: name.into(),
         art_type: category.display(weapon_type),
@@ -479,6 +490,7 @@ fn basic_arts() -> Vec<MartialArt> {
         ("basic_sword", "基本剑法", SkillCategory::Weapon, "剑法"),
         ("basic_blade", "基本刀法", SkillCategory::Weapon, "刀法"),
         ("basic_staff", "基本棍杖", SkillCategory::Weapon, "棍法"),
+        ("basic_spear", "基本枪法", SkillCategory::Weapon, "枪法"),
         ("basic_whip", "基本鞭法", SkillCategory::Weapon, "鞭法"),
     ]
     .into_iter()
@@ -592,7 +604,7 @@ fn martial_registry() -> &'static [MartialArt] {
     REGISTRY.get_or_init(build_martial_arts)
 }
 
-/// 返回基础技能、玩家武学及 23 个 NPC 门派的三层完整武学表。
+/// 返回基础技能、玩家武学及 24 个 NPC 门派的三层完整武学表。
 pub fn all_martial_arts() -> Vec<MartialArt> {
     martial_registry().to_vec()
 }
@@ -666,6 +678,7 @@ pub fn canonical_skill_id(id: &str) -> String {
         "基本剑法" => "basic_sword",
         "基本刀法" => "basic_blade",
         "基本棍法" | "基本杖法" => "basic_staff",
+        "基本枪法" => "basic_spear",
         "基本鞭法" => "basic_whip",
         _ => return id.into(),
     }
