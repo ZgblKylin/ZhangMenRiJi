@@ -24,6 +24,8 @@ backend/target/
 
 # SQLite database files
 *.db
+*.db-shm
+*.db-wal
 
 # Node.js
 node_modules/
