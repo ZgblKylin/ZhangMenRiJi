@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { save, open } from '@tauri-apps/plugin-dialog'
+import { save } from '@tauri-apps/plugin-dialog'
 import type { AppConfig } from '../types'
 
 const props = defineProps<{ open: boolean }>()
@@ -22,12 +22,15 @@ const loadConfig = async () => {
     form.value = cfg
     isTauri.value = true
   } catch {
-    // 非 Tauri 环境（浏览器开发模式），invoke 不可用
     isTauri.value = false
+    const saved = localStorage.getItem('zhangmenriji_db_path')
+    if (saved) form.value.db_path = saved
   }
 }
 
 const browseDbPath = async () => {
+  if (!isTauri.value) return
+
   try {
     const selected = await save({
       title: '选择或创建数据库文件',
@@ -46,10 +49,14 @@ const saveConfig = async () => {
   saving.value = true
   message.value = ''
   try {
-    await invoke('save_config', { config: form.value })
+    if (isTauri.value) {
+      await invoke('save_config', { config: form.value })
+    } else {
+      localStorage.setItem('zhangmenriji_db_path', form.value.db_path)
+    }
     message.value = '配置已存，请重启案牍使其生效。'
   } catch (e) {
-    message.value = `❌ 保存失败: ${e}`
+    message.value = `保存失败: ${e}`
   } finally {
     saving.value = false
   }
@@ -65,18 +72,14 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
         ⚙️ 应用配置
       </h2>
 
-      <div v-if="!isTauri" style="text-align: center; color: var(--color-ink-fade); padding: 1rem; font-size: .85rem;">
-        此卷须在桌面应用中开启。<br>若从浏览器调试，请在 <code>.env</code> 中书写 <code>DATABASE_URL</code>。
-      </div>
-
-      <div v-else class="config-form">
+      <div class="config-form">
         <div class="form-row">
           <label>数据库文件</label>
           <input v-model="form.db_path" placeholder="zhangmenriji.db" />
-          <button class="btn btn-sm" @click="browseDbPath" :disabled="!isTauri">📁</button>
+          <button v-if="isTauri" class="btn btn-sm" @click="browseDbPath">📁</button>
         </div>
 
-        <div v-if="message" class="config-msg" :class="{ error: message.startsWith('❌') }">{{ message }}</div>
+        <div v-if="message" class="config-msg" :class="{ error: message.startsWith('保存失败') }">{{ message }}</div>
 
         <div class="form-actions">
           <button class="btn" @click="emit('close')">作罢</button>
