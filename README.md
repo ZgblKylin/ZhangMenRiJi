@@ -40,6 +40,7 @@ npm run setup
 
 # 2. 启动桌面应用（自动编译前端 + Rust 后端 + 打开窗口）
 npm run dev
+npm run dev:release  # 启动 release 模式，编译时间较长，适合测试性能
 ```
 
 > `npm run dev` 等同于 `npx tauri dev`，会自动：前端构建 → Rust 编译 → 后端启动 → 打开桌面窗口。

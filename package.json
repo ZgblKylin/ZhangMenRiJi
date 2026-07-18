@@ -5,6 +5,7 @@
   "scripts": {
     "setup": "npm install && cd frontend && npm install",
     "dev": "npx tauri dev",
+    "dev:release": "npx tauri dev --release",
     "build": "npm --prefix frontend run build",
     "build:desktop": "npx tauri build",
     "web-backend": "cd backend && cargo run --release",
