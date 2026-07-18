@@ -56,6 +56,15 @@ pub struct Disciple {
     /// 已由门派发给弟子随身携带的口粮。
     #[serde(default)]
     pub personal_rations: i32,
+    /// 师门辈分：开山掌门为 0，逐代递增。旧存档缺失时从零开始。
+    #[serde(default)]
+    pub lineage_generation: i32,
+    /// 在现任部门累积的任职月数。
+    #[serde(default)]
+    pub department_months: i32,
+    /// 在现任部门任上累积的功绩，独立于弟子总功劳簿。
+    #[serde(default)]
+    pub department_merit: i64,
 }
 
 impl Default for Disciple {
@@ -91,6 +100,9 @@ impl Default for Disciple {
             away_months: 0,
             personal_silver: 0,
             personal_rations: 0,
+            lineage_generation: 0,
+            department_months: 0,
+            department_merit: 0,
         }
     }
 }

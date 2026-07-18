@@ -17,6 +17,12 @@ impl SkillCategory {
     /// 正常传授的战斗门类。招架保留为基础技能及旧存档分类，不再生成门派通用招架。
     pub const COMBAT: [Self; 4] = [Self::Unarmed, Self::Dodge, Self::Force, Self::Weapon];
 
+    /// 不含招架与知识的战斗门类。
+    pub fn is_combat_category(self) -> bool {
+        matches!(self, Self::Unarmed | Self::Dodge | Self::Force | Self::Weapon)
+    }
+
+
     pub const fn slug(self) -> &'static str {
         match self {
             Self::Unarmed => "unarmed",
@@ -28,7 +34,7 @@ impl SkillCategory {
         }
     }
 
-    fn display(self, weapon_type: &str) -> String {
+    pub fn display(self, weapon_type: &str) -> String {
         match self {
             Self::Unarmed => "拳脚".into(),
             Self::Parry => "招架".into(),
@@ -600,6 +606,16 @@ fn martial_registry() -> &'static [MartialArt] {
 }
 
 /// 返回基础技能、玩家武学及 24 个 NPC 门派的三层完整武学表。
+/// 武学层次中文标签。
+pub fn tier_label_cn(tier: MartialTier) -> String {
+    match tier {
+        MartialTier::Basic => "基础".into(),
+        MartialTier::Chore => "入门".into(),
+        MartialTier::Outer => "进阶".into(),
+        MartialTier::Inner => "镇派绝学".into(),
+    }
+}
+
 pub fn all_martial_arts() -> Vec<MartialArt> {
     martial_registry().to_vec()
 }

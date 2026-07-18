@@ -177,6 +177,30 @@ pub enum ActionKind {
     Gather,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JourneyOutcome {
+    Success,
+    Partial,
+    Failed,
+}
+
+/// 外派与游历在出发时即固定的旅程卷宗。旧存档缺失时由下一次月结稳定补建。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct JourneyProgress {
+    pub id: String,
+    pub template_id: String,
+    pub destination_id: String,
+    pub difficulty: i32,
+    pub total_months: i32,
+    pub elapsed_months: i32,
+    pub encounter_id: Option<String>,
+    pub encounter_resolved: bool,
+    pub outcome: Option<JourneyOutcome>,
+    pub settled: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ActionPlan {
@@ -188,6 +212,9 @@ pub struct ActionPlan {
     /// 外出任务的口粮是否已经从仓库申领，防止跨月重复支取。
     #[serde(default)]
     pub rations_claimed: bool,
+    /// 一程一档：模板、目的地、难度、奇遇与最终结果只抽取一次。
+    #[serde(default)]
+    pub journey: Option<JourneyProgress>,
 }
 
 /// 单门武学的修习进度。经验达到下一级平方后升级，沿用侠客行 MUD 的技能门槛。
@@ -282,5 +309,20 @@ mod tests {
         let rank: DiscipleRank = serde_json::from_str("\"elder\"").unwrap();
         assert_eq!(rank, DiscipleRank::Inner);
         assert_eq!(serde_json::to_string(&rank).unwrap(), "\"inner\"");
+    }
+
+    #[test]
+    fn legacy_action_plan_without_journey_still_loads() {
+        let plan: ActionPlan = serde_json::from_value(serde_json::json!({
+            "kind": "wander",
+            "remaining_months": 2,
+            "rations_claimed": true
+        }))
+        .unwrap();
+
+        assert_eq!(plan.kind, ActionKind::Wander);
+        assert_eq!(plan.remaining_months, 2);
+        assert!(plan.rations_claimed);
+        assert!(plan.journey.is_none());
     }
 }

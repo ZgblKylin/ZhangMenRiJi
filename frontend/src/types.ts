@@ -78,6 +78,19 @@ export interface AcquiredAttributes {
   morality: number
   sect_loyalty: number
 }
+export type JourneyOutcome = 'success' | 'partial' | 'failed'
+export interface JourneyProgress {
+  id: string
+  template_id: string
+  destination_id: string
+  difficulty: number
+  total_months: number
+  elapsed_months: number
+  encounter_id?: string | null
+  encounter_resolved: boolean
+  outcome?: JourneyOutcome | null
+  settled: boolean
+}
 export interface ActionPlan {
   kind: ActionKind
   target_id?: string | null
@@ -85,6 +98,7 @@ export interface ActionPlan {
   assigned_by?: string | null
   remaining_months: number
   rations_claimed?: boolean
+  journey?: JourneyProgress | null
 }
 export interface SkillProgress { level: number; experience: number }
 export interface SkillEntry { martial_art_id: string; level: number; experience: number }
@@ -97,6 +111,8 @@ export interface Disciple {
   id: string
   sect_id?: string | null
   origin_sect_id?: string | null
+  is_named_npc?: boolean
+  npc_position?: string | null
   name: string
   alive: boolean
   age: number
@@ -113,12 +129,17 @@ export interface Disciple {
   rank: DiscipleRank
   merit: number
   department?: Department | null
+  master_id?: string | null
+  relations?: Record<string, number>
   skills: SkillEntry[]
   martial_progress: MartialProgress
   action?: ActionPlan | null
   away_months: number
   personal_silver: number
   personal_rations: number
+  lineage_generation: number
+  department_months: number
+  department_merit: number
 }
 
 export interface Building {
@@ -158,8 +179,11 @@ export interface SectState {
   relations: Record<string, number>
   active_orders: SectOrder[]
   productions: ProductionTask[]
+  auto_brew_queue?: string[]
   auto_brew_index: number
   auto_brew_progress: number
+  created_martial_arts: MartialArt[]
+  heritage_arts: string[]
 }
 export interface Country { id: string; name: string; prosperity: number; order: number }
 
@@ -167,7 +191,58 @@ export interface EventEffect { [key: string]: unknown }
 export interface EventChoice { id: string; label: string; result_text: string; effect: EventEffect; good: boolean }
 export interface PendingWorldEvent { id: string; category: string; title: string; text: string; choices: EventChoice[] }
 export interface ChronicleEvent { year?: number; month?: number; text: string; mood: Mood; category?: 'sect' | 'world' }
-export interface Tournament { year?: number; rank: number; total_sects: number; power: number; desc_text?: string }
+export interface TournamentLineupMember {
+  disciple_id: string
+  name: string
+  martial_art_id: string
+  combat_score: number
+}
+export interface TournamentSide {
+  sect_id: string
+  sect_name: string
+  seed: number
+  seed_score: number
+  bout_wins: number
+  total_score: number
+}
+export interface TournamentBout {
+  position: number
+  left?: TournamentLineupMember | null
+  right?: TournamentLineupMember | null
+  left_score: number
+  right_score: number
+  winner_sect_id?: string | null
+}
+export interface TournamentMatch {
+  id: string
+  left?: TournamentSide | null
+  right?: TournamentSide | null
+  winner_sect_id: string
+  bye: boolean
+  bouts: TournamentBout[]
+}
+export interface TournamentRound {
+  number: number
+  name: string
+  matches: TournamentMatch[]
+}
+/**
+ * 年终论剑的统一前端视图。
+ * 历届记录没有奖励摘要；v3.1 以前的旧档由后端补成空签表后再返回。
+ */
+export interface Tournament {
+  year: number
+  rank: number
+  total_sects: number
+  power: number
+  desc_text?: string
+  reward_silver?: number
+  reward_prestige?: number
+  format_version: number
+  champion: string
+  player_lineup: TournamentLineupMember[]
+  rounds: TournamentRound[]
+}
 
 export interface GameState {
   sect_name: string
@@ -186,6 +261,7 @@ export interface GameState {
   event_log: ChronicleEvent[]
   tournament_history: Tournament[]
   game_over: boolean
+  game_won?: boolean
   game_over_reason?: string
   pending_event?: PendingWorldEvent | null
   sect: SectState
@@ -195,13 +271,37 @@ export interface GameState {
 }
 
 export interface ManagementRequest { action: string; [key: string]: unknown }
-export interface GameResponse { id: string; save_group_id: string; sect_name?: string; state: GameState; updated_at?: string }
-export interface AdvanceResponse { id: string; state: GameState; events?: ChronicleEvent[]; sect_events?: ChronicleEvent[]; world_events?: ChronicleEvent[]; tournament?: Tournament; game_over?: boolean }
-export interface ManageResponse { state: GameState; events?: ChronicleEvent[] }
+export interface GameResponse {
+  id: string
+  save_group_id: string
+  current_id?: string
+  revision: number
+  sect_name?: string
+  state: GameState
+  updated_at?: string
+}
+export interface AdvanceResponse extends GameResponse {
+  events?: ChronicleEvent[]
+  sect_events?: ChronicleEvent[]
+  world_events?: ChronicleEvent[]
+  tournament?: Tournament
+  game_over?: boolean
+  game_won?: boolean
+}
+export interface ManageResponse extends GameResponse {
+  events?: ChronicleEvent[]
+}
+
+export interface DeleteGameResponse {
+  deleted_id: string
+  save_group_id: string
+  current: GameResponse | null
+}
 
 export interface SaveRecord {
   id: string
   save_group_id: string
+  revision?: number
   save_type: 'auto' | 'manual'
   autosave: boolean
   year: number
@@ -211,6 +311,8 @@ export interface SaveRecord {
 
 export interface SaveGroup {
   save_group_id: string
+  current_id?: string
+  revision?: number
   sect_name: string
   year: number
   month: number

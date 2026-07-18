@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
-const MARTIAL_SCHEMA_VERSION: i32 = 2;
+const MARTIAL_SCHEMA_VERSION: i32 = 3;
 
 /// 小说 NPC 在门派或江湖中的固定身份。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -187,6 +187,9 @@ impl NamedNpcTemplate {
             away_months: 0,
             personal_silver: 0,
             personal_rations: 0,
+            lineage_generation: 0,
+            department_months: 0,
+            department_merit: 0,
         }
     }
 }

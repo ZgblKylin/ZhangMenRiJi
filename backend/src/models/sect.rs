@@ -13,10 +13,10 @@ pub struct SectAttributes {
 impl Default for SectAttributes {
     fn default() -> Self {
         Self {
-            prestige: 45,
-            silver: 500,
-            morality: 55,
-            morale: 55,
+            prestige: 60,
+            silver: 800,
+            morality: 60,
+            morale: 60,
         }
     }
 }
@@ -169,10 +169,18 @@ pub struct SectState {
     pub relations: BTreeMap<String, i32>,
     pub active_orders: Vec<SectOrder>,
     pub productions: Vec<ProductionTask>,
+    /// 百草堂常设药炉的循环药方 id；空队列表示暂停。
+    pub auto_brew_queue: Vec<String>,
     /// 后台自动循环炼制所处的配方索引。
     pub auto_brew_index: usize,
     /// 当前自动炼制进度（月）。无长老时每两个月增加一月进度。
     pub auto_brew_progress: i32,
+    /// 掌门自创武学的完整定义，序列化时随门派状态持久化。
+    #[serde(default)]
+    pub created_martial_arts: Vec<crate::models::martial_art::MartialArt>,
+    /// 本门镇派武学，被选为传承核心的武学 ID。
+    #[serde(default)]
+    pub heritage_arts: Vec<String>,
 }
 
 impl Default for SectState {
@@ -190,17 +198,23 @@ impl Default for SectState {
             rank_rules: RankRules::default(),
             buildings: default_buildings(),
             inventory: BTreeMap::from([
-                ("粮秣".into(), 50),
-                ("草药".into(), 20),
-                ("精铁".into(), 30),
+                ("粮秣".into(), 80),
+                ("草药".into(), 30),
+                ("精铁".into(), 40),
             ]),
             public_books: vec!["player_knowledge".into(), "hunyuan".into()],
             martial_research: BTreeMap::new(),
             relations: BTreeMap::new(),
             active_orders: vec![],
             productions: vec![],
+            auto_brew_queue: crate::models::medicine::PILL_RECIPES
+                .iter()
+                .map(|recipe| recipe.id.to_string())
+                .collect(),
             auto_brew_index: 0,
             auto_brew_progress: 0,
+            created_martial_arts: Vec::new(),
+            heritage_arts: Vec::new(),
         }
     }
 }
@@ -479,6 +493,9 @@ pub struct Country {
     pub name: String,
     pub prosperity: i32,
     pub order: i32,
+    /// 国中民数；影响招募池大小与税收基准。旧存档缺失时按初值补齐。
+    #[serde(default)]
+    pub population: i32,
 }
 
 pub fn default_countries() -> Vec<Country> {
@@ -488,24 +505,28 @@ pub fn default_countries() -> Vec<Country> {
             name: "大元".into(),
             prosperity: 72,
             order: 68,
+            population: 7800,
         },
         Country {
             id: "song".into(),
             name: "大宋".into(),
             prosperity: 85,
             order: 62,
+            population: 11200,
         },
         Country {
             id: "dali".into(),
             name: "大理".into(),
             prosperity: 70,
             order: 78,
+            population: 3200,
         },
         Country {
             id: "xia".into(),
             name: "大夏".into(),
             prosperity: 58,
             order: 55,
+            population: 4500,
         },
     ]
 }
@@ -539,6 +560,8 @@ mod tests {
 
         assert_eq!(sect.description, "");
         assert_eq!(sect.landmark, "");
+        assert_eq!(sect.auto_brew_queue.len(), 13);
+        assert_eq!(sect.auto_brew_queue[0], "wound");
     }
 
     #[test]

@@ -23,6 +23,8 @@ pub struct GameState {
     pub max_decisions: i32,
     pub total_disciples_recruited: i32,
     pub game_over: bool,
+    /// 两载阶段目标达成时为 true；与失败终局共用 game_over 以封存该局。
+    pub game_won: bool,
     pub game_over_reason: String,
     pub tournament_history: Vec<TournamentRecord>,
     pub pending_event: Option<serde_json::Value>,
@@ -40,9 +42,9 @@ impl Default for GameState {
             autosave: false,
             year: 1,
             month: 1,
-            prestige: 45,
-            silver: 500,
-            morale: 55,
+            prestige: 60,
+            silver: 800,
+            morale: 60,
             injury: 0,
             disciples: vec![],
             martial_arts_learned: vec!["player_knowledge".into(), "hunyuan".into()],
@@ -51,6 +53,7 @@ impl Default for GameState {
             max_decisions: 3,
             total_disciples_recruited: 0,
             game_over: false,
+            game_won: false,
             game_over_reason: String::new(),
             tournament_history: vec![],
             pending_event: None,
@@ -68,16 +71,35 @@ impl Default for GameState {
 pub struct GameListItem {
     pub id: uuid::Uuid,
     pub save_group_id: uuid::Uuid,
+    /// 本次单查询快照中该槽位的权威节点与修订号。
+    pub current_game_id: uuid::Uuid,
+    pub revision: i64,
     pub save_type: String,
     pub sect_name: String,
     pub autosave: bool,
     pub year: i32,
     pub month: i32,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub head_updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// 创建新游戏的请求
 #[derive(Debug, Deserialize)]
 pub struct CreateGameRequest {
     pub sect_name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_game_json_without_game_won_defaults_to_a_non_victory_state() {
+        let mut value = serde_json::to_value(GameState::default()).unwrap();
+        value.as_object_mut().unwrap().remove("game_won");
+
+        let restored: GameState = serde_json::from_value(value).unwrap();
+
+        assert!(!restored.game_won);
+    }
 }

@@ -40,6 +40,10 @@ pub enum ManagementRequest {
         rank: DiscipleRank,
         department: Option<Department>,
     },
+    AssignMaster {
+        disciple_id: String,
+        master_id: Option<String>,
+    },
     AssignElder {
         building_id: String,
         disciple_id: Option<String>,
@@ -49,6 +53,9 @@ pub enum ManagementRequest {
         duty_id: String,
         #[serde(default)]
         duty_target: Option<String>,
+    },
+    SetAutoBrewQueue {
+        recipe_ids: Vec<String>,
     },
     Expel {
         disciple_id: String,
@@ -71,6 +78,16 @@ pub enum ManagementRequest {
         martial_art_id: String,
     },
     ResearchNewMartial,
+    SetHeritageArt {
+        martial_art_id: String,
+    },
+    CreateMartialArt {
+        name: String,
+        category: crate::models::martial_art::SkillCategory,
+        basic_skill: String,
+        #[serde(default)]
+        weapon_basic: Option<String>,
+    },
     Exchange {
         sect_id: String,
         disciple_id: Option<String>,
@@ -79,5 +96,21 @@ pub enum ManagementRequest {
         sect_id: String,
         martial_art_id: String,
         disciple_id: Option<String>,
+    },
+    JointPatrol {
+        sect_id: String,
+        disciple_id: Option<String>,
+    },
+    CallAid {
+        sect_id: String,
+    },
+    HostExchange {
+        sect_id: String,
+        disciple_id: Option<String>,
+    },
+    TradeWithAlly {
+        sect_id: String,
+        item: String,
+        quantity: i32,
     },
 }
