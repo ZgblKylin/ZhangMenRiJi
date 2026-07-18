@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { save, open } from '@tauri-apps/plugin-dialog'
 import type { AppConfig } from '../types'
 
 const props = defineProps<{ open: boolean }>()
@@ -23,6 +24,21 @@ const loadConfig = async () => {
   } catch {
     // 非 Tauri 环境（浏览器开发模式），invoke 不可用
     isTauri.value = false
+  }
+}
+
+const browseDbPath = async () => {
+  try {
+    const selected = await save({
+      title: '选择或创建数据库文件',
+      defaultPath: form.value.db_path || 'zhangmenriji.db',
+      filters: [{ name: 'SQLite 数据库', extensions: ['db', 'sqlite', 'sqlite3'] }],
+    })
+    if (selected) {
+      form.value.db_path = selected
+    }
+  } catch {
+    // 非 Tauri 环境或用户取消，静默忽略
   }
 }
 
@@ -55,8 +71,9 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
 
       <div v-else class="config-form">
         <div class="form-row">
-          <label>数据库文件路径</label>
+          <label>数据库文件</label>
           <input v-model="form.db_path" placeholder="zhangmenriji.db" />
+          <button class="btn btn-sm" @click="browseDbPath" :disabled="!isTauri">📁</button>
         </div>
 
         <div v-if="message" class="config-msg" :class="{ error: message.startsWith('❌') }">{{ message }}</div>
