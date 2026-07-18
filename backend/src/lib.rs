@@ -6,7 +6,7 @@ mod models;
 mod router;
 
 use handlers::games::AppState;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use std::path::Path;
@@ -30,8 +30,20 @@ pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
         cfg.database_url.split('@').next_back().unwrap_or("?")
     );
 
-    // 连接数据库
-    let pool = PgPool::connect(&cfg.database_url).await?;
+    // SQLite 默认以只打开模式连接；未显式指定 mode 时允许首次启动创建数据库文件。
+    let connection_url = if cfg.database_url.starts_with("sqlite://")
+        && !cfg.database_url.contains("mode=")
+    {
+        let separator = if cfg.database_url.contains('?') {
+            '&'
+        } else {
+            '?'
+        };
+        format!("{}{separator}mode=rwc", cfg.database_url)
+    } else {
+        cfg.database_url.clone()
+    };
+    let pool = SqlitePool::connect(&connection_url).await?;
     tracing::info!("数据库连接成功");
 
     // 自动建表

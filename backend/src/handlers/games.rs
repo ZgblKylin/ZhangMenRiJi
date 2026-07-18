@@ -6,12 +6,12 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
+    pub pool: SqlitePool,
 }
 
 fn game_response(
