@@ -1,426 +1,391 @@
-# 《掌门日记》架构设计文档
+# 《掌门日记》v3.1 架构设计
 
-> 重构版本 v2.1 — Vue 3 前端 · Rust 后端 · Tauri 桌面 · PostgreSQL 持久化
+> 当前实现：Vue 3 SPA · Rust/axum 0.8 · SQLite · Tauri 2
+> 最后核对：2026-07-19
 
----
+## 1. 架构目标
 
-## 1. 项目概述
+《掌门日记》是单机、按月推进的武侠门派经营游戏。v3.1 的核心约束是：
 
-### 1.1 项目简介
+- 后端持有权威游戏状态和全部规则，前端只负责交互与展示。
+- 桌面端和浏览器模式共用同一组真实 HTTP API。
+- SQLite 单文件存档零部署；无需 PostgreSQL、Docker 或独立数据库服务。
+- 玩家门派、四国、24 个 NPC 势力和固定小说人物共处同一世界状态。
+- 人物行动由统一结算快照并行计算、统一归并，避免执行顺序改变结果。
+- 七堂等级、完好度、粮铁月修与长老配置共同影响实际产出，经营资源形成闭环。
+- 玩家与 NPC 的师承均写入人物状态；六部门职司直接缩放对应的个人行动收益。
+- 单次持久化请求中的状态、事件副本和相关自动档清理由 SQLite 事务共同提交。
+- 一局以 24 个月和两届年终论剑为首卷阶段；成功或失败后封存状态，避免终局继续变更。
+- 桌面 UI 以 1600×900 为主设计基准，采用左侧弟子、中部经营、右侧纪事的三栏卷册布局。
 
-《掌门日记》是一款武侠门派经营模拟器。玩家以掌门身份，按月推进时间，管理门派（招募弟子、修炼武学、处理江湖事件），参加年终论剑，最终将三流山寨经营成名震江湖的大派。
+## 2. 运行拓扑
 
-### 1.2 重构目标
-
-| v1 (当前) | v2.1 (目标) |
-|-----------|----------|
-| 纯前端 HTML/JS 单文件 | Vue 3 + Vite + TypeScript 组件化前端 |
-| 无后端 | Rust 后端 (axum) |
-| LocalStorage 存档 | PostgreSQL 持久化 |
-| 所有逻辑在浏览器 | 核心逻辑移至后端 |
-| 无配置管理 | 双模式配置：桌面 config.json + Web .env |
-| 纯 Web | Tauri 2.x 桌面应用 + Web 双部署 |
-
----
-
-## 2. 技术选型
-
-### 2.1 后端
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Rust** | 1.85+ (stable) | 主语言 |
-| **axum** | 0.8 | HTTP 框架 |
-| **sqlx** | 0.8 | 异步 PostgreSQL 驱动 (compile-time checked queries) |
-| **tokio** | 1.x | 异步运行时 |
-| **serde / serde_json** | 1.x | JSON 序列化 |
-| **uuid** | 1.x | 游戏存档唯一标识 |
-| **tower-http** | 0.6 | CORS 中间件 + 静态文件服务 (ServeDir) |
-| **dotenvy** | 0.15 | .env 加载 |
-
-### 2.2 前端
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Vue 3** | 3.x | 渐进式前端框架（Composition API） |
-| **Vite** | 6.x | 构建工具 + 开发服务器 |
-| **TypeScript** | 5.x | 类型安全 |
-| **Tailwind CSS** | v4 | 原子化 CSS 框架 |
-| **@tauri-apps/api** | 2.x | Tauri 桌面 API 桥接 |
-
-> 设计决策：v2.0 阶段前端保持 Vanilla JS（1278 行单文件），v2.1 迁移至 Vue 3 组件化架构（16 个 .vue 组件），提升代码可维护性和可复用性。通过 tower-http ServeDir 内嵌服务前端 dist/，单端口部署。
-
-### 2.3 数据库
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **PostgreSQL** | 18 | 主数据库 |
-| **数据库名** | `zhangmenriji` | 项目专用库 |
-
----
-
-## 3. 系统架构
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│              Tauri 2.x 桌面壳 (src-tauri/)                     │
-│  ┌─────────────────────────────────────────────────────────┐  │
-│  │  启动时读取系统配置目录 config.json → 注入 env →         │  │
-│  │  启动后端线程 → 加载 WebView 展示前端                    │  │
-│  └────────────────────────────┬────────────────────────────┘  │
-└───────────────────────────────┼────────────────────────────────┘
-                                │
-┌───────────────────────────────┼────────────────────────────────┐
-│                    浏览器 / WebView (Frontend)                  │
-│  ┌─────────────────────────────────────────────────────────┐  │
-│  │  Vue 3 SPA (前端 /dist/ )                                │  │
-│  │  ├─ TypeScript + Tailwind CSS v4                        │  │
-│  │  ├─ 16 个 .vue 组件 (StartScreen, GameView, ...)        │  │
-│  │  └─ @tauri-apps/api / Fetch API 调用后端                  │  │
-│  └───────────────────────┬─────────────────────────────────┘  │
-│                          │  HTTP REST (JSON)                   │
-└──────────────────────────┼────────────────────────────────────┘
-                           │
-┌──────────────────────────┼──────────────────────────────┐
-│                     Rust Backend (axum)                   │
-│                          ▼                                │
-│  ┌───────────────────────────────────────────────────┐  │
-│  │  HTTP Layer (tower-http CORS + ServeDir 静态文件)       │  │
-│  ├───────────────────────────────────────────────────┤  │
-│  │  Router                                             │  │
-│  │  ├─ POST   /api/games            → 创建新游戏      │  │
-│  │  ├─ GET    /api/games            → 列出存档        │  │
-│  │  ├─ GET    /api/games/:id        → 获取游戏状态    │  │
-│  │  ├─ DELETE /api/games/:id        → 删除存档        │  │
-│  │  ├─ POST   /api/games/:id/decisions/:decision_id   │  │
-│  │  │                                → 执行决策        │  │
-│  │  └─ POST   /api/games/:id/advance                  │  │
-│  │                                   → 推进月份        │  │
-│  ├───────────────────────────────────────────────────┤  │
-│  │  Game Logic Layer                                   │  │
-│  │  ├─ decision.rs  — 决策系统 (8种决策)               │  │
-│  │  ├─ event.rs     — 随机事件 (24种)                  │  │
-│  │  ├─ disciple.rs  — 弟子系统 (成长/叛逃)             │  │
-│  │  ├─ tournament.rs — 年终论剑                         │  │
-│  │  └─ advance.rs   — 月度推进 (整合以上)              │  │
-│  ├───────────────────────────────────────────────────┤  │
-│  │  Data Layer (sqlx)                                  │  │
-│  │  ├─ games table         — 游戏主状态 (JSONB)       │  │
-│  │  └─ events table        — 事件日志 (JSONB[])       │  │
-│  └───────────────────────────────────────────────────┘  │
-└──────────────────────────┬──────────────────────────────┘
-                           │  TCP :5432
-┌──────────────────────────┼──────────────────────────────┐
-│                  PostgreSQL 18 (Alpine)                   │
-│  ┌───────────────────────────────────────────────────┐  │
-│  │  Database: zhangmenriji                             │  │
-│  │  ├─ games     — 游戏存档                            │  │
-│  │  └─ events    — 事件日志                            │  │
-│  └───────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+```text
+┌────────────────────────────────────────────────────────────┐
+│ Tauri 2 桌面进程                                           │
+│ ├─ WebView：开发时加载 Vite，发布时加载 frontend/dist      │
+│ ├─ 配置命令：get_config / save_config                      │
+│ └─ 后台线程：启动共用的 zhangmenriji::run_server()         │
+└─────────────────────────┬──────────────────────────────────┘
+                          │ HTTP JSON
+                          ▼
+┌────────────────────────────────────────────────────────────┐
+│ axum :3000                                                 │
+│ ├─ /api/*：存档、决策、经营、事件、月结与静态定义          │
+│ └─ ServeDir：Web 模式提供 frontend/dist                    │
+├────────────────────────────────────────────────────────────┤
+│ handlers：传输/状态装载/持久化                             │
+│ logic：纯游戏规则与月结编排                                │
+│ models：可序列化领域模型                                   │
+└─────────────────────────┬──────────────────────────────────┘
+                          │ sqlx::SqlitePool
+                          ▼
+┌────────────────────────────────────────────────────────────┐
+│ SQLite 单文件                                              │
+│ ├─ games：槽位中的完整状态记录                             │
+│ ├─ events：可查询的纪事索引                                │
+│ └─ game_snapshots：预留的回合快照表                        │
+└────────────────────────────────────────────────────────────┘
 ```
 
----
+浏览器开发模式不经过 Tauri：Vite 页面仍通过 `frontend/src/api.ts` 请求本机 axum。Vite 代理 `/api` 主要供配置面板的相对请求使用；游戏 API 客户端当前固定为 `http://127.0.0.1:3000/api`。
 
-## 4. API 设计
+## 3. 技术选型
 
-### 4.1 通用约定
+| 范围 | 选型 | 职责 |
+|---|---|---|
+| UI | Vue 3.5、TypeScript、Vite 8 | 组件、类型检查、开发与生产构建 |
+| 样式 | Tailwind CSS 4 + 项目 CSS | 卷册视觉、1600×900 三栏排版 |
+| HTTP | axum 0.8、tower-http 0.6 | REST、CORS、静态文件 |
+| 异步 | tokio 1 | 服务监听、SQLite 异步访问 |
+| 游戏计算 | Rust、rand、rayon | 规则、随机事件、人物行动并行推演 |
+| 持久化 | SQLite、sqlx 0.8 | 单文件存档、参数绑定、连接池 |
+| 桌面 | Tauri 2.11 | WebView、安装包、配置与后端生命周期 |
 
-- 所有请求/响应均为 `Content-Type: application/json`
-- 成功响应 HTTP 2xx，失败响应 4xx/5xx 并附带 `{ "error": "消息" }`
+后端 crate 同时提供：
 
-### 4.2 端点详情
+- `backend/src/main.rs`：独立 Web/CLI 入口。
+- `backend/src/lib.rs::run_server()`：供 CLI 与 Tauri 复用。
 
-#### `POST /api/games` — 创建新游戏
+## 4. 代码模块
 
-```json
-// Request
-{
-  "sect_name": "青云门"
-}
+### 4.1 后端
 
-// Response (201)
-{
-  "id": "a1b2c3d4-...",
-  "sect_name": "青云门",
-  "year": 1,
-  "month": 1,
-  "prestige": 45,
-  "silver": 500,
-  "morale": 55,
-  "injury": 0,
-  "disciples": [...],
-  "martial_arts_learned": ["hunyuan"],
-  "event_log": [...],
-  "decisions_used": 0,
-  "tournament_history": []
-}
+```text
+backend/src/
+├── lib.rs                 # 配置、SQLite、迁移、路由和监听器装配
+├── main.rs                # 独立后端入口
+├── config.rs              # AppConfig、config.json、env 与默认路径
+├── router.rs              # /api 路由、CORS、ServeDir
+├── error.rs               # 通用应用错误
+├── db/mod.rs              # 建表、存档 CRUD、槽位、事件索引与事务边界
+├── handlers/
+│   ├── games.rs           # 创建/读取/列出/删除/手动存档
+│   ├── decisions.rs       # 掌门决策
+│   ├── management.rs      # 经营指令
+│   ├── advance.rs         # 推进月份、处置待决事件、自动存档
+│   ├── settings.rs        # 有效配置读写
+│   └── static_data.rs     # 决策与武学定义
+├── logic/
+│   ├── action.rs          # 指定/自主行动、快照任务与并行归并
+│   ├── advance.rs         # 完整月结流水线
+│   ├── country.rs         # 四国归一化、倍率、月度演化与战争支援
+│   ├── decision.rs        # 每月掌门决策
+│   ├── disciple.rs        # 属性、修行、衰老、忠诚和叛逃
+│   ├── event.rs           # 普通事件与交互大事
+│   ├── interaction.rs     # 3–5 条世界交互、联盟、征召与掌门继任
+│   ├── management.rs      # 营造、人事、师承、物资、药序、藏经和外交
+│   ├── sect.rs            # 门派收支、建筑堂效与旧档水合
+│   ├── tournament.rs      # 年终论剑
+│   └── world.rs           # NPC 世界生成、经营 AI 与江湖纪事
+└── models/
+    ├── attributes.rs      # 资质、资源池、行动、身份等基础类型
+    ├── game.rs            # GameState 与存档列表模型
+    ├── disciple.rs        # 弟子和技能进度
+    ├── sect.rs            # 门派、建筑、政策、库存、关系与常设药序
+    ├── martial_art.rs     # 武学静态定义和修炼层级
+    ├── named_npc.rs       # 固定小说人物模板
+    ├── medicine.rs        # 药物与配方
+    ├── event.rs           # 纪事
+    ├── decision.rs        # 决策定义
+    ├── management.rs      # tagged-union 经营请求
+    └── tournament.rs      # 论剑结果与历史
 ```
 
-#### `GET /api/games` — 列出所有存档
+`handlers` 不复制规则：它们从 SQLite 装载 `GameState`，调用 `logic`，再保存结果并构造 HTTP 响应。`logic/action.rs` 使用 rayon 读取同一份状态快照，每项工作以世界种子、年月和人物/任务标识派生随机种子，最后按 delta 统一写回。
 
-```json
-// Response (200)
-{
-  "games": [
-    { "id": "...", "sect_name": "青云门", "year": 3, "month": 6, "updated_at": "..." },
-    ...
-  ]
-}
+### 4.2 前端
+
+```text
+frontend/src/
+├── main.ts                # Vue 挂载
+├── App.vue                # API 调用编排、当前存档和弹窗流程
+├── api.ts                 # 唯一游戏 REST 客户端
+├── store.ts               # 当前游戏、静态定义与 UI 会话状态
+├── types.ts               # 与后端 JSON 对齐的 TypeScript 类型
+├── medicine.ts            # 前端药物展示辅助
+├── skillDisplay.ts        # 武学分组与显示辅助
+├── style.css              # 全局卷册主题与三栏布局
+└── components/
+    ├── GameView.vue       # 1600×900 主游戏框架
+    ├── DiscipleList.vue   # 弟子详情、师承部门、武学准备与行动指派
+    ├── SectManagementPanel.vue # 七堂经营与常设炼药队列
+    ├── SectViewPanel.vue  # 玩家经营与 NPC 门派卷宗
+    ├── EventPopup.vue     # 门内/江湖纪事与待决大事
+    ├── TournamentBracket.vue # 当届、历届与终局共用的完整论剑签表
+    ├── SavePanel.vue      # 槽位、自动/手动存档
+    ├── GameOverScreen.vue # 失败终局或两载功成结卷
+    └── ...                # 决策、论剑、设置、确认、加载等组件
 ```
 
-#### `GET /api/games/:id` — 获取游戏状态
+前端不会直接改写持久化状态。决策、经营、推进和事件选择成功后，使用响应中的完整 `state` 替换当前 Vue 状态。
 
-```json
-// Response (200)
-{ /* 完整游戏状态，同上 */ }
-```
+### 4.3 Tauri
 
-#### `DELETE /api/games/:id` — 删除存档
-
-```json
-// Response (204) — No Content
-```
-
-#### `POST /api/games/:id/decisions/:decision_id` — 执行决策
-
-```json
-// Response (200)
-{
-  "ok": true,
-  "event": { "text": "...", "mood": "good" },
-  "game": { /* 更新后的完整游戏状态 */ }
-}
-```
-
-#### `POST /api/games/:id/advance` — 推进月份
-
-推进月份时后端执行完整流程：
-1. 触发随机事件（江湖/门中）
-2. 弟子月度成长
-3. 被动收支结算
-4. 忠诚度检查（叛逃）
-5. 库银枯竭检查
-6. 游戏结束检查
-7. 十二月自动论剑
-
-```json
-// Response (200)
-{
-  "events": [{ "text": "...", "mood": "good" }, ...],
-  "tournament": { /* 论剑结果，仅12月返回 */ },
-  "game_over": false,
-  "game": { /* 更新后的完整游戏状态 */ }
-}
-```
-
----
-
-## 5. 模块划分
-
-```
-backend/                          # Rust 后端 (lib + bin 双 target)
-├── Cargo.toml                    # [lib] + [[bin]]
-├── src/
-│   ├── lib.rs                   # pub async fn run_server() — 库入口
-│   ├── main.rs                  # CLI bin 入口 → run_server(None)
-│   ├── config.rs                # Config::load() / AppConfig 结构体
-│   ├── router.rs                # 路由定义 + tower-http ServeDir
-│   ├── error.rs                 # AppError 统一错误类型
-│   ├── handlers/
-│   │   ├── mod.rs
-│   │   ├── games.rs             # 游戏 CRUD handler
-│   │   ├── decisions.rs         # 决策执行 handler
-│   │   ├── advance.rs           # 月度推进 handler
-│   │   └── static_data.rs       # /api/decisions + /api/martial-arts
-│   ├── models/
-│   │   ├── mod.rs
-│   │   ├── game.rs              # GameState 等数据结构
-│   │   ├── disciple.rs          # Disciple 结构
-│   │   ├── martial_art.rs       # MartialArt 静态数据
-│   │   ├── event.rs             # GameEvent 结构
-│   │   ├── decision.rs          # DecisionDef 静态数据
-│   │   └── tournament.rs        # Tournament 结构
-│   ├── logic/
-│   │   ├── mod.rs
-│   │   ├── decision.rs          # 8 种决策执行
-│   │   ├── event.rs             # 24 种随机事件池
-│   │   ├── disciple.rs          # 弟子生成/成长/叛逃
-│   │   ├── tournament.rs        # 论剑计算
-│   │   └── advance.rs           # 月度推进编排 (11 步)
-│   └── db/
-│       └── mod.rs               # sqlx 查询函数 + 自动迁移
-
-frontend/                         # Vue 3 前端
-├── package.json                  # npm run dev/build
-├── vite.config.ts
-├── tsconfig.json
-├── index.html                    # SPA 入口
+```text
+src-tauri/
+├── tauri.conf.json        # 1600×900 初始窗口、前端构建与打包目标
+├── Cargo.toml             # path 依赖 backend crate
 └── src/
-    ├── main.ts                   # createApp + mount
-    ├── App.vue                   # 根组件
-    ├── types.ts                  # TypeScript 类型定义 (含 AppConfig)
-    ├── style.css                 # Tailwind CSS v4 入口
-    └── components/               # 16 个 .vue 组件
-        ├── StartScreen.vue       # 开始/存档选择
-        ├── SettingsPanel.vue     # 数据库连接配置
-        ├── GameView.vue          # 主游戏视图
-        ├── TitleBar.vue          # 顶部状态栏
-        ├── StatsGrid.vue         # 门派数据指标
-        ├── DecisionGrid.vue      # 决策面板
-        ├── DiscipleList.vue      # 弟子列表
-        ├── MartialArtsPanel.vue  # 武学面板
-        ├── TournamentPanel.vue   # 论剑战绩
-        ├── ChroniclesBar.vue     # 事件纪事
-        ├── EventPopup.vue        # 事件弹窗
-        ├── SavePanel.vue         # 存档管理
-        ├── AdvanceSection.vue    # 推进月份
-        ├── GameOverScreen.vue    # 游戏结束
-        ├── ScrollContainer.vue   # 滚动容器
-        └── LoadingOverlay.vue    # 加载遮罩
-
-src-tauri/                        # Tauri 2.x 桌面壳
-├── Cargo.toml                    # 依赖 backend (path = "../backend")
-├── tauri.conf.json               # 窗口 1080×840, targets=["nsis"]
-└── src/
-    ├── lib.rs                    # run() — setup 钩子 + Tauri 命令
-    └── main.rs                   # 桌面入口
+    ├── lib.rs             # 配置命令、axum 后台线程、Tauri 生命周期
+    └── main.rs            # 桌面入口
 ```
 
----
+开发时 `beforeDevCommand` 启动 Vite；打包时 `beforeBuildCommand` 先生成 `frontend/dist`。Tauri setup 读取配置后在后台线程建立 tokio runtime 并启动 axum。
 
-## 6. 配置管理
+## 5. API 契约
 
-### 6.1 双模式概述
+所有游戏请求使用 JSON；成功返回 2xx，输入或规则不满足通常返回 400，存在未处置
+大事或存档已封卷时再次推进返回 409，不存在的存档返回 404。新建、读取和所有
+非删除的成功状态写入响应都带有 `{ id, save_group_id, revision, sect_name,
+state }` 这一会话核心；月结和经营响应在其上增加各自字段。单档删除把替代会话
+放在 `current`，整组删除成功返回 204。
 
-项目支持两种配置加载模式，取决于运行环境：
+| 方法 | 路径 | 处理器与语义 |
+|---|---|---|
+| `POST` | `/api/games` | 创建槽位、初始弟子和完整 NPC 世界，返回 201 |
+| `GET` | `/api/games` | 返回 `{ groups: [...] }`；每组含 `current_id`、`revision`，当前节点居首 |
+| `GET` | `/api/games/:id` | 返回指定节点及其槽位当前 `current_id`、`revision` |
+| `DELETE` | `/api/games/:id` | 按 revision 删除单档；返回替代的 `current` 或 `null` |
+| `POST` | `/api/games/:id/saves` | 在同一槽位创建手动存档，返回 201 和新 ID |
+| `DELETE` | `/api/save-groups/:id` | 按 revision 删除整组存档，返回 204 |
+| `POST` | `/api/games/:id/decisions/:decision_id` | 校验并执行掌门决策 |
+| `POST` | `/api/games/:id/manage` | 执行以 `action` 为判别字段的经营请求 |
+| `POST` | `/api/games/:id/advance` | 触发事件或完成月结；完整月结后创建自动存档 |
+| `POST` | `/api/games/:id/events/resolve` | 请求体 `{ "option_id": "..." }`，选策后续行月结 |
+| `GET` | `/api/decisions` | 决策静态定义 |
+| `GET` | `/api/martial-arts` | 武学静态定义 |
+| `GET` / `POST` | `/api/config` | 读取有效配置；保存后重启生效 |
 
-| 模式 | 配置来源 | 适用场景 |
-|------|---------|---------|
-| **桌面模式** | 系统配置目录 `config.json`（如 `~/.config/zhangmenriji-desktop/config.json`） | Tauri 桌面应用 |
-| **Web 模式** | `.env` 文件 + 环境变量 | `cargo run` 开发 / Docker 部署 |
+月结响应包含新存档 `id`、完整 `state`、`events`、分别归类的 `sect_events`/`world_events`、可选 `tournament`，以及 `game_over`/`game_won`。胜负终局进入独立结卷界面；推进、事件续决和经营入口拒绝继续修改封卷状态。
 
-### 6.2 桌面端配置流程
+除新建游戏和只读查询外，手动存档、掌门决策、经营命令、推进月份、处置交互
+事件、删除单档和删除槽位都必须在 `X-Save-Revision` 请求头携带页面当前看到的
+正整数 revision。缺少请求头返回 428，格式或范围非法返回 400。处理器先做一次廉价
+预比较，再在数据库事务的第一条写语句执行最终 CAS，避免规则计算期间发生的
+TOCTOU 竞态。
 
-```
-Tauri 启动
-  ↓
-读取系统配置目录 config.json（不存在则创建默认值）
-  ↓
-AppConfig.apply_to_env() 注入环境变量
-  ↓
-后端线程通过 env::var() 读取
-```
+过期请求返回 409，协议形状为：
 
-SettingsPanel 组件通过 Tauri 命令 `get_config` / `save_config` 提供 UI 编辑。
-
-### 6.3 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `PG_HOST` | PostgreSQL 地址 | `192.168.50.150` |
-| `PG_PORT` | PostgreSQL 端口 | `5432` |
-| `PG_USER` | 数据库用户 | `ruoruo` |
-| `PG_PASSWORD` | 数据库密码 | — |
-| `PG_DATABASE` | 数据库名 | `zhangmenriji` |
-| `SERVER_HOST` | 后端监听地址 | `0.0.0.0` |
-| `SERVER_PORT` | 后端监听端口 | `3000` |
-| `DATABASE_URL` | 完整连接串 (优先) | 由上述 PG_* 拼合 |
-
-### 6.4 加载优先级
-
-1. `Config::load(config_path)` — JSON 配置文件优先（桌面端）
-2. `DATABASE_URL` 环境变量（如设置则直接使用）
-3. 各 `PG_*` 环境变量拼合为 `postgres://${PG_USER}:***@${PG_HOST}:${PG_PORT}/${PG_DATABASE}`
-4. `.env` 文件（开发环境回退）
-
----
-
-## 7. 部署架构
-
-### 7.1 Tauri 桌面应用
-
-```
-cargo tauri build
-  → src-tauri/target/release/bundle/nsis/*.exe (Windows)
-  → 单文件安装包，内嵌 WebView + 后端进程
-  → 窗口 1080×840，系统托盘可选
+```jsonc
+{
+  "code": "stale_revision",
+  "error": "存档已更新，请刷新当前进度后重试。",
+  "expected_revision": 7,
+  "actual_revision": 8,
+  "current": {
+    "id": "...",
+    "save_group_id": "...",
+    "current_id": "...",
+    "revision": 8,
+    "sect_name": "...",
+    "state": {}
+  }
+}
 ```
 
-### 7.2 Web 部署 (Docker Compose)
+前端不重放落败命令，而是原子接管 `current`，清理只属于旧状态的临时弹层并刷新
+存档列表。其他业务冲突使用不同的 `code`，不会被误认为并发写冲突。
 
+## 6. SQLite 与存档
+
+后端启动时通过幂等 SQL 自动创建表和索引，不依赖外部迁移工具。
+
+### `games`
+
+| 字段 | 说明 |
+|---|---|
+| `id TEXT PRIMARY KEY` | 单个存档 UUID |
+| `save_group_id TEXT` | 槽位 UUID |
+| `save_type TEXT` | `auto` 或 `manual` |
+| `sect_name TEXT` | 列表所需门派名 |
+| `state TEXT` | 序列化后的完整 `GameState` JSON |
+| `schema_version INTEGER` | 当前状态版本 3 |
+| `created_at` / `updated_at` | SQLite UTC 时间 |
+
+列表查询只使用 `sect_name`、时间戳和 `json_extract(state, '$.year/month/autosave')`，不会把全部世界 JSON 拉到应用层。每次成功跨月会在原槽位创建新的自动存档，且只保留最近 10 个自动记录；手动存档不计入此上限。
+
+### `save_group_heads`
+
+每个槽位一行，保存 `save_group_id`、当前权威 `current_game_id`、从 1 开始的
+`revision` 与毫秒级更新时间。revision 属于整个槽位而非单个时间点，因此从
+历史档分支、手动存档和完整月结都经过同一个并发边界。启动迁移会为旧槽位
+确定性回填 head，并保留已有合法 revision。
+
+### `events`
+
+事件表按存档 ID、年月和分类保存独立纪事索引。完整 `event_log` 同时保留在状态 JSON 中，并在游戏逻辑中截取最近 80 条，供当前界面快速显示。
+
+### 写入事务
+
+- 新游戏先在内存中生成初始弟子、门派和完整世界，再于同一事务插入完整
+  `games` 记录和 revision 1 的槽位 head。
+- 每个可变请求都以 head 条件更新作为事务第一条写语句；只有 revision 与来源
+  槽位同时匹配的请求能继续。
+- 月内经营、兼容决策，以及月份尚未推进的待决事件公告，会在认领成功后更新
+  当前 `games` 行并写入本次 `events` 副本。
+- 完整月结、事件续决和手动存档会在认领成功后推进 head、插入新节点；自动档
+  还会写入事件副本并删除超出十档上限且非当前 head 的旧自动档。
+- 删除操作也先认领 revision；单档删除在同一事务中重指或移除 head，整组删除
+  则连同 head 和关联副本一起清理。
+- 任一后续写入失败都会令 head、状态、事件和淘汰操作一起回滚。同一 revision
+  的并发请求只有一个能够提交，落败请求读取并返回赢家的当前权威状态。
+
+### `game_snapshots`
+
+表结构和索引已经建立，用于未来的回合校验/恢复能力；当前正常存档路径以 `games` 中的完整状态记录为准。
+
+`events` 与 `GameState.event_log` 仍是两份事件数据，前端以状态中的
+`event_log` 为权威展示来源。事务与 revision CAS 避免半写和静默覆盖，但尚未
+消除双来源语义，也没有启用 `game_snapshots` 回溯。
+
+载入旧状态时，`#[serde(default)]` 与 `hydrate_player_sect`、世界/人物水合逻辑会补全 v3 字段、七座建筑、库存、武学和 NPC 世界，然后同步兼容字段。
+
+## 7. 当前月结流水线
+
+`POST /api/games/:id/advance` 首先拒绝已失败或已功成封卷的状态，也拒绝重复推进仍有 `pending_event` 的状态。随后：
+
+1. 约三成月份生成交互大事，只写入待决事件和公告，不推进年月；玩家调用 `/events/resolve` 后从同一月初继续。
+2. 未触发交互大事时，按门风和经营方针加权抽取并立即应用一项普通门内/江湖
+   事件及其衍生效果；交互大事使用同一套题材权重，但仍只建立待决状态。
+3. 发放玩家和 NPC 门人的月俸、个人口粮，库存不足时按身份次序折发。
+4. 依照玩家配置的常设药序推进百草堂循环炼制；空队列暂停，草药、库银或堂效不足时等待，只有同派、在世、健康且未外出的内门长老才能提供全速，否则半速。随后办理外出粮秣申领和各建筑长老堂务；堂效与长老能力各折算一次。
+5. 汇总各国所属门派的志气、道德和仓库堂效，无随机地推动当月基础繁荣、治安；单项基础变化至多 1 点，并合并为一条四境月报。
+6. 运行 NPC 门派经营 AI、固定人物江湖纪事，以及 3–5 条世界交互。NPC 招募读取所属国势；贸易、冲突和战争会反向改变国势，宋元全国战争合计每月最多一次。友好门派可将双向关系提升至联盟阈值；有效盟友改走专属候选池，以真实门人联合巡行或驰援，低道德一方也可能背盟；两国朝廷会实际征调人物；亡故 NPC 掌门由在任长老继任。随后清理互动造成的失效师承，并为 NPC 确定性补配师父。
+7. 收集玩家与 NPC 的行动计划，以同一状态快照并行执行，再统一归并人物、门派、
+   库存和建筑变化。堂效、六部门职司、门风与所属国的市况/行路倍率会在各自对应
+   环节缩放收益；自主传授只在直系师徒或关系达标的同门间进行，并优先直系弟子。
+   外派和游历在出发时固定旅程卷宗与唯一奇遇，途中不重复发赏，归山按成败原子地
+   结算银两、声望、物资、人物成长及私人秘籍。
+8. 为本月新外出的弟子补领粮秣，并治疗伤者。
+9. 结算年龄、门忠、资源恢复与寿尽死亡；个人消耗口粮，短缺会影响状态和门派志气。
+10. 统一结算门派进项、建筑和门人用度；被动进项按所属国市况缩放，支出不受倍率影响。随后按建筑总重数扣除粮秣与精铁，再施加堂舍损耗。物料欠供会为每类短缺增加额外损耗，NPC 门派执行相同结算。
+11. 处理志气自然波动、掌门伤势恢复、弟子叛逃、库银见底与游戏结束条件，并清理无效长老任命。
+12. 若当前为十二月，冻结 25 派最强三人阵容，运行 32 签位、五轮三阵淘汰赛；
+    先计算完整签表再统一合并真实武学成长，并持久化每轮对阵、冠军与唯一排名。
+13. 若为第二年十二月且此前未失败，根据第二届论剑真实名次写入分档功成结语，设置 `game_over=true`、`game_won=true`；同月失败条件优先，不会被正向结卷覆盖。
+14. 年月前进，事件写入最近纪事，重置本月决策和待决标记。
+15. handler 以客户端 revision 在 SQLite 事务第一条写语句认领槽位 head；赢家
+    创建新自动档、写入独立事件副本、清理超限自动档，再把新存档 ID 和新
+    revision 返回前端。落败请求返回赢家的权威状态，不提交本地结算结果。
+
+交互大事的公告阶段只更新当前记录；完成选策和月结后才生成新自动存档。这让界面重载后仍能恢复待决状态。
+
+### 堂效、月修与药序
+
+- 堂效公式为 `(80 + 等级 × 20) × 完好度 / 100`：一级完好为 100%，完好度归零则对应职能暂停。
+- 长老能力按匹配部门、有效资质、知识或内功修为及功绩计算并限制在 85%～130%；堂务最终比例为 `堂效 × 长老能力 / 100`，所有数值产出和营造进度共用该比例。
+- 月修粮秣为 `ceil(建筑总等级 / 7)`，精铁为 `ceil(建筑总等级 / 14)`；七座一级建筑每月各耗 1 份。
+- 各堂正常每月损耗 1–3 点，完好度低于 30 时追加损耗；粮秣、精铁每欠供一类，再追加 2 点。
+- 常设药序是去重的有序配方列表，调整顺序或清空队列不占掌门决策次数，但会重置当前炉次进度；完成一炉后循环到下一配方。
+
+### 四国国势
+
+- 国家繁荣和治安统一限制在 0～100；旧档保留已有进度，缺失国家按固定四国模板补齐，越界值在水合时钳制。
+- 市况倍率为 `clamp(85, 115, 100 + (繁荣 - 70) / 2)`，作用于被动进项和经营收益；行路倍率为 `clamp(85, 115, 100 + (治安 - 65) / 2)`，作用于任务、游历的造诣和武学经验。外务银两取两种倍率的均值，所有收益只缩放一次。
+- NPC 自主经营会随繁荣在经商和生产间调整权重，随治安在外派和游历间调整权重；招募概率也读取繁荣、治安，但成本、名额和紧急补员规则不变。
+- 全国战争战分加入 `繁荣 / 6 + 治安 / 3` 的国势支援。胜国战后繁荣 -1、治安 +1，败国繁荣 -2、治安 -2；普通贸易、边境冲突、剿匪与国家专属互动也会反馈国势，同一事件涉及同一国家时只结算一次。
+
+### 师承与六部门
+
+- 玩家可让非杂役门人拜同门在世内门为师，也可解除师承；禁止拜自己、跨派、闭环或失效师承，每位师父最多收五名在籍弟子。
+- 拜师后师徒双向人物关系至少为 50，弟子门忠增加 3。人事变动、逐出和月结会清理亡故、离派、降阶、超额或成环的引用。
+- 定向和自主传授只允许直系师徒，或至少一方对另一方的关系达到 35；自主传授优先选择直系弟子。
+- NPC 师承以稳定排序确定性生成，优先掌门和在任长老。旧档合法师承会保留，异常引用会清理，并在世界水合及当月互动后补配空缺。
+- NPC 门派详情以只读人物卷宗展示运行时掌门/兼任长老头衔、完整属性、师承、行动旅程、准备武学与六类技能经验，不提供任何玩家管理命令。
+- 传功部门为传授、练习、切磋、打熬和内力行动增加 10%；藏经部门为研读、冥想增加 10%；药务部门为采集增加 15%；司库部门为生产、经营增加 10%；庶务部门为维护、建造增加 15%；外务部门为任务、游历增加 10%。
+
+跨派切磋只选择健康、在门且掌握战斗武学的真实人物，胜负双方的武学经验受个人与门派上限约束，并实际写回气血、个人声名、门派声望和双向关系。联盟没有另建盟约表，而以双方关系最低值达到 70 表示持续盟约；盟友专属互动会写回真实人物、旅程、资源和国势，背盟则先把双向关系降出阈值。征召通过人物 `sect_id`、忠诚与部门的真实迁移保存；继任通过 `npc_position` 与现有建筑长老任命保存，旧档缺少长老信息时以内门弟子兜底。
+
+## 8. 配置加载
+
+有效配置包含：
+
+| 字段/环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `db_path` / `DATABASE_URL` | 系统本地数据目录下 `zhangmenriji.db` | 环境变量格式为 `sqlite://<path>` |
+| `server_host` / `SERVER_HOST` | `0.0.0.0` | axum 监听地址 |
+| `server_port` / `SERVER_PORT` | `3000` | axum 端口；当前前端须使用 3000 |
+| `RUST_LOG` | `info` | tracing 过滤级别 |
+
+启动顺序是：
+
+1. 尝试从当前工作目录加载 `.env`；通过 `npm run web-backend` 启动时即为 `backend/.env`。
+2. 从调用方给出的 `config.json` 读取 `AppConfig`。Tauri 会在 setup 阶段预先创建默认配置。
+3. 独立后端的配置文件不存在时回退环境变量与默认值，并创建配置文件。
+4. 将有效配置注入运行环境，创建数据库父目录。
+5. SQLite URL 未指定 mode 时补 `mode=rwc`，允许首次创建数据库文件。
+6. 建表、建索引并启动 HTTP 服务。
+
+Tauri 使用系统应用配置目录；独立后端入口也使用 `config::default_config_path()`。设置页面保存配置后不会热切换连接池，必须重启。
+
+## 9. 开发、构建与检查
+
+仓库根脚本是唯一推荐入口：
+
+```bash
+# 安装根目录 Tauri CLI 与前端依赖
+npm run setup
+
+# 桌面开发 / release 开发
+npm run dev
+npm run dev:release
+
+# 两终端 Web 开发
+npm run web-backend
+npm run web-frontend
+
+# 前端类型检查和生产构建
+npm run build
+
+# 完整桌面安装包
+npm run build:desktop
 ```
-docker-compose.yml
-├── zhangmenriji-backend  (Rust binary, port 3000，内嵌前端 dist/)
-└── postgres              (已有，共享实例)
+
+Rust 测试从 `backend/` 执行，因为仓库根目录没有 Cargo workspace：
+
+```bash
+cd backend
+cargo test --all-targets
 ```
 
-后端通过 tower-http ServeDir 服务前端静态文件，无需独立 Nginx。`localhost:3000` 直接访问完整应用。
+打包产物位于 `src-tauri/target/release/bundle/`。当前目标包括 NSIS、Deb、AppImage 和 DMG；实际可生成格式取决于构建主机。
 
----
+## 10. 关键设计决策
 
-## 8. 关键设计决策
+- **SQLite 取代 PostgreSQL**：游戏是本地单用户应用，单文件数据库免部署、易备份，存档列表通过 SQLite JSON 提取字段。
+- **状态快照而非领域多表**：门派、人物和世界高度耦合，整份 `GameState` 更适合保存、载入和版本水合；`events` 另建索引满足纪事查询。
+- **真实后端 API**：Web 与桌面游戏行为完全一致，规则不会在 Vue 组件中形成第二份实现。
+- **确定性的并行行动**：行动只读月初快照，以稳定种子独立计算并合并 delta，兼顾性能和执行顺序无关性。
+- **一次性旅程生命周期**：外派卷宗在出发时固定模板、目的地、难度和奇遇，
+  只在返山验收时发放任务奖励；旧档缺失卷宗会确定性补建，`settled` 防止重复结算。
+- **方略驱动内容**：门风既改变自主行动和外派收益，也参与普通/交互事件权重；
+  邪派的牟利机会与反噬风险同时上升。
+- **有界的国势反馈**：四国基础演化不消费随机数且单项每月至多移动 1 点；经济与历练只在最终正收益上缩放一次，互动再以明确、可记录的增量反馈国势。
+- **槽位级乐观并发控制**：状态行、head、事件副本和自动档淘汰在相应请求的
+  同一事务中完成；revision/CAS 防止并发静默覆盖，但不尝试合并两个命令，也不
+  把双事件来源合并成一个。
+- **配置变更重启生效**：数据库连接池和监听器在启动时建立，避免运行中切换存档文件造成状态分叉。
+- **兼容旧档**：保留顶层声望/库银/志气兼容字段，并在载入时迁移建筑、库存、人物武学和世界数据。
 
-### ADR-001: 游戏状态存储为 JSONB
-
-**决策**：`games` 表使用单个 `JSONB` 列存储完整游戏状态，而非拆成多表。
-
-**理由**：
-- 游戏状态是一个紧密耦合的整体快照，极少需要按字段查询
-- JSONB 支持索引，足以覆盖按 id / sect_name 的查询
-- 避免 ORM 复杂度和 N+1 问题
-- 弟子、事件等数据随游戏状态一同读写，无独立查询场景
-
-### ADR-002: 核心逻辑移至后端
-
-**决策**：决策执行、随机事件、月度推进、论剑计算全部在后端完成。
-
-**理由**：
-- 防止前端作弊（虽然这是单人游戏，但保持架构正确性）
-- 前端只需渲染，逻辑集中便于维护
-- 未来支持多端（手机/桌面）共享同一逻辑
-
-### ADR-003: Vanilla JS → Vue 3 组件化迁移
-
-**决策**：将前端从纯 HTML/JS 单文件（1278 行）迁移至 Vue 3 + Vite + TypeScript + Tailwind CSS v4 组件化架构（16 个 .vue 组件）。
-
-**理由**：
-- 原单文件 UI 维护成本随功能增长线性上升，缺乏组件级复用
-- Vue 3 Composition API + TypeScript 提供类型安全和更好的代码组织
-- Vite 提供极快的 HMR 开发体验和优化的生产构建
-- Tailwind CSS v4 原子化样式与 Vue 单文件组件天然契合
-- 迁移后前端通过 `npm run build` 产出 `frontend/dist/`，由后端 tower-http ServeDir 内嵌服务
-- 为 Tauri 桌面应用提供现代化 WebView 前端基础
-
-**权衡**：
-- 引入 Node.js 构建工具链（npm + Vite）
-- root `package.json` 提供统一脚本入口：`npm run setup/dev/build`
-
-### ADR-004: Tauri 2.x 桌面集成
-
-**决策**：引入 Tauri 2.x 桌面壳（`src-tauri/`），通过 `path = "../backend"` 引用后端 lib 作为依赖，在 setup 钩子中读取系统配置目录 `config.json`、注入环境变量、启动后端线程。
-
-**理由**：
-- 提供原生桌面应用体验（安装包、窗口管理）
-- 后端 lib crate 可被 Tauri 和 CLI bin 复用，无需重复代码
-- 配置持久化到系统标准目录，用户可通过 SettingsPanel 编辑
-- NSIS 安装器支持 Windows 分发
-
-**权衡**：
-- 增加构建复杂度（Rust 编译 + Tauri 打包）
-- 桌面模式下后端作为子线程运行，生命周期受 Tauri 管控
-
----
-
-## 9. 安全考量
-
-- SQL 注入防护：sqlx 编译期查询检查 + 参数绑定
-- CORS：开发阶段允许所有 origin，生产环境限制为前端域名
-- 无用户认证系统：单人游戏，无鉴权需求
-- 输入验证：sect_name 限制 1-10 字符，decision_id 白名单校验
-
----
-
-> 文档版本: v2.1  
-> 最后更新: 2026-07-16  
-> 架构师: 若若 (RuoRuo) 🐱
+开发期 CORS 当前允许任意来源；项目是本地单人游戏，没有账户或鉴权层。若将后端暴露到非受信网络，应先收紧 CORS、监听地址和访问控制。

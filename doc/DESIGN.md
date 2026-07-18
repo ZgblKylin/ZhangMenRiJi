@@ -1,1128 +1,1233 @@
-# 《掌门日记》完整设计文档
+# 《掌门日记》设计说明
 
-> 重构版本 v2.1 — Vue 3 前端 · Rust 后端 · Tauri 桌面 · PostgreSQL 持久化
->
-> 文档修改：整合 ARCHITECTURE.md 与 DATABASE.md，并依据 backend/src/ / frontend/src/ / src-tauri/src/ 实际源码完善细节。
+> 本文描述仓库中 **v3 当前实现**，用于开发、测试与后续演进，不再把尚未落地的构想写成既成能力。数据库表结构及存档兼容细节另见 [DATABASE.md](./DATABASE.md)。
 
----
+## 1. 文档口径
 
-## 1. 项目概述与重构目标
+本文使用三种状态标记：
 
-### 1.1 项目简介
+- **已实现**：当前代码存在完整可用的主流程。
+- **部分实现**：已有数据或基础流程，但规则尚未完全统一，或界面只开放了其中一部分。
+- **路线图**：当前代码没有实现，不应作为现有玩法或接口依赖。
 
-《掌门日记》是一款武侠门派经营模拟器。玩家以掌门身份，按月推进时间，管理门派（招募弟子、修炼武学、处理江湖事件），参加年终论剑，最终将三流山寨经营成名震江湖的大派。
+设计判断以代码和可运行行为为准。旧版本留下的字段、宽泛决策和兼容逻辑会被明确标出。
 
-游戏以"月"为基本回合单位，每月可执行若干次决策（默认 3 次），然后推进到下一个月。12 月结束自动触发年终论剑。
+## 2. 产品定位
 
-### 1.2 重构目标
+《掌门日记》是一款按月推进的单机门派经营模拟游戏。玩家担任新兴门派掌门，在有限的月度决策中安排弟子、经营七座建筑、研习与交换武学，并观察由 24 个 NPC 门派共同演化的江湖。
 
-| 维度 | v1（当前） | v2.1（目标） |
-|------|-----------|----------|
-| 架构 | 纯前端 HTML/JS 单文件 | Vue 3 前端 + Rust 后端 + Tauri 桌面 |
-| 后端语言 | 无 | Rust + axum 0.8 |
-| 运行时 | 浏览器 JavaScript | tokio 异步运行时 |
-| 数据存储 | LocalStorage（JSON 序列化） | PostgreSQL 18（JSONB 列） |
-| 游戏逻辑 | 全部在浏览器执行 | 核心逻辑移至后端 |
-| 配置管理 | 硬编码 | 双模式：桌面 config.json + Web .env |
-| 数据库连接 | 无 | sqlx 异步连接池（编译期查询校验） |
-| 前端框架 | Vanilla HTML/CSS/JS | Vue 3 + Vite + TypeScript + Tailwind CSS v4 |
-| 桌面应用 | 无 | Tauri 2.x（NSIS 安装包） |
-| 部署方式 | 浏览器打开 index.html | Tauri 桌面 + localhost:3000 Web 双部署 |
-| 并发模型 | 单浏览器 tab | 多游戏存档并行（每个存档 UUID 独立） |
+当前主循环是：
 
----
+1. 月内查看门派、弟子和江湖状态。
+2. 消耗最多 3 次月度决策进行管理或下达行动。
+3. 点击“推演下月”。
+4. 处理可能出现的交互事件。
+5. 统一结算个人行动、NPC 门派、经济、建筑、事件与年度大会。
+6. 进入下一月并生成自动存档；第二届年终论剑后完成两载结卷。
 
-## 2. 技术选型
+当前首卷以 24 个月为完整经营阶段。第二年十二月先举行第二届年终论剑；只要本月没有先触发失败，就按真实名次写下正向结语，并以胜利终局封存该局。失败终局和两载胜利都不能继续经营，但仍可查看、读取存档或另开山门。
 
-### 2.1 后端
+### 2.1 已实现的核心体验
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Rust** | 1.85+ (stable) | 主语言 |
-| **axum** | 0.8 | HTTP 框架（基于 tower） |
-| **sqlx** | 0.8 | 异步 PostgreSQL 驱动，编译期 SQL 校验 |
-| **tokio** | 1.x | 异步运行时（multi-thread） |
-| **serde / serde_json** | 1.x | JSON 序列化/反序列化 |
-| **uuid** | 1.x | 游戏存档唯一标识（UUID v4） |
-| **tower-http** | 0.6 | CORS 中间件（开发阶段允许 `*`） |
-| **dotenvy** | 0.15 | 从 .env 文件加载环境变量 |
-| **tracing / tracing-subscriber** | 0.1 | 结构化日志 |
-| **rand** | 0.8 | 伪随机数生成（游戏随机性） |
-| **chrono** | — | 时间类型（用于 sqlx::FromRow） |
+- 每月 3 次决策和统一月结。
+- 玩家门派与 24 个 NPC 门派同时演化。
+- 三栏桌面界面：弟子、建筑经营、江湖纪事。
+- 15 类弟子行动及外出、定向传功和切磋。
+- 玩家师徒管理、NPC 确定性师承和六部门行动加成。
+- MUD 风格属性、内力、精力、武学等级和准备体系。
+- 七座建筑、堂效、月修供给、长老职务、升级与修缮。
+- 13 方炼药、可排序循环药序及暂停后台药炉。
+- 公共秘籍、私人秘籍、研究、交换和求取。
+- 普通事件、交互事件、双向会盟、朝廷征召和 NPC 掌门继任。
+- 四国繁荣、治安对经济、外出历练、NPC 招募和战争的双向联动。
+- 25 派三阵淘汰制武林大会、完整赛程及第二届论剑后的两载胜利结卷。
+- 存档组、自动存档、手动存档、读取和删除。
 
-### 2.2 前端
+### 2.2 当前没有实现的目标
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Vue 3** | 3.x | 渐进式前端框架（Composition API + `<script setup>`） |
-| **Vite** | 6.x | 构建工具 + 开发服务器（HMR） |
-| **TypeScript** | 5.x | 类型安全，接口定义在 `types.ts` |
-| **Tailwind CSS** | v4 | 原子化 CSS 框架，武侠宣纸风主题 |
-| **@tauri-apps/api** | 2.x | Tauri 命令调用（`get_config` / `save_config`） |
+- 真正由玩家自由组合招式、属性和名称的自创武学。
+- 首卷封存后的第二卷或不设期限的继续经营模式。
 
-> **设计决策**：v2.0 阶段前端保持 Vanilla JS（约 1278 行单文件），v2.1 迁移至 Vue 3 组件化架构（16 个 `.vue` 组件）。迁移后代码组织清晰，组件可复用，并通过 tower-http ServeDir 内嵌服务 `frontend/dist/`，后端单端口同时提供 API 和前端静态资源。
+这些内容属于路线图，详见第 15 节。
 
-### 2.3 数据库
+## 3. 运行架构
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **PostgreSQL** | 18（Alpine） | 主数据库 |
-| **数据库名** | `zhangmenriji` | 项目专用库 |
-| **用户** | `ruoruo` | 数据库所有者 |
+当前应用采用本地桌面优先架构：
 
----
-
-## 3. 系统架构图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Tauri 2.x 桌面壳 (src-tauri/)                │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  setup 钩子: 读系统配置目录 config.json → apply_to_env()  │  │
-│  │  → spawn 后端线程 (run_server) → 加载 WebView 前端        │  │
-│  │  Tauri 命令: get_config / save_config                     │  │
-│  └────────────────────────────┬──────────────────────────────┘  │
-└───────────────────────────────┼──────────────────────────────────┘
-                                │
-┌───────────────────────────────┼──────────────────────────────────┐
-│                    浏览器 / WebView (Frontend)                    │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Vue 3 SPA (frontend/src/ → npm run build → dist/)        │  │
-│  │  ├─ TypeScript (types.ts — 类型定义含 AppConfig)          │  │
-│  │  ├─ Tailwind CSS v4 (武侠宣纸风主题)                      │  │
-│  │  ├─ 16 个 .vue 组件                                       │  │
-│  │  └─ API 调用: Fetch (Web) / @tauri-apps/api (桌面)        │  │
-│  └────────────────────────────┬──────────────────────────────┘  │
-│                               │  HTTP REST (JSON)                │
-└───────────────────────────────┼──────────────────────────────────┘
-                                │
-┌───────────────────────────────┼──────────────────────────────────┐
-│                        Rust Backend (axum)                        │
-│                               ▼                                    │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  HTTP Layer                                                │  │
-│  │  ├─ tower-http CorsLayer  — CORS 中间件（开发: `*`）       │  │
-│  │  ├─ tower-http ServeDir   — 静态文件服务 (frontend/dist/)  │  │
-│  │  └─ tracing                — 请求日志                      │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │  Router (router.rs)                                        │  │
-│  │                                                             │  │
-│  │  游戏 CRUD:                                                 │  │
-│  │  ├─ POST   /api/games                        → 创建新游戏   │  │
-│  │  ├─ GET    /api/games                        → 列出存档     │  │
-│  │  ├─ GET    /api/games/{id}                   → 获取游戏状态  │  │
-│  │  └─ DELETE /api/games/{id}                   → 删除存档     │  │
-│  │                                                             │  │
-│  │  游戏操作:                                                  │  │
-│  │  ├─ POST   /api/games/{id}/decisions/{decision_id}          │  │
-│  │  │                      → 执行决策                          │  │
-│  │  └─ POST   /api/games/{id}/advance          → 推进月份      │  │
-│  │                                                             │  │
-│  │  静态数据:                                                  │  │
-│  │  ├─ GET    /api/decisions                    → 8 种决策定义 │  │
-│  │  └─ GET    /api/martial-arts                 → 5 门武学数据 │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │  Handlers Layer (handlers/)                                 │  │
-│  │  ├─ games.rs     — 游戏 CRUD handler                       │  │
-│  │  ├─ decisions.rs — 决策执行 handler                        │  │
-│  │  ├─ advance.rs   — 月度推进 handler                        │  │
-│  │  └─ static_data.rs — 静态数据接口 handler                  │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │  Logic Layer (logic/)                                       │  │
-│  │  ├─ advance.rs    — 月度推进编排（10 步流水线）             │  │
-│  │  ├─ decision.rs   — 8 种决策执行逻辑                        │  │
-│  │  ├─ event.rs      — 随机事件池（12+12=24 种） + 触发/应用   │  │
-│  │  ├─ disciple.rs   — 弟子生成/命名/成长/叛逃/战力计算       │  │
-│  │  └─ tournament.rs — 年终论剑计算                            │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │  Models Layer (models/)                                     │  │
-│  │  ├─ game.rs         — GameState / GameSummary / CreateGame  │  │
-│  │  ├─ disciple.rs     — Disciple 结构体                      │  │
-│  │  ├─ martial_art.rs  — MartialArt 静态数据（5 门）           │  │
-│  │  ├─ event.rs        — GameEvent 结构体                     │  │
-│  │  ├─ decision.rs     — DecisionDef 静态数据（8 种）          │  │
-│  │  └─ tournament.rs   — TournamentRecord / TournamentResult   │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │  DB Layer (db/)                                             │  │
-│  │  ├─ run_migrations  — 自动建表（幂等 CREATE IF NOT EXISTS） │  │
-│  │  ├─ create_game     — INSERT INTO games + RETURNING id      │  │
-│  │  ├─ get_game        — SELECT sect_name, state FROM games    │  │
-│  │  ├─ list_games      — SELECT ... ORDER BY updated_at DESC   │  │
-│  │  ├─ update_game     — UPDATE games SET state = $2 ...       │  │
-│  │  ├─ delete_game     — 级联删除 events + games               │  │
-│  │  └─ append_events   — INSERT INTO events (逐条)             │  │
-│  ├───────────────────────────────────────────────────────────┤  │
-│  │  Config (config.rs)                                         │  │
-│  │  ├─ 优先读取 DATABASE_URL 环境变量                          │  │
-│  │  └─ 否则拼合 PG_HOST / PG_PORT / PG_USER / PG_PASSWORD      │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │  TCP :5432
-┌────────────────────────────────┼────────────────────────────────┐
-│                     PostgreSQL 18 (Alpine)                        │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Database: zhangmenriji                                     │  │
-│  │  ├─ games  (UUID PK, JSONB state, timestamps)              │  │
-│  │  │   └─ 索引: idx_games_updated_at (desc)                   │  │
-│  │  └─ events (BIGSERIAL PK, UUID game_id, year, month, mood) │  │
-│  │      └─ 索引: idx_events_game_id, idx_events_game_time     │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### 请求处理流程（时序概要）
-
-```
-浏览器                    后端 Handler              Logic Layer            DB Layer           PostgreSQL
-  │                          │                         │                     │                    │
-  │── POST /api/games ──────>│                         │                     │                    │
-  │                          │── create_game() ──────────────────────────────────────────────────>│
-  │                          │                         │                     │   INSERT+RETURNING │
-  │                          │<── (id, state) ───────────────────────────────────────────────────│
-  │                          │── generate_starting_disciples()                                    │
-  │                          │                         │── generate_disciple() ×2                 │
-  │                          │── update_game() ──────────────────────────────────────────────────>│
-  │                          │<── game_state ────────────────────────────────────────────────────│
-  │<── 201 {id,state} ──────│                         │                     │                    │
-  │                          │                         │                     │                    │
-  │── POST /advance ───────>│                         │                     │                    │
-  │                          │── get_game() ────────────────────────────────────────────────────>│
-  │                          │── advance_month() ─────>│                     │                    │
-  │                          │                         │── trigger_random_event()                 │
-  │                          │                         │── apply_event_effect()                   │
-  │                          │                         │── monthly_growth()                       │
-  │                          │                         │── check_desertion()                      │
-  │                          │                         │── run_tournament() (仅12月)              │
-  │                          │<── (events, tournament, game_over)                                │
-  │                          │── update_game() ─────────────────────────────────────────────────>│
-  │                          │── append_events() ───────────────────────────────────────────────>│
-  │<── {events,tournament,..}│                         │                     │                    │
-```
-
-### 前端组件架构（16 个 Vue 组件）
-
-```
-App.vue                          # 根组件 — 路由/状态切换
-│
-├─ StartScreen.vue               # 开始界面：新游戏 / 读档选择
-│   └─ SavePanel.vue             #   存档列表 (slot 列表)
-│
-├─ GameView.vue                  # 主游戏视图 — 组织所有子组件
-│   ├─ TitleBar.vue              #   顶部状态栏 (门派名 / 年/月 / 设置入口)
-│   ├─ StatsGrid.vue             #   门派数据指标 (声望/库银/志气/伤势)
-│   ├─ DecisionGrid.vue          #   决策面板 (8 种决策按钮)
-│   ├─ DiscipleList.vue          #   弟子列表 (姓名/资质/内力/武学/忠诚)
-│   ├─ MartialArtsPanel.vue      #   武学面板 (已习得武学一览)
-│   ├─ TournamentPanel.vue       #   论剑战绩面板
-│   ├─ ChroniclesBar.vue         #   事件纪事滚动条
-│   ├─ AdvanceSection.vue        #   推进月份按钮 + 当月事件
-│   └─ EventPopup.vue            #   事件弹窗 (good/bad/neutral)
-│
-├─ GameOverScreen.vue            # 游戏结束画面 + 结局文本
-├─ SettingsPanel.vue             # 设置面板 (数据库连接配置 — Tauri 桌面)
-├─ LoadingOverlay.vue            # 加载遮罩 (API 请求中)
-└─ ScrollContainer.vue           # 可滚动容器 (武侠卷轴风格)
-```
-
-| 组件 | 职责 |
-|------|------|
-| `App.vue` | 根组件，管理系统状态（start/game/game_over/settings），切换视图 |
-| `StartScreen.vue` | 新游戏创建 + 存档列表读写 |
-| `SavePanel.vue` | 存档 CRUD 面板 |
-| `GameView.vue` | 主游戏视图，组合所有游戏子组件 |
-| `TitleBar.vue` | 门派名称 + 年/月 显示 + 设置按钮 |
-| `StatsGrid.vue` | 声望/库银/志气/伤势 四维指标展示 |
-| `DecisionGrid.vue` | 8 种决策按钮，含冷却/禁用态 |
-| `DiscipleList.vue` | 弟子卡片列表，展示属性和武学 |
-| `MartialArtsPanel.vue` | 已习得武学表格 |
-| `TournamentPanel.vue` | 历届论剑成绩展示 |
-| `ChroniclesBar.vue` | 事件纪事滚动时间线 |
-| `AdvanceSection.vue` | 推进月份按钮 + 当前月事件摘要 |
-| `EventPopup.vue` | 模态弹窗，展示事件文本和 mood 情绪 |
-| `GameOverScreen.vue` | 结局画面 |
-| `SettingsPanel.vue` | 数据库连接配置（调用 Tauri `get_config`/`save_config`） |
-| `LoadingOverlay.vue` | 加载状态遮罩 |
-
-类型定义在 `frontend/src/types.ts`，包含 `GameState`、`Disciple`、`Decision`、`MartialArt`、`ChronicleEvent`、`Tournament`、`SaveSlot`、`AppConfig` 等接口。
-
----
-
-## 4. 数据模型总览
-
-### 4.1 数据库物理模型
-
-#### `games` 表
-
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| `id` | `UUID` | `PRIMARY KEY DEFAULT gen_random_uuid()` | 游戏存档唯一标识 |
-| `sect_name` | `TEXT` | `NOT NULL, CHECK(1..10 字符)` | 门派名称 |
-| `state` | `JSONB` | `NOT NULL` | 完整游戏状态快照 |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT now()` | 创建时间 |
-| `updated_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT now()` | 最后更新时间 |
-
-**索引**：`idx_games_updated_at` on `(updated_at DESC)`
-
-#### `events` 表
-
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| `id` | `BIGSERIAL` | `PRIMARY KEY` | 自增主键 |
-| `game_id` | `UUID` | `NOT NULL` | 所属游戏（无 FK 约束） |
-| `year` | `INT` | `NOT NULL` | 游戏年 |
-| `month` | `INT` | `NOT NULL` | 游戏月 |
-| `mood` | `TEXT` | `NOT NULL, CHECK(good\|bad\|neutral)` | 事件情绪 |
-| `text` | `TEXT` | `NOT NULL` | 事件描述文本 |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT now()` | 记录时间 |
-
-**索引**：`idx_events_game_id`, `idx_events_game_time` on `(game_id, year DESC, month DESC)`
-
-#### 级联删除策略
-
-删除游戏时，应用层手动执行两步删除：
-```sql
-DELETE FROM events WHERE game_id = $1;
-DELETE FROM games WHERE id = $1;
-```
-
-### 4.2 JSONB `state` 结构详解
-
-```jsonc
-{
-  "year": 1,                       // int: 当前年（≥1）
-  "month": 1,                      // int: 当前月（1..12）
-  "prestige": 45,                  // int: 江湖声望（0..100）
-  "silver": 500,                   // int: 库银（≥0）
-  "morale": 55,                    // int: 门人志气（0..100）
-  "injury": 0,                     // int: 掌门伤势（0..100，值越大越重）
-  "disciples": [                   // Disciple[]
-    {
-      "id": "d1717920000_1234",    // string: 唯一ID（时间戳+随机数）
-      "name": "风清扬",            // string: 姓名（随机组合 20姓×20男名×20女名）
-      "talent": 65,                // int: 资质（10..95，决定可学武学）
-      "inner_power": 28,           // int: 内力（10..100）
-      "martial_art": "taixu",      // string: 当前修炼武学ID
-      "loyalty": 62,               // int: 忠诚度（0..100，<15 可能叛逃）
-      "months_in_sect": 5,         // int: 入门月数
-      "alive": true                // bool: 是否在世（叛逃后移除，非标死亡）
-    }
-  ],
-  "martial_arts_learned": [        // string[]: 已掌握武学ID
-    "hunyuan", "taixu"
-  ],
-  "decisions_used": 0,             // int: 本月已用决策次数
-  "max_decisions": 3,              // int: 每月决策上限
-  "total_disciples_recruited": 5,  // int: 历史累计招募弟子数
-  "game_over": false,              // bool: 游戏是否结束
-  "game_over_reason": "",          // string: 结束原因（失败文本）
-  "tournament_history": [          // TournamentRecord[]: 历届论剑成绩
-    {
-      "year": 1,
-      "rank": 3,                   // 名次（1 为魁首）
-      "total_sects": 8,            // 参赛门派数（8 + year/2）
-      "power": 55                  // 本派战力值
-    }
-  ],
-  "pending_event": null            // object|null: 当前待处理事件（预留字段）
-}
-```
-
-### 4.3 武学静态数据（5 门）
-
-| ID | 名称 | 类型 | 描述 | ATK | DEF | SPD | 资质要求 |
-|----|------|------|------|-----|-----|-----|---------|
-| `hunyuan` | 混元功 | 内功 | 浑厚绵长，根基扎实 | 3 | 3 | 2 | 20 |
-| `taixu` | 太虚剑法 | 剑法 | 攻守兼备，虚实相生 | 3 | 3 | 2 | 30 |
-| `xuanbing` | 玄冰心经 | 内功 | 以柔克刚，心如寒冰 | 1 | 5 | 2 | 35 |
-| `jiuyang` | 九阳烈掌 | 掌法 | 至刚至猛，金石俱裂 | 5 | 1 | 2 | 40 |
-| `zhuifeng` | 追风步 | 轻功 | 踏雪无痕，追风逐电 | 2 | 2 | 5 | 25 |
-
-### 4.4 决策静态数据（8 种）
-
-| ID | 标题 | 消耗 | 前置条件 | 效果摘要 |
-|----|------|------|---------|---------|
-| `recruit` | 张贴招贤榜 | 50 银 | 银≥50 | 招募 1~2 名随机弟子 |
-| `train` | 闭关练功 | 无 | 伤势<30 | 全员内力↑，忠诚↑，伤势微增 |
-| `mission` | 遣弟子行侠 | 无 | 弟子≥1 | 随机弟子行侠：胜则得银/声望，败则受伤 |
-| `repair` | 修缮山门 | 60 银 | 银≥60 | 志气+5~10 |
-| `diplomacy` | 拜会邻派 | 40 银 | 银≥40 | 声望+2~6，可能获赠银两 |
-| `rest` | 静养疗伤 | 无 | 无 | 伤势-15~30 |
-| `study` | 研习武功 | 30 银 | 银≥30，有未学武学 | 50% 概率习得新武学 |
-| `teach` | 传功授艺 | 20 银 | 银≥20，弟子≥1 | 最多 3 名弟子内力/忠诚↑，30% 换武学 |
-
-### 4.5 命名映射表（前/后端兼容）
-
-| 前端 (camelCase) | 后端/DB (snake_case) |
-|-------------------|---------------------|
-| `sectName` | `sect_name` |
-| `innerPower` | `inner_power` |
-| `martialArt` | `martial_art` |
-| `martialArtsLearned` | `martial_arts_learned` |
-| `monthsInSect` | `months_in_sect` |
-| `decisionsUsed` | `decisions_used` |
-| `maxDecisions` | `max_decisions` |
-| `totalDisciplesRecruited` | `total_disciples_recruited` |
-| `gameOver` | `game_over` |
-| `gameOverReason` | `game_over_reason` |
-| `eventLog` | `event_log` |
-| `tournamentHistory` | `tournament_history` |
-| `pendingEvent` | `pending_event` |
-| `totalSects` | `total_sects` |
-
----
-
-## 5. 完整 API 设计
-
-### 5.1 通用约定
-
-- 所有请求/响应均为 `Content-Type: application/json`
-- 成功响应 HTTP 2xx，失败响应 4xx/5xx 并附带错误文本
-- 路径参数 `{id}` 为 UUID v4 格式
-- 静态数据接口 (`/api/decisions`, `/api/martial-arts`) 无状态，无需认证
-
-### 5.2 端点详情
-
-#### 5.2.1 `POST /api/games` — 创建新游戏
-
-创建后自动生成 2 名初始弟子。
-
-```
-Request:  POST /api/games
-Body:     { "sect_name": "青云门" }
-
-Response: 201 Created
-{
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "sect_name": "青云门",
-  "state": {
-    "year": 1,
-    "month": 1,
-    "prestige": 45,
-    "silver": 500,
-    "morale": 55,
-    "injury": 0,
-    "disciples": [ /* 2名初始弟子 */ ],
-    "martial_arts_learned": ["hunyuan"],
-    "decisions_used": 0,
-    "max_decisions": 3,
-    "total_disciples_recruited": 0,
-    "game_over": false,
-    "game_over_reason": "",
-    "tournament_history": [],
-    "pending_event": null
-  }
-}
-```
-
-#### 5.2.2 `GET /api/games` — 列出所有存档
-
-```
-Request:  GET /api/games
-
-Response: 200 OK
-{
-  "games": [
-    {
-      "id": "a1b2c3d4-...",
-      "sect_name": "青云门",
-      "state": { /* 完整 state JSONB */ },
-      "updated_at": "2026-06-16T12:34:56+00:00"
-    }
-  ]
-}
-```
-
-#### 5.2.3 `GET /api/games/{id}` — 获取单个游戏状态
-
-```
-Response: 200 OK
-{
-  "id": "a1b2c3d4-...",
-  "sect_name": "青云门",
-  "state": { /* 完整游戏状态 */ }
-}
-
-Errors:
-  404 存档不存在
-  500 内部错误
-```
-
-#### 5.2.4 `DELETE /api/games/{id}` — 删除存档
-
-级联删除关联的 events 记录。
-
-```
-Response: 204 No Content
-
-Errors:
-  404 存档不存在
-  500 内部错误
-```
-
-#### 5.2.5 `POST /api/games/{id}/decisions/{decision_id}` — 执行决策
-
-`decision_id` 为 8 种之一：`recruit` | `train` | `mission` | `repair` | `diplomacy` | `rest` | `study` | `teach`
-
-```
-Request:  POST /api/games/{id}/decisions/recruit
-
-Response: 200 OK
-{
-  "ok": true,
-  "events": [
-    {
-      "text": "招贤榜贴出，1人前来拜山投师。",
-      "mood": "good",
-      "year": 1,
-      "month": 3
-    }
-  ],
-  "state": { /* 更新后的完整游戏状态 */ }
-}
-
-Errors:
-  400 本月决策次数已用完（decisions_used >= max_decisions）
-  404 存档不存在
-  500 内部错误
-```
-
-#### 5.2.6 `POST /api/games/{id}/advance` — 推进月份
-
-推进月份时后端执行完整 10 步流水线（详见 §6.5）。
-
-```
-Request:  POST /api/games/{id}/advance
-
-Response: 200 OK
-{
-  "events": [
-    { "text": "邻派遣使来谒...", "mood": "good", "year": 1, "month": 3 }
-  ],
-  "tournament": {           // 仅12月返回，否则 null
-    "rank": 2,
-    "total_sects": 8,
-    "power": 55,
-    "desc_text": "本派位列三甲...",
-    "reward_silver": 200,
-    "reward_prestige": 10
-  },
-  "game_over": false,
-  "state": { /* 更新后的完整游戏状态 */ }
-}
-
-Errors:
-  404 存档不存在
-  500 内部错误
-```
-
-#### 5.2.7 `GET /api/decisions` — 获取决策定义列表
-
-返回前端渲染决策面板所需的静态数据。
-
-```
-Response: 200 OK
-{
-  "decisions": [
-    {
-      "id": "recruit",
-      "title": "张贴招贤榜",
-      "desc": "遣人在山下城镇张贴招贤榜文...",
-      "cost": 50,
-      "cost_type": "silver",
-      "req_injury_max": null,
-      "req_silver_min": 50,
-      "req_disciples_min": null,
-      "req_unlearned_arts": false
-    }
-    // ... 共 8 条
-  ]
-}
-```
-
-#### 5.2.8 `GET /api/martial-arts` — 获取武学列表
-
-```
-Response: 200 OK
-{
-  "arts": [
-    {
-      "id": "taixu",
-      "name": "太虚剑法",
-      "type": "剑法",
-      "desc": "攻守兼备，虚实相生...",
-      "atk": 3,
-      "def": 3,
-      "spd": 2,
-      "req_talent": 30
-    }
-    // ... 共 5 条
-  ]
-}
-```
-
----
-
-## 6. 核心业务逻辑流程
-
-### 6.1 决策系统（`logic/decision.rs`）
-
-**入口**：`execute_decision(rng, state, decision_id) -> Vec<GameEvent>`
-
-**前置校验**（在 handler 层完成）：
-- 存档存在性检查
-- 决策次数余量检查（`decisions_used < max_decisions`）
-
-**8 种决策详细逻辑**：
-
-```
-recruit（招募）
-├── 扣银 50
-├── 招募 1~2 名弟子（声望 >50 时资质额外 +10）
-├── total_disciples_recruited += 招募数
-└── 事件：「招贤榜贴出，N人前来拜山投师。」
-
-train（练功）
-├── 前置：伤势 < 30（否则无效）
-├── 全员：内力 +(2~6 - injury/20)，至少 +1
-├── 全员：忠诚 +(1~4)
-├── 掌门：伤势 +(3~8)
-├── 志气 +2
-└── 事件：「掌门率众苦练一月...」
-
-mission（行侠）
-├── 前置：有在世弟子（否则无效）
-├── 随机选 1 名弟子
-├── 战力 check = 资质×0.3 + 内力×0.3 + (武学ATK+DEF+SPD)×3 + 忠诚×0.1
-├── score > 25 → 成功: 银 +(20~80 + score/2), 声望 +(1~4), 忠诚 +(1~5)
-├── score ≤ 25 → 失败: 内力 -5, 忠诚 -(3~8), 掌门伤势 +(3~8)
-└── 分别生成对应文本
-
-repair（修缮）
-├── 扣银 60
-├── 志气 +(5~10)
-└── 事件：「山门修缮一新...」
-
-diplomacy（外交）
-├── 扣银 40
-├── 声望 +(2~6)
-├── 可能获赠银两 (0~30)
-├── 志气 +1
-└── 事件：「掌门携礼拜访邻派...」
-
-rest（疗伤）
-├── 伤势 -(15~30)
-├── 志气 -1
-└── 事件：「掌门闭门静养月余...」
-
-study（研习）
-├── 前置：有未学武学
-├── 扣银 30
-├── 伤势 +(5~12)
-├── 50% 概率：随机习得一门未学武学，声望 +3
-├── 50% 概率：失败（neutral 事件）
-└── 相应事件文本
-
-teach（传功）
-├── 前置：有在世弟子
-├── 扣银 20
-├── 伤势 +(3~7)
-├── 取最多 3 名弟子：内力 +(3~10), 忠诚 +(2~6)
-├── 每名弟子 30% 概率切换到已掌握的武学
-└── 事件：「掌门亲自为XX、XX传功...」
-```
-
-**后处理**：`decisions_used += 1`，事件写入 `state.event_log`（保留最近 50 条）。
-
-### 6.2 随机事件系统（`logic/event.rs`）
-
-**事件池结构**：24 种事件，分为两组
-
-**江湖风云（12 种）**：
-
-| ID | 事件 | 效果类型 | 影响 |
-|----|------|---------|------|
-| jh_01 | 邻派遣使来谒 | good | 声望+3, 志气+2 |
-| jh_02 | 邻派率众来犯 | bad | 声望-2, 志气-3, 银-30, 伤势+8 |
-| jh_03 | 朝廷赐匾 | good | 声望+8, 银+100, 志气+5 |
-| jh_04 | 豪杰慕名来投 | good | 声望+2, 志气+3, 免费招募2人 |
-| jh_05 | 剿灭山贼 | good | 声望+5, 银+40, 志气+2 |
-| jh_06 | 秘笈谣言 | bad | 声望-1, 志气-2, 伤势+5 |
-| jh_07 | 云游僧赠心法 | good | 声望+1, 志气+1, 习得未学武学 |
-| jh_08 | 共商讨魔 | good | 声望+6, 志气+3, 银-20, 伤势+10 |
-| jh_09 | 弟子伤人赔偿 | bad | 声望-3, 银-50, 志气-1 |
-| jh_10 | 缉拿大盗 | good | 声望+4, 银+80, 志气+4, 伤势+8 |
-| jh_11 | 邻派掌门暴毙 | bad | 声望-5, 志气-3 |
-| jh_12 | 西域异人赠药 | good | 声望+2, 志气+1, 银+60 |
-
-**门中生息（12 种）**：
-
-| ID | 事件 | 效果类型 | 影响 |
-|----|------|---------|------|
-| ms_01 | 米价飞涨 | bad | 银-40 |
-| ms_02 | 掌门扭了腰 | bad | 志气-1, 伤势+5 |
-| ms_03 | 暴雨毁练功场 | bad | 志气-2, 银-30 |
-| ms_04 | 掌门观星悟道 | good | 声望+1, 志气+3, 随机弟子内力+8~20 |
-| ms_05 | 厨子手艺极差 | bad | 志气-2, 伤势+3 |
-| ms_06 | 发现温泉 | good | 志气+5, 伤势-5 |
-| ms_07 | 弟子打架 | bad | 志气-3, 30%弟子忠诚↓ |
-| ms_08 | 掌门生日 | good | 志气+4, 银-10 |
-| ms_09 | 库房鼠患 | bad | 志气+1, 银-20 |
-| ms_10 | 老郎中调理 | good | 志气+3, 银-25, 伤势-8 |
-| ms_11 | 弟子探亲 | bad | 志气-1, 全员忠诚随机± |
-| ms_12 | 师父遗物 | good | 声望+1, 志气+6, 银+150 |
-
-**触发机制**：
-- 每月推进时 50% 概率触发江湖事件，50% 概率触发门中事件
-- 在各组内均匀随机选取
-
-**Effect 字段解析**：
-
-| 字段 | 类型 | 作用 |
-|------|------|------|
-| `prestige` | `Option<i32>` | 声望变化量 |
-| `silver` | `Option<i32>` | 库银变化量 |
-| `morale` | `Option<i32>` | 志气变化量 |
-| `injury` | `Option<i32>` | 伤势变化量 |
-| `free_recruit` | `Option<i32>` | 免费招募数 |
-| `special` | `Option<String>` | `"manual"`(习得武学) / `"epiphany"`(弟子顿悟) |
-| `loyalty_loss` | `Option<bool>` | 30% 概率部分弟子忠诚 ↓ |
-| `loyalty_change` | `Option<bool>` | 全员忠诚随机浮动 |
-
-### 6.3 弟子系统（`logic/disciple.rs`）
-
-#### 6.3.1 姓名生成
-
-从 20 个复姓（风、云、萧、慕容、上官……）和 20 个男女名中随机组合。
-
-#### 6.3.2 弟子生成 `generate_disciple(rng, talent_bonus)`
-
-```
-资质 = clamp(rand(20..70) + bonus, 10, 95)
-内力 = rand(10..30)
-武学 = 从 资质+10 ≥ req_talent 的武学中随机选取（至少混元功）
-忠诚 = rand(40..70)
-ID = "d{timestamp}_{random_4_digit}"
-```
-
-#### 6.3.3 初始弟子 `generate_starting_disciples(rng)`
-
-创建游戏时生成 2 名弟子（资质 bonus +15 和 +10），忠诚和内力略高于普通招募。
-
-#### 6.3.4 战力计算
-
-**单名弟子战力**（行侠和论剑用）：
-```
-combat_score = talent * 0.3  +  inner_power * 0.3  +  (art.atk + art.def + art.spd) * 3  +  loyalty * 0.1
-```
-
-**门派总战力**（论剑用）：
-```
-sect_power = avg(combat_score) + alive_count * 5
-```
-无弟子时默认战力 = 10。
-
-#### 6.3.5 月度成长 `monthly_growth(rng, disciples, morale)`
-
-```
-每名在世弟子：
-  months_in_sect += 1
-  内力 += rand(0..3) + floor(morale/100 * 2)
-  忠诚 += (morale - 50)/20 + rand(-2..2)（都有 clamp）
-```
-
-#### 6.3.6 叛逃检查 `check_desertion(rng, disciples)`
-
-```
-忠诚 < 15 AND 25% 概率 → 叛逃（从列表中移除）
-每叛逃 1 人 → 志气 -5
-```
-
-### 6.4 年终论剑（`logic/tournament.rs`）
-
-**触发条件**：12 月推进时自动触发。
-
-**算法**：
-
-```
-门派战力 = get_sect_combat_power(disciples)
-参赛门派数 = 8 + year / 2
-基础名次 = total_sects × max(1 - power/200 - prestige/200, 1/total_sects)
-最终名次 = clamp(base_rank + rand(-2..2), 1, total_sects)
-
-奖励：
-  第1名: 银+300, 声望+15, 全员内力+2~6
-  前3名: 银+200, 声望+10, 全员内力+2~6
-  前50%: 银+100, 声望+5,  全员内力+2~6
-  末流: 银+30,  声望不变,  志气-5, 全员内力+2~6
-```
-
-论剑后记录到 `tournament_history`。
-
-### 6.5 月度推进完整流程（`logic/advance.rs`）
-
-**入口**：`advance_month(rng, state) -> (events, tournament_result?, game_over)`
-
-每次推进执行 11 个步骤：
-
-```
-步骤 1: 触发随机事件
-   ├─ 50% 江湖事件 / 50% 门中事件
-   └─ apply_event_effect() 应用效果 + 生成额外事件
-
-步骤 2: 弟子月度成长
-   └─ monthly_growth() 全员内力/忠诚自然增长
-
-步骤 3: 被动收支
-   ├─ 收入 = prestige * 3/10 + alive_count * 3
-   ├─ 支出 = alive_count * 5 + 20
-   └─ silver = max(silver + income - expense, 0)
-
-步骤 4: 志气自然浮动
-   └─ morale += rand(-3..3)
-
-步骤 5: 掌门伤势恢复
-   └─ injury -= rand(2..5)
-
-步骤 6: 叛逃检查
-   ├─ check_desertion() 低忠诚弟子逃亡
-   └─ 每逃1人: 志气-5
-
-步骤 7: 库银枯竭处理
-   ├─ 若 silver ≤ 0 且 在世弟子 >2
-   ├─ 志气-10
-   └─ 1/3 弟子离开
-
-步骤 8: 游戏结束检查
-   ├─ 条件1: 无弟子 AND 银<20 → game_over
-   └─ 条件2: 声望≤0 AND 志气≤0 → game_over
-
-步骤 9: 年终论剑（仅12月）
-   ├─ run_tournament() 计算名次、奖励
-   └─ 将论剑事件写入事件列表
-
-步骤10: 推进时间
-   ├─ month += 1
-   ├─ month > 12 → month=1, year+=1
-   └─ 新元年写入分隔事件
-
-步骤11: 后处理
-   ├─ 事件追加到 state.event_log（保留最近50条）
-   ├─ decisions_used = 0
-   └─ pending_event = null
-```
-
----
-
-## 7. 模块代码结构
-
-```
-backend/                          # Rust 后端 (lib + bin 双 target)
-├── Cargo.toml                    # [lib] + [[bin]]
-├── .env                          # 环境配置（不入 git）
-└── src/
-    ├── lib.rs                   # pub async fn run_server() — 库入口（供 Tauri 调用）
-    ├── main.rs                  # CLI bin 入口 → run_server(None)
-    ├── config.rs                # Config::load() / AppConfig 结构体
-    ├── router.rs                # Router 定义（8 路由 + CORS + ServeDir）
-    ├── error.rs                 # AppError 统一错误类型（impl IntoResponse）
+```text
+Tauri 2 桌面壳
     │
-    ├── models/                   # —— 数据模型层 ——
-    │   ├── mod.rs                # 模块导出
-    │   ├── game.rs               # GameState（JSONB 对应体）、GameSummary、CreateGameRequest
-    │   ├── disciple.rs           # Disciple 结构体（7 字段）
-    │   ├── martial_art.rs        # MartialArt 结构体 + all_martial_arts() 静态数据
-    │   ├── event.rs              # GameEvent 结构体（text/mood/year/month）
-    │   ├── decision.rs           # DecisionDef 结构体 + all_decisions() 静态数据
-    │   └── tournament.rs         # TournamentRecord、TournamentResult
+    ├── 启动 Rust/Axum 后端（127.0.0.1:3000）
+    │       ├── 游戏规则与月结
+    │       └── SQLite 存档
     │
-    ├── logic/                    # —— 核心逻辑层 ——
-    │   ├── mod.rs                # 模块导出
-    │   ├── advance.rs            # advance_month() 月度推进编排（11 步）
-    │   ├── decision.rs           # execute_decision() 8 种决策处理
-    │   ├── event.rs              # 随机事件池（24种）+ trigger_random_event() + apply_event_effect()
-    │   ├── disciple.rs           # generate_disciple() / monthly_growth() / check_desertion() / 战力计算
-    │   └── tournament.rs         # run_tournament() 论剑计算
-    │
-    ├── handlers/                 # —— HTTP 请求处理层 ——
-    │   ├── mod.rs                # 模块导出
-    │   ├── games.rs              # AppState + create/list/get/delete 4 个 handler
-    │   ├── decisions.rs          # execute_decision handler
-    │   ├── advance.rs            # advance_month handler
-    │   └── static_data.rs        # list_decisions / list_martial_arts
-    │
-    └── db/                       # —— 数据访问层 ——
-        └── mod.rs                # run_migrations + CRUD 查询函数（7 个）
-
-frontend/                         # Vue 3 前端
-├── package.json                  # npm run dev / build
-├── vite.config.ts
-├── tsconfig.json
-├── index.html                    # SPA 入口
-└── src/
-    ├── main.ts                   # createApp + mount
-    ├── App.vue                   # 根组件
-    ├── types.ts                  # TypeScript 类型定义 (含 AppConfig)
-    ├── style.css                 # Tailwind CSS v4 入口
-    └── components/               # 16 个 .vue 组件
-        ├── StartScreen.vue
-        ├── SettingsPanel.vue     # 数据库配置 UI
-        ├── GameView.vue
-        ├── TitleBar.vue
-        ├── StatsGrid.vue
-        ├── DecisionGrid.vue
-        ├── DiscipleList.vue
-        ├── MartialArtsPanel.vue
-        ├── TournamentPanel.vue
-        ├── ChroniclesBar.vue
-        ├── EventPopup.vue
-        ├── SavePanel.vue
-        ├── AdvanceSection.vue
-        ├── GameOverScreen.vue
-        ├── ScrollContainer.vue
-        └── LoadingOverlay.vue
-
-src-tauri/                        # Tauri 2.x 桌面壳
-├── Cargo.toml                    # 依赖 backend (path = "../backend")
-├── tauri.conf.json               # 窗口 1080×840, targets=["nsis"]
-└── src/
-    ├── lib.rs                    # run() — setup 钩子 + Tauri 命令 (get_config/save_config)
-    └── main.rs                   # 桌面入口
+    └── 加载 Vue 前端
+            └── 通过 HTTP 调用 /api
 ```
 
-**分层依赖关系**（自顶向下）：
+### 3.1 技术栈
 
+| 层次 | 当前实现 |
+|---|---|
+| 桌面壳 | Tauri 2 |
+| 前端 | Vue 3、TypeScript、Vite |
+| 样式工具链 | Tailwind CSS 4；主视觉仍以项目 CSS 为主 |
+| 后端 | Rust 2021、Axum、Tokio |
+| 数据访问 | SQLx + SQLite |
+| 并行结算 | Rayon |
+| 序列化 | Serde / JSON |
+
+Tauri 窗口默认面向 1600×900 的桌面布局并允许缩放。桌面壳在独立线程启动后端；前端固定访问 `http://127.0.0.1:3000/api`。Axum 同时提供 API 和构建后的 `frontend/dist` 静态资源，并启用宽松 CORS 以便本地开发。
+
+这是本地单人游戏架构，不包含登录、远程多人同步或云存档。
+
+### 3.2 代码职责
+
+- `frontend/`：界面、交互、API 客户端和前端类型。
+- `backend/`：领域模型、游戏服务、月结、NPC AI、武学规则和 SQLite 持久化。
+- `src-tauri/`：桌面窗口、后端进程启动和打包配置。
+- `doc/`：目标、设计、数据库及其他说明。
+
+前端不计算权威游戏结果。弟子行动是否合法、资源是否足够、结算结果和存档内容均以后端为准。
+
+## 4. 界面设计
+
+### 4.1 顶部信息栏
+
+顶部 `TitleBar` 展示：
+
+- 存档、读档和重新开始入口。
+- 当前门派、年份、月份和门派政策。
+- 银两、声望、士气等关键门派状态。
+- 设置与版本信息入口。
+
+### 4.2 三栏主体
+
+主体 `.book-layout` 是当前桌面端的核心结构。
+
+#### 左栏：弟子名册
+
+`DiscipleList` 用于：
+
+- 展开查看玩家弟子的身份、年龄、资质和状态。
+- 查看基础技能、特殊武学、准备武学和修炼进度。
+- 分配当月行动、行动目标和持续月数。
+- 调整品阶、职务等人员管理项。
+- 查看私人秘籍、个人银两和口粮。
+- 捐献秘籍或逐出弟子。
+
+NPC 门派弟子不会混入玩家名册；玩家可从天枢阁打开只读的 NPC 门派详情。
+
+#### 中栏：七座建筑
+
+中栏以建筑页签承载门派经营：
+
+1. 演武场
+2. 藏经阁
+3. 仓库
+4. 百草堂
+5. 天枢阁
+6. 执事堂
+7. 庶务堂
+
+各页签展示对应设施、长老、经营功能和可下达的管理操作。中栏底部显示剩余决策，并提供“推演下月”。
+
+#### 右栏：双线纪事
+
+`ChroniclesBar` 纵向分为：
+
+- **本门纪事**：玩家门派经营、弟子行动和个人故事。
+- **江湖纪事**：NPC 门派互动、国家事件和大会结果。
+
+两栏各保留并显示最近一段事件，当前界面最多取 24 条，避免长期游玩后信息无限堆叠。
+
+### 4.3 弹层与阻塞状态
+
+当前弹层包括：
+
+- 交互事件与选项结果。
+- 保存与读取面板。
+- 设置、更新说明和确认框。
+- 月结加载遮罩。
+
+若存在待处理的交互事件，正常经营命令和继续推进会被阻塞。玩家必须先完成事件选择；选择结果与当月余下结算属于同一次月份推进。
+
+### 4.4 视觉与响应式
+
+视觉采用纸张、朱砂、玉石和书卷式层次。主设计目标是 1280×720 以上桌面窗口，并针对 1600×900 调整信息密度。
+
+小于约 750px 时已有单栏降级样式，但移动端不是当前主要交付形态，复杂经营面板在窄屏上的交互仍属于部分实现。
+
+## 5. v3 领域模型
+
+### 5.1 `GameState`
+
+`GameState` 是一次存档的权威快照，当前 `schema_version` 为 3。核心内容包括：
+
+- 当前年月、剩余决策和随机世界种子。
+- 玩家弟子、NPC 弟子和所有门派。
+- 玩家门派完整 `SectState`。
+- 国家状态。
+- 已知旧版武学列表和事件日志。
+- 待处理交互事件。
+- `game_over` 终局封存标记、`game_won` 胜负标记和终局原因。
+- 历届武林大会记录。
+
+顶层仍保留 `prestige`、`silver`、`morale`、`injury` 等旧版字段，与 v3 门派属性存在镜像或兼容关系。新功能应优先读取 `sect` 中的门派状态，避免继续扩大双重数据源。
+
+`game_over` 同时用于失败和两载胜利；只有正向结卷时 `game_won = true`。旧存档没有 `game_won` 时默认按未胜利处理。
+
+### 5.2 `SectState`
+
+每个门派的状态包含：
+
+- 声望、银两、道德、士气等门派属性。
+- 门派政策、道德方向和晋升规则。
+- 七座建筑的等级、完好度、升级进度和长老。
+- 粮秣、草药、精铁及丹药库存。
+- 公共秘籍和武学研究上限。
+- 与其他门派的关系。
+- 生效中的门派号令。
+- 生产任务、循环药序、当前药方索引和自动炼药进度。
+
+玩家与 NPC 共用主要门派数据结构，但 NPC 的经营 AI 是简化实现，并不逐项调用玩家界面的所有操作。
+
+### 5.3 `Disciple`
+
+弟子状态包括：
+
+- 身份、所属门派、出身和具名人物信息。
+- 年龄及膂力、悟性、根骨、身法、福缘五项资质。
+- 气血、精神、内力、精力等资源池。
+- 武学修为、声望、道德、忠诚和门派功绩。
+- 品阶、部门、师父、特殊身份。
+- 基础技能、特殊武学、经验和准备武学。
+- 私人秘籍。
+- 当前行动、外出状态和行动目标。
+- 个人银两、已领取的旅途口粮。
+
+当前实际品阶只有：
+
+| 品阶 | 定位 |
+|---|---|
+| 杂役弟子 | 生产、建设和基础后勤 |
+| 外门弟子 | 修炼、任务、游历和战斗成长 |
+| 内门弟子 | 高阶修炼、传功及担任建筑长老 |
+
+“长老”是内门弟子的建筑职务，不是第四个品阶。具名 NPC 的掌门、副掌门、长老等身份使用另一套人物职位描述。
+
+### 5.4 师徒与六部门
+
+玩家可在弟子名册中为非杂役门人安排师承：
+
+- 师父必须是同门、在世的内门弟子；不可拜自己、跨派拜师，或令师承链形成闭环。
+- 每位师父最多保留五名在籍弟子。亡故、离派、降为不合资格品阶、跨派、成环或超额的师承会在人事变动、逐出和月结时清理。
+- 拜师后，师徒双方对彼此的人物关系至少为 50，弟子门忠增加 3；玩家也可主动解除师承。
+- 安排或解除师承属于月内管理决策，会消耗一次决策。
+
+传授不再允许任意内门向任意同门授业。定向传授和自主传授都要求学生是教师的直系弟子，或师生至少一方对另一方的人物关系达到 35；自主传授有直系弟子可选时会优先直系弟子。武学等级、基础技能、品阶和研究上限等原有传授条件仍同时生效。
+
+NPC 师承不依赖随机遍历顺序：系统按稳定标识和身份、功绩、战力排序，优先由掌门、在任长老和其他资深内门收徒。载入旧档时保留合法旧师承，清除缺人、跨派、亡故、超额或成环引用；世界水合与当月互动后会为仍无师承的合资格 NPC 确定性补配。
+
+六部门是个人职司，不替代七堂建筑或建筑长老。部门按对应行动的本次收益提供以下加成，未任职或职责不匹配时保持原收益：
+
+| 部门 | 对应个人行动 | 收益加成 |
+|---|---|---:|
+| 传功 | 传授、练习、切磋、打熬、修炼内力 | +10% |
+| 藏经 | 研读、冥想 | +10% |
+| 药务 | 采集 | +15% |
+| 司库 | 生产、经营 | +10% |
+| 庶务 | 维护、建造 | +15% |
+| 外务 | 门派任务、江湖游历 | +10% |
+
+部门加成部分对小整数收益向上取整，确保低基数行动也能体现任职效果。部门收益与相关建筑堂效分别参与行动结算；部门不会绕过堂效归零、人物状态、资源成本或其他行动资格校验。
+
+### 5.5 新游戏初始化
+
+新开游戏会：
+
+- 创建玩家门派和 2 名随机外门弟子。
+- 给予玩家门派基础知识秘籍与初始内功秘籍。
+- 创建四个国家和 24 个 NPC 门派。
+- 装载静态具名人物模板，并用随机杂役补全各门派名册。
+- 建立关系、建筑、库存、公共秘籍和武学研究状态。
+- 生成独立世界种子，供后续事件和经营演化使用。
+
+## 6. 月度状态机
+
+### 6.1 月内阶段
+
+每月开始时：
+
+- `max_decisions = 3`。
+- 玩家可以查看状态并执行管理命令。
+- 大多数管理命令或宽泛决策消耗 1 次决策。
+- 决策耗尽后仍可查看信息，也可直接推进月份。
+
+当前有三个不消耗月度决策的操作：
+
+- 调整弟子的准备武学。
+- 选择建筑长老已经设置的月度职务。
+- 排列、增删或清空百草堂循环药序。
+
+任命或更换长老本身仍是经营决策。
+
+### 6.2 推进月份
+
+调用推进后，后端先判断是否产生交互事件：
+
+1. 若已有待处理事件，拒绝重复推进。
+2. 约 30% 概率创建一个交互事件，保存到当前月份并暂停月结。
+3. 玩家选择事件选项后，应用结果并继续完成当月结算。
+4. 若没有交互事件，则抽取并立即应用一个普通随机事件。
+5. 执行统一 `finish_month`。
+
+交互事件不是额外月份。它只是将一次推进分成“显示选项”和“选择后结算”两个请求。
+
+### 6.3 `finish_month` 的当前顺序
+
+月结顺序是玩法语义的一部分：
+
+1. 向玩家与 NPC 弟子发放月俸和门派口粮。
+2. 推进后台自动炼药。
+3. 为已经安排的外出行动领取旅途口粮。
+4. 执行玩家门派七座建筑的长老职务。
+5. 按各国所属门派状态确定性演化基础繁荣、治安，并生成合并的四境月报。
+6. 执行读取国势招募概率的 NPC 门派经营 AI。
+7. 生成具名 NPC 个人纪事。
+8. 生成 3～5 次门派或国家互动，结算贸易、冲突和战争的国势反馈；随后清理失效师承并为 NPC 确定性补配师父。
+9. 克隆此刻的结算快照，并行计算玩家和 NPC 的弟子行动。
+10. 合并定向传功、切磋及其他弟子/门派增量；经营、任务和游历收益在这一阶段读取国势倍率。
+11. 为月结中新安排的外出行动补领旅途口粮。
+12. 若百草堂有合格长老，使用伤药治疗受伤弟子。
+13. 结算年龄、忠诚、自然恢复、衰老与死亡。
+14. 每名存活弟子消耗 3 份个人口粮；短缺会损伤状态和忠诚，并降低玩家门派士气。
+15. 结算门派收入、用度、生产、号令到期、堂舍月修耗材与建筑磨损；被动进项按所属国市况缩放。
+16. 结算士气漂移和旧版玩家伤势恢复。
+17. 处理叛逃、破产离门及游戏结束条件。
+18. 清理月末新增的无效长老任命和师承引用。
+19. 若当前为十二月，举行年度武林大会。
+20. 若为第二年十二月且尚未失败，按第二届论剑名次写入两载胜利并封存终局。
+21. 月份加一，必要时年份加一。
+22. 写入有限长度的事件日志，重置决策和待处理事件。
+
+“并行快照”指第 9 步时取得的统一结算时点，不是月初未变更的原始状态。此前已经发生的事件、长老职务、国势演化、NPC AI 和门派互动会进入该快照。
+
+### 6.4 并行行动合并
+
+弟子行动使用 Rayon 并行计算。所有任务读取同一份结算时快照，先产生结果增量，再统一写回，避免线程直接争用 `GameState`。
+
+定向传功与切磋会先配对并合并，确保：
+
+- 同一弟子不会因遍历顺序被重复使用。
+- 师徒或对手双方看到相同的月初条件。
+- 结果不依赖并行任务完成顺序。
+
+这一机制适合独立月行动，不等同于通用事务系统；新增会同时修改多名弟子的行动时，应继续使用显式配对或确定性的归并规则。
+
+## 7. 决策与管理
+
+### 7.1 宽泛决策兼容层
+
+后端保留七个旧请求 ID 供既有界面和旧客户端继续使用，但执行结果已经统一写入 v3
+门派、人物和武学状态：
+
+| 决策 | 银两成本 | 当前用途 |
+|---|---:|---|
+| 招募 | 50 | 扣除 v3 库银，生成同派真实人物并按现有名额分配品阶 |
+| 训练 | 0 | 健康、在门、空闲门人修炼本人已学战斗武学，遵守全部修习上限 |
+| 任务 | 0 | 执事堂门派级委托，须有真实当值门人，只结算门派银两、声望和志气 |
+| 休养 | 0 | 恢复掌门伤势，并写入 v3 门派志气 |
+| 研读 | 30 | 新谱成功时同时写公册、兼容解锁表和参研上限；否则校订既有公册 |
+| 研发 | 120 | 调用 v3 武学研究，新增公共秘籍及门派参研上限 |
+| 传授 | 20 | 真实师长向直系弟子或亲近同门传授本人已学武学，遵守根基和上限 |
+
+“任务”特意与人物 `sect_mission` 区分：它是执事堂统一承办的门派收入，不创建
+个人 `ActionPlan`，因此不会与归山旅程重复发放个人收益。训练和传授也不会再直接
+修改旧 `inner_power` 字段。
+
+只有产生真实效果的决策才会扣费并消耗一次月度决策；建筑损毁、没有合格门人、
+资源不足、所有目标均已触顶、待决大事或封卷状态都会在写入前阻止。已经从静态
+定义移除的历史隐藏 ID（如 `repair`、`diplomacy`）按未知决策拒绝，不再保留一条
+绕过 v3 资源语义的暗路。
+
+### 7.2 定向管理
+
+当前管理接口覆盖：
+
+- 招募、逐出、晋升、部门安排，以及拜师或解除师承。
+- 设置弟子行动、目标、武学、建筑和持续时间。
+- 任命建筑长老及选择长老职务。
+- 建筑升级、修缮和门派生产。
+- 炼药、自动炼药和丹药使用。
+- 公共秘籍研究、私人秘籍捐献。
+- 与 NPC 门派交换或求取秘籍。
+- 发布门派号令、调整政策与道德方向。
+
+大多数改变资源或当月安排的命令消耗一次决策。后端会独立校验决策余额、待处理事件、弟子状态、目标可用性和资源成本；前端禁用按钮只是第一层提示。
+
+## 8. 弟子成长与行动
+
+### 8.1 MUD 属性
+
+五项资质为：
+
+- 膂力
+- 悟性
+- 根骨
+- 身法
+- 福缘
+
+对应基础技能每提高 10 级，会为相关有效资质提供 1 点加成：
+
+| 基础技能 | 有效资质 |
+|---|---|
+| 基本拳脚 | 膂力 |
+| 读书识字 | 悟性 |
+| 基本内功 | 根骨 |
+| 基本轻功 | 身法 |
+
+年龄修正分为成长与衰老两段：
+
+```text
+年龄 ≤ 35：
+  气血年龄项 = (年龄 - 14) × 3
+  精神年龄项 = (年龄 - 14) × 2
+
+年龄 > 35：
+  气血年龄项 = 63 - (年龄 - 35) × 4
+  精神年龄项 = 42 - (年龄 - 35) × 3
 ```
-main.rs (CLI)  /  src-tauri/lib.rs (桌面)
-  └── lib.rs::run_server()
-        └── router.rs
-              └── handlers/  ──────────────────────────────────┐
-                    │                                           │
-                    ├── logic/  ←── 决策/事件/弟子/论剑逻辑     │
-                    │                                           │
-                    ├── db/     ←── PostgreSQL 读写             │
-                    │                                           │
-                    └── models/ ←── 所有 handler 和 logic 都用   │
+
+最大值的核心计算为：
+
+```text
+最大气血 = 20 + 有效根骨 × 4 + 最大内力 / 2 + 气血年龄项 + 其他加成
+最大精神 = 20 + 有效悟性 × 4 + 最大精力 / 2 + 精神年龄项 + 其他加成
 ```
 
-### 各模块代码量统计
+最大气血或最大精神低于 1 时，弟子死亡。当前气血为 0 表示重伤，精神为 0 表示昏迷，精力为 0 表示力竭。
 
-| 模块 | 文件 | 行数 | 职责 |
-|------|------|------|------|
-| `lib.rs` | 1 | 52 | 库入口 (run_server) |
-| `main.rs` | 1 | 4 | CLI bin 入口 |
-| `config.rs` | 1 | 150 | 配置加载 (JSON + env) |
-| `router.rs` | 1 | 32 | 路由注册 + ServeDir |
-| `error.rs` | 1 | 16 | 错误处理 |
-| `models/` | 6 | 150 | 数据结构定义 |
-| `logic/` | 5 | 500+ | 业务逻辑 |
-| `handlers/` | 4 | 170 | HTTP 请求处理 |
-| `db/` | 1 | 129 | 数据库操作 |
+弟子每在门派中度过 12 个月增加一岁。正常月结会恢复约 15% 的状态；重伤或状态过低时恢复约 30%。
 
----
+### 8.2 内力与精力
 
-## 8. 部署方案
+有效内功由基本内功和当前准备的特殊内功共同决定：
 
-### 8.1 桌面应用部署（Tauri 2.x）
-
-```
-cargo tauri build
-  → src-tauri/target/release/bundle/nsis/*.exe (Windows)
-  → 单文件安装包，内嵌 WebView + 后端线程
-  → 窗口 1080×840
-  → 配置持久化到系统目录 config.json
-  → SettingsPanel 组件提供 UI 编辑数据库连接
+```text
+有效内功 = 基本内功 / 2 + 已准备特殊内功
 ```
 
-### 8.2 Web 开发环境
+没有可用特殊内功时，会使用基础回退值。最大内力受有效内功和原始根骨约束：
 
-```
-依赖：
-├── PostgreSQL 18（已有共享实例 192.168.50.150:5432）
-├── Rust 1.85+ toolchain
-├── Node.js (npm)
-└── .env 文件配置数据库连接
-
-启动流程：
-1. npm run build          # 构建前端 dist/
-2. cargo run              # 后端监听 0.0.0.0:3000，内嵌服务前端
-3. 浏览器打开 localhost:3000
+```text
+最大内力 = 有效内功 × 原始根骨 × 2 / 3
 ```
 
-### 8.3 Web 生产环境（Docker Compose）
+修炼内力要求当前精神至少达到最大精神的 70%。
 
-```yaml
-# docker-compose.yml
-services:
-  zhangmenriji-backend:
-    build: ./backend
-    ports: ["3000:3000"]
-    environment:
-      - DATABASE_URL=postgres://ruoruo:***@postgres:5432/zhangmenriji
-    depends_on: [postgres]
-    # 后端内嵌 frontend/dist/，单端口即服务完整应用
+最大精力由最高知识技能和有效悟性决定：
 
-  postgres:
-    image: postgres:18-alpine
-    environment:
-      POSTGRES_DB: zhangmenriji
-      POSTGRES_USER: ruoruo
-      POSTGRES_PASSWORD: ${PG_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+```text
+最大精力 = 最高知识等级 × 有效悟性 / 2
 ```
 
-> 注意：Web 部署无需独立 Nginx。后端 tower-http ServeDir 已内嵌前端静态文件。
+冥想恢复或提升精力要求当前气血至少达到最大气血的 70%。
 
-### 8.4 数据库自动迁移
+### 8.3 15 类行动
 
-启动时 `db::run_migrations()` 自动执行 `CREATE TABLE IF NOT EXISTS`，无需手动跑 SQL。索引同样自动创建。
+| 行动 | 主要作用 |
+|---|---|
+| 读书 `read` | 从公共或私人秘籍学习 |
+| 练功 `practice` | 训练已经掌握的战斗武学 |
+| 传功 `teach` | 内门弟子向指定弟子传授 |
+| 切磋 `spar` | 与指定同门共同成长 |
+| 锻体 `temper_body` | 提升身体与基础能力 |
+| 修炼内力 `cultivate_neili` | 提升内力 |
+| 冥想 `meditate` | 提升精力 |
+| 门派任务 `sect_mission` | 外出 1～3 个月 |
+| 江湖游历 `wander` | 外出 1～4 个月 |
+| 休养 `recover` | 恢复个人状态 |
+| 维护 `maintain` | 修缮建筑 |
+| 建设 `construct` | 推进建筑升级 |
+| 生产 `produce` | 参与门派生产 |
+| 经商 `business` | 获取门派收入 |
+| 采集 `gather` | 获取原料 |
 
-### 8.5 配置管理（双模式）
+品阶限制为：
 
-#### 桌面模式
+- 杂役：维护、建设、生产、经商、采集、休养。
+- 外门：读书、练功、切磋、锻体、修炼内力、冥想、门派任务、游历、休养。
+- 内门：拥有外门行动，并可传功。
 
+定向行动还要满足：
+
+- 读书目标必须是门派公共秘籍或弟子私人秘籍。
+- 练功目标必须已经掌握、属于战斗武学且未达到上限。
+- 传功者必须掌握目标武学并严格高于学生，学生还须满足品阶、基础和上限要求；双方必须为直系师徒，或至少一方向另一方的关系达到 35。
+- 切磋双方必须都处于可用状态。
+- 维护或建设必须指定存在的建筑。
+- 目标弟子不能已经外出或被其他配对行动占用。
+
+门派任务和游历期间弟子不可参与其他行动。外出不再按月重复发放银两和声望，
+而是使用“一程一档、一程一遇、归山一结算”的旅程卷宗。
+
+#### 旅程卷宗
+
+外出时一次确定并写入 `JourneyProgress`：
+
+- 稳定旅程 ID；
+- 任务模板、目的地和难度；
+- 总月数、已过月数；
+- 本程唯一奇遇及其是否已经解决；
+- 成功、部分成功或失败结果；
+- 是否已经验收结算。
+
+门派任务首批模板为护送粮饷、寻访名医、调停地界和清剿路匪，目的地从襄阳、
+临安、洛阳、大理、凉州和太湖中确定。难度围绕出发人物的有效资质、个人声名、
+道德和实际战力生成；返程时用相同任务能力、道路治安和固定随机扰动判定：
+
+```text
+结果差值 = 当前任务能力 + 道路修正 + [-12, 12] - 卷宗难度
+成功：差值 >= 0
+部分成功：-20 <= 差值 < 0
+失败：差值 < -20
 ```
-Tauri setup 钩子
-  → 读系统配置目录 config.json (不存在则创建默认)
-  → AppConfig.apply_to_env() 注入环境变量
-  → 后端线程通过 env::var() 读取
-  → 用户通过 SettingsPanel 编辑（调用 Tauri get_config/save_config 命令）
+
+途中只获得有界的造诣和武学经验。归山时才一次发放任务银两、门派声望、功绩
+及粮秣、草药或精铁；成功、部分成功和失败分别产生不同奖惩，`settled` 防止同一
+卷宗重复领奖。外务倍率只乘最终任务银两一次。
+
+一程只固定一个抽象奇遇：平安行路、路逢游侠切磋、山道悍匪、荒驿物资、异人
+指点或遗失秘籍。福源提高异人指点和秘籍的权重，治安同时影响友好相遇、悍匪
+权重与战斗难度。奇遇秘籍进入发现者的私人行囊，不会直接成为公共秘籍；异人
+指点可小幅提升气血或精神上限。
+
+门风同时改变任务选择和验收：正派更常外派、少取银而多得声望与道德；邪派
+偏向经营和外派、赏银较高但损失声望与道德；中立保持基准。行侠尚义方针会
+进一步提高任务和游历倾向。
+
+### 8.4 行动持续与建筑派遣
+
+`ActionPlan` 记录行动来源、目标、剩余月份、旅途口粮状态和可选的
+`JourneyProgress`。旧存档中的在途行动没有卷宗时，会在下一次月结以确定性
+随机补建；其他旧行动不受影响。
+
+演武场、藏经阁、仓库和百草堂支持对应的 1～3 个月建筑派遣：
+
+- 演武场：练功。
+- 藏经阁：读书。
+- 仓库：经商或生产。
+- 百草堂：采集。
+
+武学训练默认每月消耗弟子个人银两 1；通过演武场派遣练功时消耗 2。个人银两不足时仍可训练，但效果减半。
+
+外出行动一次性领取 `3 × 剩余月份` 的旅途口粮，防止月月重复领取。
+
+## 9. 武学与秘籍
+
+### 9.1 武学注册表
+
+当前注册表共有 327 门武学：
+
+| 来源 | 数量 |
+|---|---:|
+| 全局基础技能 | 9 |
+| 玩家知识与预定义战斗武学 | 6 |
+| 24 个 NPC 门派的知识与战斗武学 | 312 |
+| 合计 | 327 |
+
+每个 NPC 门派包含：
+
+- 1 门门派知识。
+- 杂役、外门、内门三档传承。
+- 每档拳脚、轻功、内功、兵器各 1 门，共 12 门战斗武学。
+
+界面使用六种展示类别：拳脚、招架、轻功、内功、兵器、知识。NPC 门派不会额外生成通用“特殊招架”；基础招架仍作为基础技能存在。
+
+### 9.2 等级、经验和上限
+
+每门技能独立记录等级与经验。升至下一等级所需累计训练阈值为：
+
+```text
+下一等级经验 = (当前等级 + 1)²
 ```
 
-#### Web 模式
+战斗武学的可训练上限取下列约束的最小值：
 
-| 环境变量 | 说明 | 默认值 |
-|----------|------|--------|
-| `DATABASE_URL` | 完整连接串（**优先级最高**） | — |
-| `PG_HOST` | PostgreSQL 地址 | `192.168.50.150` |
-| `PG_PORT` | PostgreSQL 端口 | `5432` |
-| `PG_USER` | 数据库用户 | `ruoruo` |
-| `PG_PASSWORD` | 数据库密码 | — |
-| `PG_DATABASE` | 数据库名 | `zhangmenriji` |
-| `SERVER_HOST` | 后端监听地址 | `0.0.0.0` |
-| `SERVER_PORT` | 后端监听端口 | `3000` |
+1. 弟子修为上限，满足 `等级³ / 10 ≤ 修为`。
+2. 对应基础技能等级。
+3. 所属门派知识等级。
+4. 门派对该武学的研究上限。
 
-**加载优先级**：`Config::load(config_path)` JSON 文件 > `DATABASE_URL` > 各 `PG_*` 拼合 > `.env` 文件
+知识技能不受修为上限约束。为兼容旧存档，已经高于新计算上限的技能不会被强制降级，只限制继续增长。
 
----
+读书和练功除提升目标武学外，也可能同步训练相关基础能力。
 
-## 9. 关键设计决策（ADR）
+### 9.3 准备武学
 
-### ADR-001：游戏状态存储为 JSONB
+准备表以基础技能为键。玩家可免费切换已学的对应特殊武学，切换不会清空原武学经验。
 
-- **决策**：`games` 表使用单个 `JSONB` 列存储完整游戏状态，而非拆成多表范式化。
-- **理由**：
-  1. 游戏状态是紧密耦合的整体快照，极少需要按字段查询
-  2. JSONB 支持索引，足以覆盖按 id / sect_name 的查询需求
-  3. 避免 ORM 复杂度和 N+1 查询问题
-  4. 弟子、事件等数据随游戏状态一同读写，无独立查询场景
-  5. 单局 JSONB 约 2KB，极轻量
-- **权衡**：牺牲了部分字段级校验能力（如 CHECK 约束无法作用于 JSONB 内部字段）
+知识类自动准备当前最高等级。招架可使用：
 
-### ADR-002：核心逻辑移至后端
+- 已掌握的拳脚武学。
+- 已掌握的兵器武学。
+- 少数被明确标记为可招架的特殊武学。
 
-- **决策**：决策执行、随机事件、月度推进、论剑计算全部在后端完成。
-- **理由**：
-  1. 防止前端作弊（虽然这是单人游戏，但保持架构正确性）
-  2. 前端只需渲染，逻辑集中便于维护和测试
-  3. 未来支持多端（手机/桌面）共享同一逻辑
-- **权衡**：增加了网络往返开销（每次决策/推进需一次 HTTP 请求）
+当前特殊兼容项包括斗转星移、乾坤大挪移、北冥神功和“吸星大法”对应武学。
 
-### ADR-003：Vanilla JS → Vue 3 组件化迁移
+### 9.4 公共与私人秘籍
 
-- **决策**：将前端从纯 HTML/JS 单文件（约 1278 行）迁移至 Vue 3 + Vite + TypeScript + Tailwind CSS v4 组件化架构（16 个 `.vue` 组件）。
-- **理由**：
-  1. 原单文件 UI 维护成本随功能增长线性上升，缺乏组件级复用
-  2. Vue 3 Composition API + TypeScript 提供类型安全和更好的代码组织
-  3. Vite 提供极快的 HMR 开发体验和 Tree-shaking 生产构建
-  4. Tailwind CSS v4 原子化样式与 Vue SFC 天然契合，武侠宣纸风主题一致
-  5. 迁移后前端通过 `npm run build` 产出 `frontend/dist/`，由 tower-http ServeDir 内嵌服务
-  6. 为 Tauri 桌面应用提供现代化 WebView 前端基础
-- **权衡**：
-  1. 引入 Node.js 构建工具链（npm + Vite），增加依赖
-  2. 根目录 `package.json` 提供统一脚本入口：`npm run setup/dev/build`
+- 公共秘籍属于门派，符合条件的弟子都可研读。
+- 私人秘籍属于具体弟子，可自行研读或捐入门派公共藏书。
+- 随机事件和江湖事件可能给予私人秘籍。
 
-### ADR-004：Tauri 2.x 桌面集成
+研究已有公共战斗武学通常消耗 40 银两，并按藏经阁等级与效率提高门派研究上限。
 
-- **决策**：引入 Tauri 2.x 桌面壳（`src-tauri/`），通过 `path = "../backend"` 引用 backend lib crate，在 setup 钩子中读取系统配置目录 `config.json`、注入环境变量、启动后端线程。
-- **理由**：
-  1. 提供原生桌面应用体验（NSIS 安装包、窗口管理 1080×840）
-  2. 后端拆为 lib + bin 双 target，lib 可被 Tauri 和 CLI 复用，无重复代码
-  3. 配置持久化到系统标准目录，用户可通过 SettingsPanel UI 编辑数据库连接
-  4. SettingsPanel 调用 Tauri 命令 `get_config` / `save_config` 读写配置
-- **权衡**：
-  1. 增加构建复杂度（Rust 编译 + Tauri 打包）
-  2. 桌面模式下后端作为子线程运行，生命周期受 Tauri 管控
+玩家“研发新武学”目前只会从 5 门预定义玩家武学中解锁，不会程序化生成全新招式。因此：
 
-### ADR-005：事件独立存储表
+- **已实现**：逐步解锁预定义玩家传承。
+- **路线图**：自定义名称、类别、属性、招式和传承条件的真正自创武学。
 
-- **决策**：事件日志从 `state.event_log`（JSONB 内嵌）独立为 `events` 表。
-- **理由**：
-  1. `event_log` 仅保留最近 50 条（内存优化），但数据库可永久归档
-  2. 独立表支持按时间范围查询历史叙事
-  3. 独立存储便于未来数据分析（统计事件类型分布等）
-- **权衡**：需要维护双写一致性（state.event_log + events 表）
+### 9.5 门派秘籍外交
 
-### ADR-006：无用户认证系统
+天枢阁提供两种方式：
 
-- **决策**：不引入任何用户认证/授权机制。
-- **理由**：
-  1. 这是单人游戏，无多用户场景
-  2. 所有存档通过 UUID 访问，本质上不可猜测
-  3. 开发阶段可通过 CORS 和网络隔离控制访问
-- **权衡**：生产部署时如需公网访问，需在前端 Nginx 层加 HTTP Basic Auth
+#### 交换秘籍
 
-### ADR-007：自动数据库迁移
+- 消耗 45 银两。
+- 需要健康、空闲的内门弟子作为使者。
+- 使者外出 2 个月。
+- 成功后双方关系提高约 10～18，玩家声望增加 2。
 
-- **决策**：应用启动时通过 `run_migrations()` 自动执行 `CREATE TABLE IF NOT EXISTS`，不依赖外部迁移工具。
-- **理由**：
-  1. 表结构极简（仅 2 张表），无需复杂的版本化迁移
-  2. 降低运维门槛，启动即用
-  3. `IF NOT EXISTS` 保证幂等性
-- **权衡**：未来表结构变更需手动编写兼容 SQL
+#### 求取秘籍
 
-### ADR-008：RNG 与 async 隔离
+- 需要健康、空闲的内门弟子，使者外出 2 个月。
+- 银两成本为 `60 + 难度 × 5`。
+- 玩家声望减少 3。
+- 门槛随秘籍层级提高：
 
-- **决策**：所有 `rand::thread_rng()` 的创建和使用局限在同步代码块内，在调用 `await` 前完成并 drop。
-- **理由**：
-  1. `thread_rng()` 非 `Send`，不能跨越 `.await` 边界
-  2. 在每个 handler 中显式创建 RNG 块，确保编译器满意
-- **实现**：在 `handlers/games.rs`、`handlers/decisions.rs`、`handlers/advance.rs` 中使用 `{ let mut rng = ...; ... }` 代码块模式
+| 秘籍层级 | 最低关系 | 最低声望 |
+|---|---:|---:|
+| 知识或基础 | 10 | 0 |
+| 杂役传承 | 20 | 40 |
+| 外门传承 | 45 | 90 |
+| 内门传承 | 75 | 180 |
 
-### ADR-009：前端后端字段命名约定
+学习外派高阶武学还需具备对应基础技能和目标门派知识。
 
-- **决策**：前端使用 camelCase，后端/数据库统一使用 snake_case。
-- **理由**：
-  1. 前端 JS 生态惯例为 camelCase
-  2. Rust 和 PostgreSQL 惯例为 snake_case
-  3. serde 的 `#[serde(rename)]` 注解处理字段映射
-  4. JSONB 内部保持 snake_case 以匹配 Rust 结构体
-- **权衡**：前端需要知道后端字段名或做转换
+## 10. 七座建筑
 
----
+### 10.1 建筑职责
 
-## 附录 A：数据量估算
+| 建筑 | 核心功能 | 可选长老职务 |
+|---|---|---|
+| 演武场 | 练功派遣、训练管理 | 讲武、督练 |
+| 藏经阁 | 读书派遣、秘籍研究 | 整理、参悟 |
+| 仓库 | 库存、生产、经商 | 盘点、采买 |
+| 百草堂 | 采集、炼药、治疗 | 疗伤、炼药 |
+| 天枢阁 | NPC 情报、秘籍外交 | 通信、刺探 |
+| 执事堂 | 招募、品阶、政策、号令 | 招贤、裁断 |
+| 庶务堂 | 建筑升级与修缮 | 维护、督建 |
 
-| 指标 | 估算 |
-|------|------|
-| 单局游戏时长 | 24~60 个月（2~5 年） |
-| 单局决策次数 | 每月最多 3 次 × 24~60 = 72~180 |
-| 单局事件数（state.event_log） | 保留最近 50 条 |
-| 单局事件数（events 表） | 每月 1~2 条 ≈ 24~120 条 |
-| state JSONB 大小 | ~2KB（含 5~15 名弟子） |
-| 单局总存储 | ~5KB（games 1行）+ ~3KB（events 行汇总）≈ 8KB |
-| 100 局总存储 | ~800KB — 极小，无需分区 |
+每座建筑只能任命 1 名长老，同一内门弟子不能同时占据多座建筑。长老必须存活且可用；每月会执行当前选定职务。
 
-## 附录 B：游戏结束条件
+玩家设置长老职务不消耗决策，但任命或撤换长老会消耗决策。NPC AI 会任命长老并经营设施，但使用简化逻辑，不完整执行上述每一种长老职务。
 
-| 条件 | 描述 |
-|------|------|
-| 弟子归零 + 库银 < 20 | "门中无弟子，库银枯竭。山门冷落，掌门黯然隐退……" |
-| 声望 ≤ 0 + 志气 ≤ 0 | "江湖声望尽失，门人志气消沉。本派终究未能撑过难关。" |
+长老人选不再只是“有或没有”。系统按堂口对应的部门经历、有效资质、知识或内功
+修为及功绩，计算 `85%～130%` 的主事能力；无部门、常规资质和修为的旧档人物保持
+约 100% 基线。实际堂务比例只合成一次：
 
----
+```text
+堂务最终比例 = 建筑堂效 × 长老主事能力 / 100
+```
 
-> 文档版本：v2.1
-> 最后更新：2026-07-16
-> 基于：ARCHITECTURE.md v2.1、DATABASE.md v1.0、backend/src/ + frontend/src/ + src-tauri/src/ 全部源码
-> 架构师：若若 (RuoRuo) 🐱
+该比例统一作用于讲武、研经、采买、炼药、通信、招贤和营造等数值产出。外出、
+亡故、重伤、昏迷、非内门或已经改投他派的长老均不算有效主事；直接办理堂务会被
+拒绝，常设药炉则按无长老的半速继续。
+
+### 10.2 等级、完好度和堂效
+
+建筑初始为 1 级、100 完好度。堂效由建筑等级系数乘以完好度：
+
+```text
+堂效（%） = (80 + 20 × 等级) × 完好度 / 100
+```
+
+因此一级且完好时为 100%，每升一级增加 20 个百分点，再按当前完好度折算。三级、50 完好度的堂效为 70%。完好度为 0 时堂效归零，对应事务停办。
+
+堂效实际缩放或限制以下玩法，不只是界面展示值：
+
+| 建筑 | 受堂效影响的当前规则 |
+|---|---|
+| 演武场 | 练功、传功、切磋、锻体与修炼内力 |
+| 藏经阁 | 研读、冥想、秘籍研究及解锁玩家预定义武学 |
+| 仓库 | 弟子生产、经商及仓库长老事务 |
+| 百草堂 | 采集、快速/循环/长老炼药及长老诊治 |
+| 天枢阁 | 秘籍交换、求取和天枢长老事务 |
+| 执事堂 | 招募及执事长老事务 |
+| 庶务堂 | 弟子维护、营造及庶务长老事务 |
+
+弟子行动的经验、产量或工程量按所属门派对应堂效缩放；研究和长老事务的收益也按堂效缩放。需要相关建筑的管理命令会在堂效为 0 时直接拒绝执行。
+
+建筑等级和损坏程度会影响门派维护成本，仓库等级也会提高门派收入。
+
+### 10.3 每月堂舍供给与磨损
+
+七堂每月需要固定投入粮秣和精铁，成本随所有建筑的总重数平缓增加：
+
+```text
+应耗粮秣 = ceil(七堂总等级 / 7)
+应耗精铁 = ceil(七堂总等级 / 14)
+```
+
+七座一级建筑每月各合计消耗 1 份粮秣、1 份精铁。系统只扣除库存中能够支付的部分，并在本门纪事列出应耗与实支。
+
+每座建筑正常随机磨损 1～3 点；完好度低于 30 时再随机磨损 1～3 点。粮秣欠供额外增加 2 点磨损，精铁欠供再额外增加 2 点，两类都欠供时每座建筑合计额外损耗 4 点。玩家门派和 NPC 门派都执行这套月修与磨损。
+
+### 10.4 升级
+
+直接发起升级的基础成本为：
+
+```text
+银两 = 80 + 60 × 当前等级
+精铁 = 3 + 2 × 当前等级
+所需工程量 = (当前等级 + 1) × 20
+```
+
+升级不是等待固定月数自动完成。实际工程量来自：
+
+- 杂役弟子的建设行动。
+- 庶务堂长老的督建职务。
+
+界面或状态中的预计升级月份只是估计值。
+
+### 10.5 修缮
+
+直接完全修缮的成本为：
+
+```text
+银两 = max(10, 缺失完好度 × 2)
+精铁 = max(1, ceil(缺失完好度 / 25))
+```
+
+杂役维护行动和庶务堂长老维护也可以逐步恢复完好度。
+
+## 11. 门派经济与经营
+
+### 11.1 库存
+
+门派库存的基础原料包括：
+
+- 粮秣
+- 草药
+- 精铁
+- 各类成品丹药
+
+资源可由生产、采集、经商、事件、长老职务和 NPC 互动改变。
+
+### 11.2 月俸与口粮
+
+各品阶的标准月俸和门派配粮为：
+
+| 品阶 | 月俸 | 配粮 |
+|---|---:|---:|
+| 杂役 | 2 银两 | 3 |
+| 外门 | 5 银两 | 5 |
+| 内门 | 10 银两 | 8 |
+
+资源不足时优先级为内门、外门、杂役。外出弟子仍领取银两月俸，但不领取普通门派配粮。
+
+所有存活弟子在月末消耗 3 份个人口粮。短缺会降低气血、精力或忠诚；玩家门派出现断粮时还会损失士气。
+
+弟子的个人银两与门派银两是不同账户。个人银两主要用于自身训练，门派不能在月结时任意代付。
+
+### 11.3 炼药
+
+百草堂当前有 13 种丹药配方，分为：
+
+- 常规恢复类。
+- 约 6 个月完成、提供永久成长的慢炼丹药。
+- 约 12 个月完成、可能改变资质或年龄效果的极慢丹药。
+
+炼药有三种入口，均受百草堂堂效影响：
+
+- 玩家直接下令的快速炼制：先取基础炉功月的约 `2/3`，再按堂效折算实际月份。
+- 常设药炉：依玩家配置的药序循环炼制；有同派、在世、健康、未外出的内门百草堂长老时每个历月推进，否则隔月推进。
+- 百草堂长老“炼药”职务：即时产药，产量按堂效缩放。
+
+百草堂配置合格长老后，月结还会自动使用伤药治疗受伤弟子。
+
+常设药序的当前规则为：
+
+- 最多列入 13 张互不重复的有效药方，可上移、下移、加入或移出。
+- 空药序表示暂停后台药炉。
+- 誊录新药序会从首方重新开始，并把当前炉功进度归零。
+- 当前药方完成后索引移至下一方，末方完成后回到首方。
+- 草药、库银不足时等待物资；百草堂堂效为 0 时停止推进。
+- 排列、保存或清空药序不消耗月度决策。
+- 旧存档缺少药序字段时，默认补入全部 13 方，保持原有自动轮炼行为。
+
+### 11.4 政策与号令
+
+当前有 6 种门派政策和 3 种道德方向。它们调整门派经营取向、行为约束或事件倾向。
+
+可发布四种限时门派号令：
+
+| 号令 | 持续月份 | 银两成本 |
+|---|---:|---:|
+| 勤学令 | 3 | 60 |
+| 行侠令 | 4 | 80 |
+| 节用令 | 4 | 50 |
+| 休养令 | 2 | 45 |
+
+号令在月结时应用效果并递减剩余时间。
+
+## 12. NPC 江湖
+
+### 12.1 国家与门派
+
+当前世界固定包含四国和 24 个 NPC 门派：
+
+| 国家 | 门派 |
+|---|---|
+| 大宋 | 武当、华山、全真、桃花岛、少林、古墓、丐帮、峨嵋、姑苏慕容、天地会、青城、枢密院 |
+| 大元 | 明教、日月神教、大轮寺、金帐汗国、神龙教 |
+| 大理 | 天龙寺、雪山派、绝情谷、五毒教 |
+| 大夏 | 星宿派、灵鹫宫、白驼山 |
+
+四国各自保存 0～100 的繁荣与治安。默认国势如下：
+
+| 国家 | 初始繁荣 | 初始治安 |
+|---|---:|---:|
+| 大元 | 72 | 68 |
+| 大宋 | 85 | 62 |
+| 大理 | 70 | 78 |
+| 大夏 | 58 | 55 |
+
+旧档会保留已有国势，补齐缺失的固定国家，并把越界值钳制到 0～100。玩家门派和
+NPC 门派都通过 `country_id` 读取同一份国家状态。
+
+#### 月度基础演化
+
+长老堂务完成后，系统按每个国家所属门派的平均状态形成确定性信号：
+
+- 繁荣读取平均志气和平均仓库堂效。志气至少 65 或仓库堂效至少 115 各提供一个
+  正信号；志气不高于 40 或仓库堂效不高于 75 各提供一个负信号。
+- 治安读取平均道德和平均志气。道德至少 60 或志气至少 70 各提供一个正信号；
+  道德不高于 40 或志气不高于 35 各提供一个负信号。
+- 同一属性把信号合计后只取符号，因此基础繁荣、治安每月各至多变化 1 点。
+- 这一阶段不消费随机数；相同月初快照必得相同结果。四国实际变化合并为至多一条
+  `【四境月报】` 世界纪事。
+
+随后发生的贸易、冲突和战争属于独立反馈，可能令当月总变化超过基础演化的 1 点，
+但所有写入仍会钳制在 0～100。
+
+#### 收益倍率
+
+```text
+市况倍率 = clamp(85, 115, 100 + (繁荣 - 70) / 2)
+行路倍率 = clamp(85, 115, 100 + (治安 - 65) / 2)
+外务倍率 = (市况倍率 + 行路倍率) / 2
+```
+
+公式使用整数运算。市况倍率作用于门派被动进项和弟子经营收益；行路倍率作用于
+门派任务、游历的造诣和武学经验；任务带回的银两使用外务倍率。倍率均在最终正值
+收益上只应用一次，不放大月度用度、训练成本或其他支出。司库月结会直接显示玩家
+所属国当月的市况百分比，天枢阁也显示四国原值、状态标签、市况和行路倍率。
+
+#### NPC 经营与招募
+
+NPC 和玩家的自主行动选择读取同样的原始国势：
+
+```text
+经营权重修正 = clamp(-8, 6, (繁荣 - 70) / 5)
+生产权重修正 = clamp(-6, 8, (70 - 繁荣) / 5)
+任务权重修正 = clamp(-5, 8, (65 - 治安) / 5)
+游历权重修正 = clamp(-5, 7, (治安 - 65) / 5)
+```
+
+NPC 招募以千分率结算，国势修正为
+`2 × (繁荣 - 70) + (治安 - 65)`。常态基础千分率 80，最终限制在 30～180；
+因内门编制不足而紧急补员时基础千分率 820，最终限制在 650～900。每派每月仍只
+进行一次概率判定，招募成本 35 两，名额与长老补员规则保持不变。
+
+#### 互动与战争反馈
+
+- 贸易令涉及国家繁荣 +1；边境冲突令治安 -1；联合剿匪令治安 +1。同一互动的
+  两派若同属一国，只结算一次国家变化。
+- 大理交流令双方国家治安 +1；大夏贸易令双方国家繁荣 +1；大夏刺杀令目标国家
+  治安 -2。
+- 宋元战争和两朝廷交锋合计每月最多一场，普通候选会继续补足当月 3～5 条互动。
+- 全国战争的门派战分额外加入 `繁荣 / 6 + 治安 / 3`。胜国战后繁荣 -1、
+  治安 +1；败国繁荣 -2、治安 -2，纪事写出钳制后的实际变化。
+
+### 12.2 具名人物
+
+静态人物库当前包含 109 个模板：
+
+- 102 名归属各门派的具名 NPC。
+- 7 名江湖游侠。
+
+具名人物的身份、初始技能与所属门派来自模板；当前气血、年龄、行动、成长和门派归属由运行时状态维护。除掌门等受保护身份外，部分人物可能在事件中改投其他门派。
+
+随机生成的杂役用于补足各 NPC 门派名册，不计入 109 个静态模板。
+
+天枢阁中的门派详情提供与玩家人物卡同源、但没有任何经营按钮的只读卷宗。卷宗会
+展示五维有效资质、四项资源、造诣、门忠、功绩、个人声名、道德、部门、师承、
+当前行动、旅程进度、准备武学以及六类技能的等级和本级经验。掌门优先依据运行时
+`npc_position` 识别，因此继任者会立即取得“掌门”标记；若兼任建筑长老，则显示
+“掌门兼××长老”。旧档仍兼容固定首席人物 ID。
+
+### 12.3 NPC 经营 AI
+
+NPC 门派每月会执行简化经营：
+
+- 招募和晋升。
+- 任命建筑长老。
+- 按稳定排序保留、清理并补配师承，优先由掌门和长老收徒。
+- 在资源允许时进行基础投入或奖励弟子。
+- 为弟子选择修炼、生产、外出等行动。
+- 根据当前关系和状态参与江湖互动。
+
+NPC 与玩家共享弟子行动、武学和主要门派结算数据，但 NPC AI 并非“自动操作一遍玩家 UI”。建筑长老职务、秘籍决策和经济优化仍比玩家规则简化。
+
+### 12.4 江湖纪事与互动
+
+月结会生成：
+
+- 2～4 条 NPC 门派经营纪事。
+- 1～3 条具名人物纪事，部分会交叉关联其他人物。
+- 3～5 次门派或国家互动。
+
+互动类型包括切磋、贸易、边境冲突、联合剿匪、弟子改投，以及宋元战争、大理交流、大夏贸易或刺杀、元廷与宋廷事件等。
+
+跨派切磋会从双方真实名册中选择健康、在门且掌握战斗武学的人物。胜负读取实际
+战力；胜者与负者分别尝试获得 12、7 点所用武学经验，仍受个人造诣、基础技能和
+门派参研上限约束。双方分别消耗 5、8 点气血但最低保留 1 点，胜者个人声名 +1，
+胜负门派声望分别 +2、-1，双方关系 +1。若一派没有可切磋人物，该互动不会进入
+候选池。
+
+#### 叛投与品秩
+
+只有门忠低于 60 且不是掌门的人物会进入叛投候选；双方都没有低门忠人物时，不会
+凭空生成叛逃互动。叛投者迁移的是同一个人物对象，既有武学、属性和功绩都会保留，
+但原门派授予的品秩、部门、师承和行动不会随人带入新山门。系统按目标门派当时的
+外门名额重新安排品阶：尚有外门名额则列为外门，名额已满则从杂役做起。这样外来
+内门不会直接占用目标门派的内门编制，尤其不会锁死玩家后续晋升。
+
+#### 双向会盟
+
+非朝廷门派的双方最低关系处于 45～69 时，会盟会进入互动候选。会盟落地后：
+
+- 双方各自关系表中对彼此的关系至少提高到 70。
+- 双方各增加 2 点声望。
+- 天枢阁按双方关系的最低值判断并展示盟契，旧档缺失的一侧按 0 计算。
+
+双方最低关系达到 70 后改走专属盟友互动池：保留互市与点到为止的真实切磋，
+但不再让同一对盟友直接触发边境冲突、叛投、宋元战争或刺杀。盟约因此会真实
+改变后续候选，而不是只留一条会盟纪事。有效候选的基础权重分别为互市 28、
+友好切磋 14、联合巡行 36、驰援 24；背盟权重为
+`8 + max(0, 35 - 双方较低道德)`。缺少人物、武学、旅程或援助银两的候选在
+抽签前移除，不会抽中后生成空纪事。
+
+盟友专属互动包括：
+
+- **联合巡行**：双方各选一名健康、在门且掌握战斗武学的真实人物。两人战力
+  加 `0～120`，对抗 `240 + min(400, 两派声望之和) / 2 + 0～160` 的匪患
+  威胁。成功时两人所用武学各尝试获得
+  14 经验、气血各耗 7、个人声名各增 2；两派各得 35 两和 3 声望，双方关系
+  增 5，涉及国家繁荣增 1、治安增 2。失败时武学各尝试获得 8 经验、气血各耗
+  14 且最低保留 1、个人声名各增 1；两派各最多损失 12 两和 1 声望，关系仍因共患难增 1，涉及
+  国家繁荣、治安各降 1。所有武学成长继续遵守造诣、基础武学和门派参研上限。
+- **盟友驰援**：一方有健康在门且掌握战斗武学的援手、至少 25 两库银，另一方
+  有尚余两月以上并保留行动计划的真实在途门人时才会进入候选。援方支付 25 两、
+  得 1 声望，双方关系增 4；目标人物的 `away_months` 与
+  `action.remaining_months` 同步缩短一月，使原旅程仍沿既有归山流程只结算一次。
+- **背盟**：双方较低道德一方低于 35，且另一方尚有库银时才可能触发。背盟者
+  最多劫走 30 两，银两只在两派间守恒转移；双方关系同时降低 35，盟约立即失效。
+  背盟者声望降 6、受害方声望增 1，双方士气和涉及国家的繁荣、治安同时受损。
+
+当前联盟语义仍直接由双向关系值表示，没有另设盟约表。普通交互造成的会盟增益
+和待决“会盟请帖”也会同步写入双方关系；只有背盟先把关系降出 70 后，这一对门派
+才会在后续月份重新进入普通冲突候选池。
+
+#### 两朝廷征召
+
+金帐汗国和枢密院都能从与之互动的非朝廷门派征召真实弟子。征召会从原门派名册移除一名非掌门弟子，并把同一个人物对象迁入朝廷名册，同时：
+
+- 改写所属门派为金帐汗国或枢密院。
+- 清除原师承、行动和外出状态。
+- 转入外事部门。
+- 金帐汗国强征将忠诚设为 55，并恶化双方关系和原门派声望。
+- 枢密院征辟将忠诚至少设为 70，并改善双方关系和原门派声望。
+
+候选规则会为原门派至少保留一名在籍弟子，且不会征召 NPC 掌门。玩家门派也参与同一套门派互动。
+
+#### NPC 掌门继任
+
+每月门派互动开始时会优先检查一个没有存活掌门的 NPC 门派：
+
+1. 优先从存活的在任建筑长老或长老身份内门中择优。
+2. 旧档缺少长老资料时，以该派其他存活内门兜底。
+3. 按功绩、战力和人物声望选出继任者。
+4. 前任标记为“故掌门”；继任者转为掌门、内门和传功部门，忠诚至少 85。
+5. 清除继任者原师父、行动和外出状态。
+6. 门派因权力更替损失 1 声望、2 士气，并生成江湖纪事。
+
+掌门更替占用当月 3～5 条世界互动纪事中的一条；当前每月最多处理一个门派的继任。
+
+## 13. 事件、年度大会与终局
+
+### 13.1 事件
+
+事件分为：
+
+- 普通随机事件：推进时直接应用。
+- 交互事件：创建 `pending_event`，等待玩家选择。
+- 本门纪事：记录门派和弟子结果。
+- 江湖纪事：记录 NPC、国家和大会结果。
+
+交互事件的效果先应用，随后继续同一个月的完整月结。事件日志保存在 `GameState` 中，前端据此显示双线纪事。
+
+普通事件和交互事件使用带标签的加权池。标签包括行侠、牟利、反噬、尚武、
+研经、通商、清修和门内生计；基础权重为 100，门风与经营方针按题材加减，
+最低仍保留 10。正派提高救助和侠名机会、压低仇怨反噬；邪派同时提高牟利
+机会与官府追缉、仇家寻衅等后果，不能只获得正收益；持中偏向门内生计。
+待决事件的数据结构和“暂停直到玩家选择”的流程保持不变。
+
+### 13.2 武林大会
+
+每年十二月月结结束前举行一次武林大会。正常世界中玩家和 24 个 NPC 门派共同
+参加，共 25 个参赛对象，并进入标准 32 签位的五轮单败淘汰赛。
+
+开赛时先冻结各派阵容：只选择同派、存活、健康、在门且能够行动的人物，按实际
+战斗评分取前三。整届都使用这份快照，前轮得到的经验不会反过来改变后轮胜负。
+种子分为：
+
+```text
+种子分 =
+  2 × 三名出阵者战斗评分总和
+  + min(300, 门派声望) / 2
+  + 基于 world_seed、年份和门派 ID 的稳定 [-12, 12] 扰动
+```
+
+前 7 号种子首轮轮空；赛程共记录 7 个轮空签位和 24 场真实对阵。每场按一号、
+二号、三号位进行三阵：
+
+```text
+单阵得分 = 冻结战斗评分 + [-12, 12]
+场次胜负 = 阵胜数 → 三阵总分 → 较高种子
+```
+
+人数不足允许缺阵；有人对无人直接赢下该阵，双方都无人则该阵无胜者。所有对阵
+点到为止，不产生死亡或持久伤势。
+
+奖励为：
+
+| 名次 | 玩家奖励 |
+|---|---|
+| 第 1 | 300 银两、15 声望 |
+| 前 3 | 200 银两、10 声望 |
+| 前半区 | 100 银两、5 声望 |
+| 后半区 | 30 银两 |
+
+排名靠后的门派还会损失 5 士气。每个真实交手阵次在整届结束后统一结算：胜者
+所用真实武学获得 12 经验、负者获得 7 经验，胜者个人声名 +1；增长继续遵守
+造诣、基础武学和门派参研上限。轮空、无人对阵和未出阵人物不虚增成长，旧版
+“全体存活弟子直接增加内功”已经移除。NPC 前三名仍获得声望和士气奖励。
+
+冠军固定第 1、决赛负者第 2；同轮淘汰者按累计场胜、阵胜、总分、种子与稳定
+门派 ID 排出唯一的 1～25 名。存档持久化每轮、每场、三阵人物/武学/比分、冠军
+和玩家冻结阵容；旧大会记录缺少赛程字段时继续显示原有名次摘要。
+
+大会完成时，纪事弹窗展示本届完整签表；之后可在天枢阁“历届论剑谱”按年份
+回看名次、冠军、冻结阵容和逐场结果。两载胜利页另列两届成绩、第二届本门晋级
+路径及完整签表，因此第一届赛后和终局后都不会失去赛程入口。
+
+### 13.3 失败与两载结卷
+
+当前失败条件为：
+
+- 门派已经没有弟子且银两低于 20；或
+- 声望不高于 0 且士气不高于 0。
+
+失败发生时写入 `game_over = true`、`game_won = false` 和失败原因。
+
+第二年十二月的结算顺序是：
+
+1. 先执行当月失败检查。
+2. 照常举行第二届年终论剑，保留真实名次和奖励。
+3. 若此前没有失败，按冠军、三甲、前列或其余名次生成不同的正向结语。
+4. 写入“【两载结卷】”纪事，并设置 `game_over = true`、`game_won = true`。
+5. 时间正常推进到第三年一月，保存终局自动存档。
+
+正向结卷不要求取得特定名次；活过两载即完成首卷，名次决定结语。失败优先，不能被论剑奖励改写成胜利。
+
+终局后，推进月份、解决事件和所有管理命令都会被后端拒绝。前端显示独立的胜利或失败结算页；胜利页展示最近两届论剑记录，并保留另开山门及查看存档入口。
+
+## 14. API 与存档
+
+### 14.1 HTTP API
+
+当前路由为：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `POST` | `/api/games` | 新建游戏 |
+| `GET` | `/api/games` | 列出存档组 |
+| `GET` | `/api/games/{id}` | 读取指定存档 |
+| `DELETE` | `/api/games/{id}` | 删除指定存档 |
+| `POST` | `/api/games/{id}/saves` | 创建手动存档 |
+| `DELETE` | `/api/save-groups/{id}` | 删除整个存档组 |
+| `POST` | `/api/games/{id}/decisions/{decision_id}` | 执行宽泛决策 |
+| `POST` | `/api/games/{id}/advance` | 推进月份 |
+| `POST` | `/api/games/{id}/events/resolve` | 选择交互事件并完成月结 |
+| `POST` | `/api/games/{id}/manage` | 执行 v3 管理命令 |
+| `GET` | `/api/config` | 读取设置 |
+| `POST` | `/api/config` | 更新设置 |
+| `GET` | `/api/decisions` | 列出宽泛决策定义 |
+| `GET` | `/api/martial-arts` | 列出武学定义 |
+
+接口是本地前后端协议，不提供鉴权、多用户隔离或公网服务保证。
+
+成功的新建、读取及状态修改响应都携带当前 `id`、`save_group_id`、
+`revision`、`sect_name` 和完整 `state`。手动存档、宽泛决策、推进月份、
+处置事件、v3 管理命令以及两类删除必须发送 `X-Save-Revision`；缺少该头返回 428，非法值
+返回 400。若同一槽位已经被别的请求修改，最终数据库 CAS 返回 409
+`stale_revision`，并附带最新完整 `current`。前端直接接管该状态且不自动重放
+落败命令，避免有随机结果或资源消耗的操作被执行两次。
+
+### 14.2 SQLite 持久化
+
+SQLite 当前有四张表：
+
+- `games`
+- `save_group_heads`
+- `events`
+- `game_snapshots`
+
+完整字段、索引和 JSON 状态说明见 [DATABASE.md](./DATABASE.md)，本文只说明行为语义。
+
+存档以“存档组”组织：
+
+- 新游戏先在内存生成初始弟子、玩家门派和完整世界，再在同一事务创建初始
+  自动档与 revision 1 的槽位 head，不会先落一个空白状态再覆盖。
+- 正常完成月结或解决交互事件后，创建新的自动存档 ID。
+- 两载结卷属于完整月结，会以第三年一月、胜利封存状态创建终局自动存档。
+- 自动存档每组最多保留 10 个。
+- 手动存档是当前状态的克隆，数量不受自动存档上限影响。
+- 月内经营、宽泛决策或刚生成但尚未解决的交互事件，会更新当前存档行，而不会制造新的月份节点。
+- 删除单档或存档组也经过槽位 CAS；单档会返回替代 head，整组会清理全部存档。
+
+`save_group_heads` 为每个槽位保存当前权威存档 ID 和单调 revision。月内原地
+更新会先以 revision 条件更新认领 head，再把当前 `games` 状态行和本次产生的
+`events` 副本放在同一事务中。手动存档、完整月结或事件续决同样先认领 head，
+再把新节点、事件副本，以及超出十档上限的旧自动档及其关联清理放在同一事务中；
+任何后续写入失败都会把 head 认领和该次状态写入一起回滚。
+
+旧版本 JSON 会在读取时补齐 v3 所需状态，以支持继续游玩。这里的兼容是尽力迁移，不意味着可以任意删除或重命名序列化字段。
+
+### 14.3 当前持久化边界
+
+- `game_snapshots` 已建表并具有清理逻辑，但当前主流程没有写入或读取它，属于预留结构。
+- `events` 表会写入事件副本，但前端主要读取 `GameState.event_log`，尚未形成单一事件查询来源。
+- 状态、head 和事件副本具备请求内原子写入；槽位级 revision/CAS 保证同一
+  版本的并发命令只有一个提交。系统返回赢家状态，但不自动合并两个游戏分支。
+- 当前没有浏览器 `LocalStorage` 存档，权威存档只在 SQLite。
+
+后续存档工作的重点包括统一事件读取来源，以及决定是否真正启用或移除快照表。
+
+## 15. 实现状态与路线图
+
+### 15.1 已实现
+
+| 领域 | 当前状态 |
+|---|---|
+| 月度循环 | 3 次决策、交互事件中断、统一月结、跨年 |
+| UI | 顶栏 + 三栏经营界面 + 事件/存档弹层 |
+| 门派 | 玩家完整经营状态、24 个 NPC 门派 |
+| 弟子 | 三品阶、五资质、资源池、成长、衰老和死亡 |
+| 行动 | 七类宽泛决策、15 类人物行动、定向配对、旅程卷宗、唯一奇遇与并行结算 |
+| 武学 | 327 门注册武学、经验、上限、准备和秘籍 |
+| 建筑 | 七座设施、堂效缩放、月修耗材、长老能力、升级、修缮和磨损 |
+| 经济 | 银两、粮秣、草药、精铁、月俸、口粮、生产 |
+| 炼药 | 13 种配方、可配置循环药序、快速/后台/长老炼药 |
+| 师徒与部门 | 玩家拜师/解约、NPC 确定性谱系、授业关系门槛及六部门收益 |
+| 国家 | 四国月度演化、市况/行路倍率、NPC 招募、互动反馈和战争支援 |
+| 江湖 | NPC AI、双向会盟、联合巡行、盟友驰援、背盟、两朝廷征召、人物迁移和掌门继任 |
+| 方略与事件 | 门风/经营方针驱动自主行动、外派奖惩及普通/交互事件权重 |
+| 大会与终局 | 25 派五轮三阵淘汰赛、完整赛程、真实武学成长及两载胜利结卷 |
+| 存档 | 存档组、自动/手动存档、兼容读取、删除、原子事件写入及槽位 revision/CAS |
+| 存档 | 存档组、自动/手动存档、兼容读取、删除、原子事件写入及槽位 revision/CAS |
+| 自创武学 | 掌门自创武学（命名、门类、根基），受藏经阁堂效/长老悟性/研究造诣综合影响 |
+| 传承体系 | 辈分链追踪、传承核心武学标记、传承武学修炼加成 |
+| 辈分与部门 | 辈分里程碑事件（五年/十载/加冠礼）、部门任职自动晋升（功绩阈值） |
+| NPC 深化 | NPC 门派自动武学研究、丹药炼制、建筑修缮与磨损 |
+| 事件池扩充 | 32 条新生活流/交互/季令事件，权重标签体系覆盖四类题材 |
+| 长期经营 | 去除两载封卷限制，年关纪事取代结卷，三连三甲+声望 500 即胜利 |
+| 盟约外交 | 联合巡行、召集援手、武学论道、通商易货四项主动盟务指令 |
+| 人口系统 | 四国人口初值（大宋 1.12w/大元 7800/大夏 4500/大理 3200），影响招募与经济 |
+
+### 15.2 部分实现
+
+| 领域 | 已有基础 | 尚缺内容 |
+|---|---|---|
+| NPC 经营 | 招募、晋升、长老、武学研究、炼药、建筑修缮 | 秘籍策略与联盟深度 AI |
+| 窄屏界面 | 有单栏 CSS 降级 | 完整移动端信息架构与触控交互 |
+| 事件存储 | 状态日志和事件表原子双写 | 单一查询来源与双来源语义收敛 |
+| 快照表 | 数据表与清理结构存在 | 实际快照写入、读取和回溯用途 |
+
+### 15.3 路线图优先级
+
+#### P0：规则一致性与可靠性
+
+1. 为所有管理命令持续固化一致的决策消耗、待处理事件和终局校验。
+2. 扩大真实多连接与 HTTP 层并发冲突的回归覆盖。
+3. 固化月结顺序、并行归并和旧存档迁移的回归测试。
+
+#### P1：世界持续演化
+
+1. 在现有国势联动上扩展人口、税赋、跨国商路和长期外交政策。
+2. 让 NPC 使用更接近玩家的建筑、秘籍、丹药和长老策略。
+3. 为盟约增加可由玩家主动召集的长期联合目标与外交承诺。
+4. 丰富朝廷任职人物的后续仕途、归山和立场变化。
+
+#### P2：内容深度
+
+1. ✅ 实现真正的自创武学与传承设计。
+2. ✅ 扩充师门辈分事件、部门晋升体系。
+3. ✅ 增加第二卷、长期经营模式与三连三甲胜利条件。
+
+路线图是设计方向，不代表已经承诺具体版本或接口。
+
+## 16. 开发约束与验收基线
+
+新增规则应保持以下不变量：
+
+- 每月普通决策上限为 3；准备武学、设置长老职务和配置药序是显式免费操作。
+- 待处理交互事件存在时，不得继续任何经营配置（包括免费配置）或重复推进。
+- 一次交互事件选择只完成当前月份，不额外跳月。
+- 弟子并行行动必须读取同一结算时快照，并以确定方式合并。
+- 定向双方行动不得因遍历或线程顺序重复执行。
+- 有效师承必须同门、师父在世且为内门、无闭环，并把每位师父的在籍弟子限制为五人；自主授业须优先直系弟子。
+- 六部门加成只能作用于各自列明的个人行动，不得绕过堂效、资源和行动资格。
+- 堂效必须由等级系数与完好度共同计算；完好度归零时相关行动和管理停办。
+- 堂舍月修必须按总建筑等级扣除粮秣、精铁，并把欠供转换为额外磨损。
+- 循环药序不得包含重复或无效药方；空药序必须停止后台炼药。
+- 会盟必须同时写入双方关系；只有非朝廷双方关系最低值达到 70 才进入盟友池。
+- 盟友不能同时触发普通敌对候选；驰援必须同步真实人物的行期和行动计划，背盟劫银必须在两派间守恒并把关系降出盟约阈值。
+- 朝廷征召必须迁移同一弟子而非生成替身。
+- 叛投必须迁移同一人物并保留武学与功绩，但须按目标门派外门名额重定品阶，不得沿用原门派内门身份。
+- NPC 掌门死亡后必须以真实内门继任，并保留一条世界纪事。
+- 国家繁荣、治安必须始终处于 0～100；同一正值收益不得重复套用国势倍率。
+- 宋元战争和两朝廷交锋在同一月的 3～5 条互动中合计不得超过一次；战争纪事必须写入实际国势变化。
+- 十二月结算必须产生且只产生一次年度大会记录。
+- 自动存档只在完整月份节点创建；月内修改更新当前节点。
+- 状态与对应事件副本必须在同一事务中成功或回滚；自动档淘汰还须同时清理该档的事件与预留快照。
+- 旧存档中已经超过新上限的武学不得在载入时被无声降级。
+- 玩家和 NPC 门派总数在标准新世界中应为 25。
+- 未提前失败的 24 个月连续推进应进入第三年一月，留下两次大会历史，并满足 `game_over = true`、`game_won = true`。
+- 失败终局必须满足 `game_over = true`、`game_won = false`，且任何终局都不得再接受推进或管理。
+
+涉及数据库字段和 JSON 兼容时，应同时核对 [DATABASE.md](./DATABASE.md)；涉及产品验收目标时，应核对 [goal.md](./goal.md)。

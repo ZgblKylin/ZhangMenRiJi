@@ -1,7 +1,22 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive } from 'vue'
-import { gameApi } from './api'
-import { DECISIONS, G, gameGroupId, gameId, MARTIAL_ARTS, resetGame, saveGroups, ui, usedDecisions } from './store'
+import { gameApi, isMissingGameError, isStaleRevisionError } from './api'
+import {
+  adoptGameResponse,
+  adoptGameRevision,
+  clearTransientGameUi,
+  DECISIONS,
+  G,
+  gameGroupId,
+  gameId,
+  gameRevision,
+  MARTIAL_ARTS,
+  preferredContinuationId,
+  resetGame,
+  saveGroups,
+  ui,
+  usedDecisions,
+} from './store'
 import ScrollContainer from './components/ScrollContainer.vue'
 import StartScreen from './components/StartScreen.vue'
 import GameOverScreen from './components/GameOverScreen.vue'
@@ -39,22 +54,202 @@ const refreshSaves = async () => {
   try { const { groups = [] } = await gameApi.list(); saveGroups.value = groups }
   catch (error) { console.warn('获取存档列表失败:', error); saveGroups.value = [] }
 }
+const enterGame = (data: import('./types').GameResponse, preferredSectName = '') => {
+  adoptGameResponse(data, preferredSectName)
+  clearTransientGameUi()
+}
+const recoverStaleRevision = async (error: unknown) => {
+  if (!isStaleRevisionError(error)) return false
+  const current = error.body.current
+  if (
+    current?.id
+    && current.save_group_id
+    && current.state
+    && Number.isSafeInteger(current.revision)
+    && current.revision > 0
+  ) {
+    enterGame(current, G.value?.sect_name)
+    await refreshSaves()
+    alert('卷宗已在别处更新，现已载入最新进度；本次指令没有重复施行。')
+    return true
+  }
+  resetGame()
+  await refreshSaves()
+  ui.savePanel = saveGroups.value.length > 0
+  alert('存档版本已冲突，且服务端没有可接管的当前卷宗。已安全退出本局，请重新选择存档。')
+  return true
+}
+const recoverMissingGame = async (error: unknown) => {
+  if (!isMissingGameError(error) || !gameGroupId.value) return false
+  const saveGroupId = gameGroupId.value
+  await refreshSaves()
+  const group = saveGroups.value.find(item => item.save_group_id === saveGroupId)
+  const currentId = group?.current_id || group?.saves[0]?.id
+  if (currentId) {
+    try {
+      enterGame(await gameApi.get(currentId), G.value?.sect_name)
+      alert('当前卷宗已被裁剪或删除，现已载入同槽位的最新进度；本次指令没有重复施行。')
+      return true
+    } catch (loadError) {
+      console.warn('接管槽位当前卷宗失败:', loadError)
+    }
+  }
+  resetGame()
+  ui.savePanel = saveGroups.value.length > 0
+  alert('当前卷宗已不存在，且该槽位没有可接管的进度。已安全退出本局。')
+  return true
+}
+const handleMutationError = async (prefix: string, error: unknown) => {
+  if (!await recoverStaleRevision(error) && !await recoverMissingGame(error)) report(prefix, error)
+}
+const handleDeleteError = async (prefix: string, error: unknown, targetGroupId: string) => {
+  if (isStaleRevisionError(error)) {
+    const current = error.body.current
+    if (current && gameGroupId.value === targetGroupId) enterGame(current, G.value?.sect_name)
+    await refreshSaves()
+    alert('卷宗已在别处更新，本次删除没有施行；存档列表已刷新。')
+    return
+  }
+  if (isMissingGameError(error)) {
+    if (gameGroupId.value === targetGroupId) await recoverMissingGame(error)
+    else {
+      await refreshSaves()
+      alert('目标卷宗已不存在，存档列表已刷新。')
+    }
+    return
+  }
+  report(prefix, error)
+}
 const openSaves = async () => loading(async () => { await refreshSaves(); ui.savePanel = true })
-const start = (name: string) => loading(async () => { try { const data = await gameApi.create(name); gameId.value = data.id; gameGroupId.value = data.save_group_id; G.value = { ...data.state, sect_name: name }; usedDecisions.value = []; await refreshSaves() } catch (e) { report('创建游戏失败，请确认后端已启动', e) } })
-const loadGame = (id: string) => loading(async () => { try { const data = await gameApi.get(id); gameId.value = data.id; gameGroupId.value = data.save_group_id; G.value = { ...data.state, sect_name: data.sect_name || data.state.sect_name || '' }; usedDecisions.value = []; ui.savePanel = false; if (G.value.pending_event) ui.popup = true } catch (e) { report('载入失败', e) } })
-const continueGame = () => loading(async () => { await refreshSaves(); const latest = saveGroups.value[0]?.saves[0]; if (!latest) return; try { const data = await gameApi.get(latest.id); gameId.value = data.id; gameGroupId.value = data.save_group_id; G.value = { ...data.state, sect_name: data.sect_name || data.state.sect_name || '' }; usedDecisions.value = []; if (G.value.pending_event) ui.popup = true } catch (e) { report('再入江湖失败', e) } })
-const manualSave = () => loading(async () => { if (!gameId.value || !G.value) return; try { const data = await gameApi.save(gameId.value); gameId.value = data.id; gameGroupId.value = data.save_group_id; G.value = { ...data.state, sect_name: data.sect_name || G.value.sect_name }; await refreshSaves() } catch (e) { report('存档失败', e) } })
-const removeSave = async (id: string) => { if (!await askConfirmation({ title: '焚毁存档', message: '确定删除此份存档？卷宗焚毁后无法复原。', confirmLabel: '焚毁存档', danger: true })) return; await loading(async () => { try { await gameApi.remove(id); if (gameId.value === id) resetGame(); await refreshSaves() } catch (e) { report('删除失败', e) } }) }
-const removeGroup = async (id: string) => { if (!await askConfirmation({ title: '撤去槽位', message: '此举将删除该槽位及其中全部存档，且不可撤回。当真要撤去？', confirmLabel: '撤去槽位', danger: true })) return; await loading(async () => { try { await gameApi.removeGroup(id); if (gameGroupId.value === id) resetGame(); await refreshSaves() } catch (e) { report('删除槽位失败', e) } }) }
-const decide = (id: string) => loading(async () => { if (!gameId.value || !G.value || usedDecisions.value.includes(id)) return; try { const name = G.value.sect_name; const data = await gameApi.decide(gameId.value, id); G.value = { ...data.state, sect_name: data.state.sect_name || name }; usedDecisions.value.push(id) } catch (e) { report('决策失败', e) } })
-const manage = (command: ManagementRequest) => loading(async () => { if (!gameId.value || !G.value) return; try { const name = G.value.sect_name; const data = await gameApi.manage(gameId.value, command); G.value = { ...data.state, sect_name: data.state.sect_name || name } } catch (e) { report('掌门令未能施行', e) } })
+const start = (name: string) => loading(async () => {
+  try {
+    enterGame(await gameApi.create(name), name)
+    await refreshSaves()
+  } catch (e) {
+    report('创建游戏失败，请确认后端已启动', e)
+  }
+})
+const loadGame = (id: string) => loading(async () => {
+  try {
+    enterGame(await gameApi.get(id))
+    ui.savePanel = false
+  } catch (e) {
+    report('载入失败', e)
+  }
+})
+const continueGame = () => loading(async () => {
+  await refreshSaves()
+  const id = preferredContinuationId(saveGroups.value)
+  if (!id) return
+  try {
+    enterGame(await gameApi.get(id))
+  } catch (e) {
+    report('再入江湖失败', e)
+  }
+})
+const manualSave = () => loading(async () => {
+  if (!gameId.value || !G.value) return
+  try {
+    const name = G.value.sect_name
+    adoptGameResponse(await gameApi.save(gameId.value, gameRevision.value), name)
+    await refreshSaves()
+  } catch (e) {
+    await handleMutationError('存档失败', e)
+  }
+})
+const removeSave = async (id: string) => {
+  if (!await askConfirmation({ title: '焚毁存档', message: '确定删除此份存档？卷宗焚毁后无法复原。', confirmLabel: '焚毁存档', danger: true })) return
+  const group = saveGroups.value.find(item => item.saves.some(save => save.id === id))
+  await loading(async () => {
+    try {
+      const result = await gameApi.remove(id, group?.revision ?? null)
+      if (gameGroupId.value === result.save_group_id) {
+        if (gameId.value === id) {
+          if (result.current) enterGame(result.current, G.value?.sect_name)
+          else resetGame()
+        } else if (result.current) {
+          adoptGameRevision(result.current.revision)
+        }
+      }
+      await refreshSaves()
+    } catch (error) {
+      await handleDeleteError('删除失败', error, group?.save_group_id || '')
+    }
+  })
+}
+const removeGroup = async (id: string) => {
+  if (!await askConfirmation({ title: '撤去槽位', message: '此举将删除该槽位及其中全部存档，且不可撤回。当真要撤去？', confirmLabel: '撤去槽位', danger: true })) return
+  const group = saveGroups.value.find(item => item.save_group_id === id)
+  await loading(async () => {
+    try {
+      await gameApi.removeGroup(id, group?.revision ?? null)
+      if (gameGroupId.value === id) resetGame()
+      await refreshSaves()
+    } catch (error) {
+      await handleDeleteError('删除槽位失败', error, id)
+    }
+  })
+}
+const decide = (id: string) => loading(async () => {
+  if (!gameId.value || !G.value || usedDecisions.value.includes(id)) return
+  try {
+    const name = G.value.sect_name
+    adoptGameResponse(await gameApi.decide(gameId.value, id, gameRevision.value), name)
+    usedDecisions.value.push(id)
+  } catch (e) {
+    await handleMutationError('决策失败', e)
+  }
+})
+const manage = (command: ManagementRequest) => loading(async () => {
+  if (!gameId.value || !G.value) return
+  try {
+    const name = G.value.sect_name
+    adoptGameResponse(await gameApi.manage(gameId.value, command, gameRevision.value), name)
+  } catch (e) {
+    await handleMutationError('掌门令未能施行', e)
+  }
+})
 const setPopupEvents = (data: { events?: import('./types').ChronicleEvent[]; sect_events?: import('./types').ChronicleEvent[]; world_events?: import('./types').ChronicleEvent[] }) => {
   const all = data.events || []
   ui.popupSectEvents = data.sect_events || all.filter(event => event.category !== 'world')
   ui.popupWorldEvents = data.world_events || all.filter(event => event.category === 'world')
 }
-const advance = () => loading(async () => { if (!gameId.value || !G.value) return; try { const name = G.value.sect_name; const before = `${G.value.year}-${G.value.month}`; const data = await gameApi.advance(gameId.value); gameId.value = data.id; G.value = { ...data.state, sect_name: data.state.sect_name || name }; if (`${G.value.year}-${G.value.month}` !== before) { usedDecisions.value = []; await refreshSaves() } setPopupEvents(data); ui.tournament = data.tournament || null; ui.popup = !!(ui.popupSectEvents.length || ui.popupWorldEvents.length || data.tournament || G.value.pending_event) } catch (e) { report('推演月令未成', e) } })
-const resolveEvent = (optionId: string) => loading(async () => { if (!gameId.value || !G.value) return; ui.resolvingEvent = true; try { const name = G.value.sect_name; const data = await gameApi.resolveEvent(gameId.value, optionId); gameId.value = data.id; G.value = { ...data.state, sect_name: data.state.sect_name || name }; usedDecisions.value = []; await refreshSaves(); setPopupEvents(data); ui.tournament = data.tournament || null; ui.popup = true } catch (e) { report('此策未能施行', e) } finally { ui.resolvingEvent = false } })
+const advance = () => loading(async () => {
+  if (!gameId.value || !G.value) return
+  try {
+    const name = G.value.sect_name
+    const before = `${G.value.year}-${G.value.month}`
+    const data = await gameApi.advance(gameId.value, gameRevision.value)
+    adoptGameResponse(data, name)
+    if (`${G.value?.year}-${G.value?.month}` !== before) {
+      usedDecisions.value = []
+      await refreshSaves()
+    }
+    setPopupEvents(data)
+    ui.tournament = data.tournament || null
+    ui.popup = !!(ui.popupSectEvents.length || ui.popupWorldEvents.length || data.tournament || G.value?.pending_event)
+  } catch (e) {
+    await handleMutationError('推演月令未成', e)
+  }
+})
+const resolveEvent = (optionId: string) => loading(async () => {
+  if (!gameId.value || !G.value) return
+  ui.resolvingEvent = true
+  try {
+    const name = G.value.sect_name
+    const data = await gameApi.resolveEvent(gameId.value, optionId, gameRevision.value)
+    adoptGameResponse(data, name)
+    usedDecisions.value = []
+    await refreshSaves()
+    setPopupEvents(data)
+    ui.tournament = data.tournament || null
+    ui.popup = true
+  } catch (e) {
+    await handleMutationError('此策未能施行', e)
+  } finally {
+    ui.resolvingEvent = false
+  }
+})
 const closePopup = () => { if (G.value?.pending_event) return; ui.popup = false; ui.popupSectEvents = []; ui.popupWorldEvents = []; ui.tournament = null }
 const restart = async () => { if (await askConfirmation({ title: '重开山门', message: '现有推演将就此搁下，确定返回山门初立之时？', confirmLabel: '重开山门', danger: true })) resetGame() }
 const expel = async (disciple: Disciple) => { if (await askConfirmation({ title: '逐出门墙', message: `当真要将${disciple.name}逐出山门？此令一出，再难挽回。`, confirmLabel: '逐出山门', danger: true })) await manage({ action: 'expel', disciple_id: disciple.id }) }

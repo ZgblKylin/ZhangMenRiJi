@@ -1,17 +1,48 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { G } from '../store'
 import type { ChronicleEvent, PendingWorldEvent, Tournament } from '../types'
+import TournamentBracket from './TournamentBracket.vue'
+
 const props = defineProps<{ open: boolean; sectEvents: ChronicleEvent[]; worldEvents: ChronicleEvent[]; tournament: Tournament | null; pending?: PendingWorldEvent | null; choosing?: boolean }>()
 const emit = defineEmits<{ close: []; choose: [id: string] }>()
 const button = ref<HTMLButtonElement>()
-const rankName = (n: number) => ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][Math.min(n, 10)] || n
-watch(() => props.open, open => { if (open) nextTick(() => button.value?.focus()) })
+const rankName = (n: number) =>
+  (n >= 0 && n <= 10
+    ? ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][n]
+    : String(n))
+const dialogLabel = computed(() => props.pending?.title || (props.tournament ? '年终论剑与本月纪事' : '本月纪事'))
+
+const bracketTournament = computed<Tournament | null>(() => {
+  if (!props.tournament) return null
+  const history = G.value?.tournament_history || []
+  const recorded = props.tournament.year
+    ? history.find(record => record.year === props.tournament?.year)
+    : history.at(-1)
+  return {
+    ...(recorded || {}),
+    ...props.tournament,
+    champion: props.tournament.champion || recorded?.champion || '',
+    player_lineup: props.tournament.player_lineup?.length
+      ? props.tournament.player_lineup
+      : recorded?.player_lineup || [],
+    rounds: props.tournament.rounds?.length ? props.tournament.rounds : recorded?.rounds || [],
+  }
+})
+
+watch(() => props.open, open => { if (open) nextTick(() => button.value?.focus({ preventScroll: true })) })
 </script>
 
 <template>
   <Transition name="fade">
     <div v-if="open" class="modal-overlay z-[150]">
-      <div class="event-dialog" :class="{ 'choice-dialog': pending }">
+      <div
+        class="event-dialog"
+        :class="{ 'choice-dialog': pending, 'tournament-dialog': tournament && !pending }"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="dialogLabel"
+      >
         <template v-if="pending">
           <div class="event-category">{{ pending.category }}</div>
           <div class="event-title">{{ pending.title }}</div>
@@ -28,6 +59,12 @@ watch(() => props.open, open => { if (open) nextTick(() => button.value?.focus()
             <div class="event-title">年 终 论 剑</div>
             <div class="my-2 text-center text-3xl text-gold">第 {{ rankName(tournament.rank) }} 名</div>
             <div class="mb-3 text-center text-sm text-ink-light">天下共 <strong>{{ tournament.total_sects }}</strong> 派与会 · 战力：{{ tournament.power }}<br>{{ tournament.desc_text }}</div>
+            <TournamentBracket
+              v-if="bracketTournament"
+              class="event-bracket"
+              :tournament="bracketTournament"
+              :player-sect-id="G?.sect.id"
+            />
           </template>
           <template v-if="sectEvents.length || worldEvents.length">
             <div class="event-title">本 月 纪 事</div>
@@ -50,3 +87,32 @@ watch(() => props.open, open => { if (open) nextTick(() => button.value?.focus()
     </div>
   </Transition>
 </template>
+
+<style scoped>
+.tournament-dialog {
+  display: block;
+  width: min(96%, 1160px);
+  overflow-y: auto;
+}
+
+.event-bracket {
+  min-height: 0;
+}
+
+.tournament-dialog .event-columns {
+  height: 13rem;
+  max-height: 13rem;
+  margin-top: .8rem;
+}
+
+.tournament-dialog .event-bracket:deep(.bracket-scroll) {
+  max-height: min(42vh, 520px);
+}
+
+@media (max-width: 749px) {
+  .tournament-dialog .event-columns {
+    height: 11rem;
+    max-height: 11rem;
+  }
+}
+</style>

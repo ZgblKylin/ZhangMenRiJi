@@ -30,7 +30,7 @@ const sections = [
   <TitleBar :game="game" @save="$emit('save')" @load="$emit('load')" @restart="$emit('restart')" />
   <div class="book-layout">
     <div class="left-page">
-      <DiscipleList :disciples="alive" :arts="arts" :buildings="game.sect.buildings" :inventory="game.sect.inventory" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" @expel="$emit('expel', $event)" />
+      <DiscipleList :disciples="alive" :arts="arts" :buildings="game.sect.buildings" :inventory="game.sect.inventory" :public-books="game.sect.public_books" :martial-research="game.sect.martial_research" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" @expel="$emit('expel', $event)" />
     </div>
     <div class="center-page">
       <nav class="section-tabs" aria-label="中栏内容切换">
