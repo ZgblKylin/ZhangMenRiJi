@@ -10,6 +10,8 @@ use sqlx::SqlitePool;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
     // 加载 .env（开发/Web 模式回退）
@@ -24,6 +26,18 @@ pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
         .init();
 
     // 加载配置（文件优先 → 环境变量 → 默认值）
+    let app_config = config::AppConfig::load_effective(config_path);
+    if let Some(path) = config_path.filter(|path| !path.exists()) {
+        app_config
+            .save_to_file(path)
+            .map_err(anyhow::Error::msg)?;
+    }
+    if let Some(parent) = Path::new(&app_config.db_path)
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
     let cfg = config::Config::load(config_path);
     tracing::info!(
         "数据库: {}",
@@ -50,7 +64,11 @@ pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
     db::run_migrations(&pool).await?;
 
     // 构建路由
-    let state = AppState { pool };
+    let state = AppState {
+        pool,
+        config: Arc::new(RwLock::new(app_config)),
+        config_path: config_path.map(Path::to_path_buf),
+    };
     let app = router::create_router(state);
 
     // 启动服务器

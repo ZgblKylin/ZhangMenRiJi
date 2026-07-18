@@ -7,11 +7,16 @@ use axum::{
     Json,
 };
 use sqlx::SqlitePool;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
+    pub config: Arc<RwLock<crate::config::AppConfig>>,
+    pub config_path: Option<PathBuf>,
 }
 
 fn game_response(

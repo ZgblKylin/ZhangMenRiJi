@@ -1,6 +1,7 @@
 #[tokio::main]
 async fn main() {
-    zhangmenriji::run_server(None)
+    let config_path = zhangmenriji::config::default_config_path();
+    zhangmenriji::run_server(Some(&config_path))
         .await
         .expect("服务器启动失败");
 }

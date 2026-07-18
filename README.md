@@ -1,6 +1,6 @@
 # 《掌门日记》— 武侠门派经营模拟器 v3.0
 
-前后端分离架构，Rust 后端 + Vue 3 前端，PostgreSQL 持久化，Tauri 桌面应用打包。
+前后端分离架构，Rust 后端 + Vue 3 前端，SQLite 持久化，Tauri 桌面应用打包。
 
 ## 玩法简介
 
@@ -18,7 +18,7 @@
 |----|------|
 | 前端 | Vue 3 + Vite + TypeScript + Tailwind CSS |
 | 后端 | Rust + axum 0.8 |
-| 数据库 | PostgreSQL 18 |
+| 数据库 | SQLite |
 | ORM | sqlx 0.8 |
 | 桌面 | Tauri 2.x |
 
@@ -48,11 +48,12 @@ npm run dev:release  # 启动 release 模式，编译时间较长，适合测试
 
 ### 配置数据库
 
-**桌面应用**：启动后点击开始画面的 ⚙️ 按钮，在弹出的设置面板中填入数据库连接信息。
+**桌面应用与 Web 模式**：启动后点击开始画面的 ⚙️ 按钮，在设置面板中填写数据库文件路径。Web 模式中的路径指后端机器上的文件，前端不会打开文件选择对话框。
+
+后端优先读取系统用户配置目录下 `com.zhangmenriji.desktop/config.json`。配置不存在时会自动生成，并默认将数据库保存到系统用户本地数据目录的 `com.zhangmenriji.desktop/zhangmenriji.db`。
 
 **Web 开发模式**（浏览器调试，无需 Tauri）：
 ```bash
-cp .env.template backend/.env   # 编辑填入数据库信息
 npm run web-backend             # 终端 1：后端 → http://localhost:3000
 npm run web-frontend            # 终端 2：前端 → http://localhost:5173
 ```

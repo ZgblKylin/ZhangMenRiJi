@@ -18,6 +18,7 @@ Thumbs.db
 # 环境变量（含数据库密码等敏感信息）
 .env
 backend/.env
+backend/config.json
 
 # Rust
 backend/target/

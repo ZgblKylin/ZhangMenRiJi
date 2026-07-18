@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { save } from '@tauri-apps/plugin-dialog'
 import type { AppConfig } from '../types'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const form = ref<AppConfig>({
-  db_path: 'zhangmenriji.db',
+  db_path: '',
   server_host: '0.0.0.0',
   server_port: '3000',
 })
@@ -23,41 +22,14 @@ const loadConfig = async () => {
     isTauri.value = true
   } catch {
     isTauri.value = false
-    const saved = localStorage.getItem('zhangmenriji_db_path')
-    if (saved) form.value.db_path = saved
-  }
-}
-
-const fileInput = ref<HTMLInputElement>()
-
-const browseDbPath = async () => {
-  if (isTauri.value) {
     try {
-      const selected = await save({
-        title: '选择或创建数据库文件',
-        defaultPath: form.value.db_path || 'zhangmenriji.db',
-        filters: [{ name: 'SQLite 数据库', extensions: ['db', 'sqlite', 'sqlite3'] }],
-      })
-      if (selected) form.value.db_path = selected
-    } catch {
-      // 用户取消，静默忽略
+      const response = await fetch('/api/config')
+      if (!response.ok) throw new Error(await response.text())
+      form.value = await response.json() as AppConfig
+    } catch (e) {
+      message.value = `读取配置失败: ${e}`
     }
-  } else {
-    // 浏览器模式：用隐藏的 <input type="file"> 打开系统文件选择器
-    fileInput.value?.click()
   }
-}
-
-const onFilePicked = (e: Event) => {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  // 路径拼接：若当前输入框末尾为 / 或 \，直接拼接文件名；否则替换文件名部分
-  const current = form.value.db_path
-  const sep = current.match(/[/\\]$/) ? '' : (current.includes('/') ? '/' : current.includes('\\') ? '\\' : '/')
-  form.value.db_path = current.replace(/[/\\][^/\\]*$/, '') + sep + file.name
-  // 重置 input，保证下次选择同一文件也能触发 change
-  target.value = ''
 }
 
 const saveConfig = async () => {
@@ -67,7 +39,12 @@ const saveConfig = async () => {
     if (isTauri.value) {
       await invoke('save_config', { config: form.value })
     } else {
-      localStorage.setItem('zhangmenriji_db_path', form.value.db_path)
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form.value),
+      })
+      if (!response.ok) throw new Error(await response.text())
     }
     message.value = '配置已存，请重启案牍使其生效。'
   } catch (e) {
@@ -90,12 +67,10 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
       <div class="config-form">
         <div class="form-row">
           <label>数据库文件</label>
-          <input v-model="form.db_path" placeholder="zhangmenriji.db" />
-          <button class="btn btn-sm" @click="browseDbPath">📁</button>
-          <input ref="fileInput" type="file" accept=".db,.sqlite,.sqlite3" class="hidden" @change="onFilePicked" />
+          <input v-model="form.db_path" class="db-path-input" placeholder="数据库文件路径" />
         </div>
 
-        <div v-if="message" class="config-msg" :class="{ error: message.startsWith('保存失败') }">{{ message }}</div>
+        <div v-if="message" class="config-msg" :class="{ error: message.includes('失败') }">{{ message }}</div>
 
         <div class="form-actions">
           <button class="btn" @click="emit('close')">作罢</button>
@@ -118,6 +93,7 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
   display: flex;
   align-items: center;
   gap: .5rem;
+  min-width: 0;
 }
 .form-row label {
   width: 80px;
@@ -128,6 +104,7 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
 }
 .form-row input {
   flex: 1;
+  min-width: 0;
   font-family: var(--font-serif);
   font-size: .85rem;
   padding: .35rem .5rem;

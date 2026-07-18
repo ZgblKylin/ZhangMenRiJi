@@ -32,7 +32,6 @@ fn save_config(app: tauri::AppHandle, config: AppConfig) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // —— 从系统配置目录加载配置，注入环境变量 ——
             let path = config_path(&app.handle())?;
