@@ -6,7 +6,7 @@ defineProps<{ canContinue: boolean }>()
 const emit = defineEmits<{ start: [name: string]; continue: []; load: [] }>()
 const name = ref('')
 const input = ref<HTMLInputElement>()
-const start = () => emit('start', name.value.trim() || '无名派')
+const start = () => emit('start', name.value.trim() || '青云门')
 onMounted(() => nextTick(() => input.value?.focus()))
 </script>
 <template>
