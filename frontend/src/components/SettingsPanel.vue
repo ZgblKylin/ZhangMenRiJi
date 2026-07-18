@@ -28,21 +28,36 @@ const loadConfig = async () => {
   }
 }
 
-const browseDbPath = async () => {
-  if (!isTauri.value) return
+const fileInput = ref<HTMLInputElement>()
 
-  try {
-    const selected = await save({
-      title: '选择或创建数据库文件',
-      defaultPath: form.value.db_path || 'zhangmenriji.db',
-      filters: [{ name: 'SQLite 数据库', extensions: ['db', 'sqlite', 'sqlite3'] }],
-    })
-    if (selected) {
-      form.value.db_path = selected
+const browseDbPath = async () => {
+  if (isTauri.value) {
+    try {
+      const selected = await save({
+        title: '选择或创建数据库文件',
+        defaultPath: form.value.db_path || 'zhangmenriji.db',
+        filters: [{ name: 'SQLite 数据库', extensions: ['db', 'sqlite', 'sqlite3'] }],
+      })
+      if (selected) form.value.db_path = selected
+    } catch {
+      // 用户取消，静默忽略
     }
-  } catch {
-    // 非 Tauri 环境或用户取消，静默忽略
+  } else {
+    // 浏览器模式：用隐藏的 <input type="file"> 打开系统文件选择器
+    fileInput.value?.click()
   }
+}
+
+const onFilePicked = (e: Event) => {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  // 路径拼接：若当前输入框末尾为 / 或 \，直接拼接文件名；否则替换文件名部分
+  const current = form.value.db_path
+  const sep = current.match(/[/\\]$/) ? '' : (current.includes('/') ? '/' : current.includes('\\') ? '\\' : '/')
+  form.value.db_path = current.replace(/[/\\][^/\\]*$/, '') + sep + file.name
+  // 重置 input，保证下次选择同一文件也能触发 change
+  target.value = ''
 }
 
 const saveConfig = async () => {
@@ -76,7 +91,8 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
         <div class="form-row">
           <label>数据库文件</label>
           <input v-model="form.db_path" placeholder="zhangmenriji.db" />
-          <button v-if="isTauri" class="btn btn-sm" @click="browseDbPath">📁</button>
+          <button class="btn btn-sm" @click="browseDbPath">📁</button>
+          <input ref="fileInput" type="file" accept=".db,.sqlite,.sqlite3" class="hidden" @change="onFilePicked" />
         </div>
 
         <div v-if="message" class="config-msg" :class="{ error: message.startsWith('保存失败') }">{{ message }}</div>
