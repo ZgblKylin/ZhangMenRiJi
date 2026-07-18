@@ -22,5 +22,8 @@ backend/.env
 # Rust
 backend/target/
 
+# SQLite database files
+*.db
+
 # Node.js
 node_modules/
