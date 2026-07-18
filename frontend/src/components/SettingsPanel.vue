@@ -7,11 +7,7 @@ const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const form = ref<AppConfig>({
-  pg_host: '',
-  pg_port: '5432',
-  pg_user: 'ruoruo',
-  pg_password: '',
-  pg_database: 'zhangmenriji',
+  db_path: 'zhangmenriji.db',
   server_host: '0.0.0.0',
   server_port: '3000',
 })
@@ -47,36 +43,20 @@ watch(() => props.open, (v) => { if (v) { loadConfig(); message.value = '' } })
 </script>
 
 <template>
-  <div v-if="open" class="modal-overlay" @click.self="emit('close')">
+  <div v-if="open" class="modal-overlay z-[110]" @click.self="emit('close')">
     <div class="save-dialog" style="max-width: 520px;">
       <h2 style="font-family: var(--font-title); font-size: 1.2rem; text-align: center; margin-bottom: 1rem; letter-spacing: .15em;">
-        ⚙️ 数据库配置
+        ⚙️ 应用配置
       </h2>
 
       <div v-if="!isTauri" style="text-align: center; color: var(--color-ink-fade); padding: 1rem; font-size: .85rem;">
-        此卷须在桌面应用中开启。<br>若从浏览器调试，请在 <code>.env</code> 中书写配置。
+        此卷须在桌面应用中开启。<br>若从浏览器调试，请在 <code>.env</code> 中书写 <code>DATABASE_URL</code>。
       </div>
 
       <div v-else class="config-form">
         <div class="form-row">
-          <label>数据库地址</label>
-          <input v-model="form.pg_host" placeholder="192.168.50.150" />
-        </div>
-        <div class="form-row">
-          <label>端口</label>
-          <input v-model="form.pg_port" placeholder="5432" />
-        </div>
-        <div class="form-row">
-          <label>用户名</label>
-          <input v-model="form.pg_user" placeholder="ruoruo" />
-        </div>
-        <div class="form-row">
-          <label>密码</label>
-          <input v-model="form.pg_password" type="password" placeholder="请输入密码" />
-        </div>
-        <div class="form-row">
-          <label>数据库名</label>
-          <input v-model="form.pg_database" placeholder="zhangmenriji" />
+          <label>数据库文件路径</label>
+          <input v-model="form.db_path" placeholder="zhangmenriji.db" />
         </div>
 
         <div v-if="message" class="config-msg" :class="{ error: message.startsWith('❌') }">{{ message }}</div>

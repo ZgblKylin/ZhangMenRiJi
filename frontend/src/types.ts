@@ -219,11 +219,7 @@ export interface SaveGroup {
 }
 
 export interface AppConfig {
-  pg_host: string
-  pg_port: string
-  pg_user: string
-  pg_password: string
-  pg_database: string
+  db_path: string
   server_host: string
   server_port: string
 }
