@@ -2,6 +2,8 @@ use crate::models::game::{CreateGameRequest, GameListItem, GameState};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
+const MAX_AUTO_SAVES: i64 = 10;
+
 /// 启动时自动建表（幂等）
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
@@ -201,6 +203,26 @@ pub async fn create_save(
     .bind(save_type)
     .execute(pool)
     .await?;
+
+    if autosave {
+        let stale_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM games
+             WHERE save_group_id = $1 AND save_type = 'auto'
+             ORDER BY updated_at DESC
+             LIMIT -1 OFFSET $2",
+        )
+        .bind(group_id.to_string())
+        .bind(MAX_AUTO_SAVES)
+        .fetch_all(pool)
+        .await?;
+
+        for stale_id in stale_ids {
+            let stale_id =
+                Uuid::parse_str(&stale_id).map_err(|error| sqlx::Error::Decode(error.into()))?;
+            delete_game(pool, stale_id).await?;
+        }
+    }
+
     Ok(Some(id))
 }
 
