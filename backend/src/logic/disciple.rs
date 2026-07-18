@@ -22,7 +22,7 @@ const GIVEN_FEMALE: &[&str] = &[
     "若兰", "灵素", "紫烟", "幽月", "凝霜", "凤歌", "雪晴", "梦蝶", "碧落", "紫菱", "冰雁", "霜华",
     "念慈", "倚天", "芷若", "飞燕", "语嫣", "龙儿", "莫愁", "秋水",
 ];
-const MARTIAL_SCHEMA_VERSION: i32 = 2;
+const MARTIAL_SCHEMA_VERSION: i32 = 3;
 pub const KNOWLEDGE_PREPARATION_KEY: &str = SkillCategory::Knowledge.slug();
 
 pub(crate) fn rand_range(rng: &mut impl Rng, min: i32, max: i32) -> i32 {
@@ -155,6 +155,8 @@ fn initial_attributes(d: &Disciple) -> AcquiredAttributes {
     let mut attributes = AcquiredAttributes {
         sect_loyalty: d.loyalty,
         morality: (40 + d.aptitudes.fortune / 2).clamp(0, 100),
+        // 新人物预留数级成长空间；之后仍须靠切磋、历练等实战积累造诣。
+        attainment: attainment_required_for_level(highest_combat_level(d).saturating_add(5)),
         ..AcquiredAttributes::default()
     };
     let effective = effective_aptitudes(d);
@@ -194,6 +196,42 @@ pub struct AttributeMaxima {
     pub spirit: i32,
     pub neili: i32,
     pub energy: i32,
+}
+
+pub fn attainment_required_for_level(level: i32) -> i64 {
+    let level = i128::from(level.max(0));
+    (level
+        .saturating_mul(level)
+        .saturating_mul(level)
+        .saturating_div(10))
+    .min(i128::from(i64::MAX)) as i64
+}
+
+/// 侠客行以 `技能等级³ / 10 <= 实战经验` 限制战斗武学。
+/// 造诣即本项目中的实战经验，知识类技能不受此限。
+pub fn attainment_skill_cap(attainment: i64) -> i32 {
+    let target = i128::from(attainment.max(0)).saturating_mul(10);
+    if target <= 0 {
+        return 0;
+    }
+    let mut cap = (target as f64).cbrt().ceil().min(f64::from(i32::MAX)) as i32;
+    while cap > 0 && i128::from(cap - 1).pow(3) >= target {
+        cap -= 1;
+    }
+    while cap < i32::MAX && i128::from(cap).pow(3) < target {
+        cap += 1;
+    }
+    cap
+}
+
+fn highest_combat_level(d: &Disciple) -> i32 {
+    d.martial_progress
+        .proficiencies
+        .iter()
+        .filter(|(id, _)| martial_art_by_id(id).is_some_and(|art| art.is_combat))
+        .map(|(_, progress)| progress.level)
+        .max()
+        .unwrap_or(0)
 }
 
 fn skill_level(d: &Disciple, id: &str) -> i32 {
@@ -237,13 +275,21 @@ pub fn effective_intelligence(d: &Disciple) -> i32 {
     effective_aptitudes(d).intelligence
 }
 
-/// 当前准备内功决定打坐可达到的上限；没有特殊内功时退回基本内功。
-pub fn neili_training_cap(d: &Disciple) -> i32 {
-    let force_level = prepared_skill_id(d, "basic_force")
+/// 侠客行有效内功：基本内功一半，加上当前准备的高级内功。
+/// 没有高级内功时让基本内功的两半合计，保持入门人物仍可打坐。
+pub fn effective_force_level(d: &Disciple) -> i32 {
+    let basic = skill_level(d, "basic_force").max(0);
+    let prepared = prepared_skill_id(d, "basic_force")
+        .filter(|id| *id != "basic_force")
         .map(|id| skill_level(d, id))
-        .unwrap_or_else(|| skill_level(d, "basic_force"));
-    force_level
-        .saturating_mul(effective_aptitudes(d).constitution)
+        .unwrap_or(basic / 2);
+    basic / 2 + prepared
+}
+
+/// 当前准备内功与基本内功共同决定打坐上限。
+pub fn neili_training_cap(d: &Disciple) -> i32 {
+    effective_force_level(d)
+        .saturating_mul(d.aptitudes.constitution.max(0))
         .saturating_mul(2)
         / 3
 }
@@ -268,12 +314,18 @@ pub fn attribute_maxima(d: &Disciple) -> AttributeMaxima {
 
 pub fn recalculate_attribute_maxima(d: &mut Disciple) {
     let new = attribute_maxima(d);
-    d.attributes.qi.maximum = new.qi.max(1);
-    d.attributes.spirit.maximum = new.spirit.max(1);
+    // 先保留原始衰老结果判死，再将展示值收束到零；不可提前钳成 1，
+    // 否则“最大气血/精神不足 1 时死亡”永远不可达。
+    d.attributes.qi.maximum = new.qi.max(0);
+    d.attributes.spirit.maximum = new.spirit.max(0);
     d.attributes.neili.maximum = d.attributes.neili.maximum.max(1);
     d.attributes.energy.maximum = d.attributes.energy.maximum.max(1);
-    d.attributes.qi.current = d.attributes.qi.current.clamp(0, new.qi.max(1));
-    d.attributes.spirit.current = d.attributes.spirit.current.clamp(0, new.spirit.max(1));
+    d.attributes.qi.current = d.attributes.qi.current.clamp(0, d.attributes.qi.maximum);
+    d.attributes.spirit.current = d
+        .attributes
+        .spirit
+        .current
+        .clamp(0, d.attributes.spirit.maximum);
     d.attributes.neili.current = d
         .attributes
         .neili
@@ -509,6 +561,10 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
     if d.martial_schema_version < MARTIAL_SCHEMA_VERSION {
         d.attributes.neili.maximum = d.attributes.neili.maximum.max(d.inner_power).max(1);
         d.attributes.energy.maximum = d.attributes.energy.maximum.max(1);
+        // 旧档没有造诣瓶颈，给现有最高战斗武学留五级缓冲，绝不倒扣已有等级。
+        let migrated_attainment =
+            attainment_required_for_level(highest_combat_level(d).saturating_add(5));
+        d.attributes.attainment = d.attributes.attainment.max(migrated_attainment);
         d.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     }
     normalize_prepared_skills(d);
@@ -656,23 +712,48 @@ pub fn assign_sect_curriculum(d: &mut Disciple, origin: &str, combat_level: i32)
     sync_legacy_attributes(d);
 }
 
-/// 高级武学不能越过对应基础武学及门派知识等级；已有旧修为不会被倒扣。
-pub fn gain_skill_experience(d: &mut Disciple, art_id: &str, amount: i64) -> i32 {
+pub fn skill_level_cap(d: &Disciple, art_id: &str) -> Option<i32> {
     let art_id = canonical_skill_id(art_id);
     let art = martial_art_by_id(&art_id);
     let knowledge_cap =
         knowledge_skill_for_art(&art_id).map(|knowledge_id| skill_level(d, &knowledge_id));
     let basic_cap = art.as_ref().and_then(|art| {
         (art.tier != MartialTier::Basic && !art.basic_skill.is_empty())
-            .then(|| {
-                d.martial_progress
-                    .proficiencies
-                    .get(&art.basic_skill)
-                    .map(|p| p.level)
-            })
-            .flatten()
+            .then(|| skill_level(d, &art.basic_skill))
     });
-    let cap = knowledge_cap.into_iter().chain(basic_cap).min();
+    let attainment_cap = art
+        .as_ref()
+        .filter(|art| art.is_combat)
+        .map(|_| attainment_skill_cap(d.attributes.attainment));
+    knowledge_cap
+        .into_iter()
+        .chain(basic_cap)
+        .chain(attainment_cap)
+        .min()
+}
+
+/// 战斗武学不能越过造诣上限；高级武学还受对应基础武学及门派知识约束。
+/// 已有旧修为不会被倒扣。
+#[cfg(test)]
+pub fn gain_skill_experience(d: &mut Disciple, art_id: &str, amount: i64) -> i32 {
+    gain_skill_experience_with_cap(d, art_id, amount, None)
+}
+
+/// 月度行动另受所属门派的藏经参研上限约束；独立入口保留给旧逻辑与迁移测试。
+pub fn gain_skill_experience_with_cap(
+    d: &mut Disciple,
+    art_id: &str,
+    amount: i64,
+    sect_research_cap: Option<i32>,
+) -> i32 {
+    let art_id = canonical_skill_id(art_id);
+    let research_cap = martial_art_by_id(&art_id)
+        .filter(|art| art.is_combat)
+        .and(sect_research_cap);
+    let cap = skill_level_cap(d, &art_id)
+        .into_iter()
+        .chain(research_cap)
+        .min();
     let progress = d.martial_progress.proficiencies.entry(art_id).or_default();
     let old_level = progress.level;
     progress.gain_experience(amount);
@@ -730,15 +811,22 @@ pub fn generate_starting_disciples(rng: &mut impl Rng) -> Vec<Disciple> {
     vec![d1, d2]
 }
 
+/// 按侠客行MUD战斗公式推算的第子论剑战力：
+/// 基础伤害 ≈ 武学等级³ / 3，内力加成 ≈ (100 + force_bonus) / 200。
+/// 本函数以 attment（造诣）代替 combat_exp，以 cubic 项体现高等级武学的非线性威力。
 pub fn get_combat_score(d: &Disciple) -> i32 {
     let mut skill_total = 0;
     let mut art_power = 0;
+    let mut cubic_base: f64 = 0.0;
     for (basic_id, basic_progress) in d.martial_progress.proficiencies.iter().filter(|(id, _)| {
         martial_art_by_id(id).is_some_and(|art| art.is_combat && art.tier == MartialTier::Basic)
     }) {
-        skill_total += basic_progress.level / 2;
+        skill_total += basic_progress.level;
         if let Some(art_id) = prepared_skill_id(d, basic_id) {
-            skill_total += skill_level(d, art_id);
+            let lvl = skill_level(d, art_id) as f64;
+            skill_total += lvl as i32;
+            // MUD 核心：武学等级立方的伤害曲线
+            cubic_base += lvl * lvl * lvl / 3.0;
             if let Some(art) = martial_art_by_id(art_id) {
                 art_power += art.atk + art.def + art.spd;
             }
@@ -749,11 +837,18 @@ pub fn get_combat_score(d: &Disciple) -> i32 {
         (effective.strength + effective.constitution + effective.agility + effective.fortune) / 4;
     let energy_ratio =
         d.attributes.energy.current.max(0) as f64 / d.attributes.energy.maximum.max(1) as f64;
-    (combat_talent as f64 * 0.2
-        + d.attributes.neili.maximum as f64 * 0.3
-        + skill_total.min(2500) as f64 * 0.025
+    // 内力加成 = 最大内力 / 20（MUD 标准公式）
+    let force_bonus = (d.attributes.neili.maximum as f64 / 20.0).min(200.0);
+    let attainment_depth = attainment_skill_cap(d.attributes.attainment).min(500);
+    // cubic_base 为所有战斗武学 cubic 之和，除以 100 压到合理区间后乘内力加成
+    let cubic_damage = (cubic_base / 100.0) * (100.0 + force_bonus) / 200.0;
+    (combat_talent as f64 * 0.3
+        + d.attributes.neili.maximum as f64 * 0.2
+        + skill_total.min(3000) as f64 * 0.02
+        + cubic_damage.min(800.0)
         + (art_power * 3) as f64
-        + energy_ratio.min(1.5) * 10.0
+        + attainment_depth as f64 * 0.08
+        + energy_ratio.min(1.5) * 15.0
         + d.attributes.sect_loyalty as f64 * 0.05) as i32
 }
 
@@ -808,7 +903,8 @@ pub fn check_desertion(rng: &mut impl Rng, disciples: &mut Vec<Disciple>) -> Vec
     let mut deserters = vec![];
     disciples.retain(|d| {
         if !d.alive {
-            return false;
+            // 亡故门人留在卷宗中，供纪事、掌门继任与旧档追溯使用。
+            return true;
         }
         if d.attributes.sect_loyalty < 15 && rng.gen_bool(0.25) {
             deserters.push(d.name.clone());
@@ -902,6 +998,29 @@ mod tests {
     }
 
     #[test]
+    fn age_decline_can_reach_death_instead_of_being_clamped_to_one() {
+        let mut d = Disciple::default();
+        d.age = 100;
+        d.aptitudes = Aptitudes {
+            strength: 0,
+            intelligence: 0,
+            constitution: 0,
+            agility: 0,
+            fortune: 0,
+        };
+        d.attributes.neili.maximum = 1;
+        d.attributes.energy.maximum = 1;
+
+        recalculate_attribute_maxima(&mut d);
+        refresh_condition(&mut d);
+
+        assert_eq!(d.attributes.qi.maximum, 0);
+        assert_eq!(d.attributes.spirit.maximum, 0);
+        assert_eq!(d.condition, DiscipleCondition::Dead);
+        assert!(!d.alive);
+    }
+
+    #[test]
     fn zero_resources_set_expected_conditions() {
         let mut d = Disciple::default();
         d.attributes.qi.current = 0;
@@ -960,6 +1079,7 @@ mod tests {
         let mut d = Disciple::default();
         d.origin_sect_id = Some("wudang".into());
         d.martial_schema_version = 1;
+        d.attributes.attainment = 100_000;
         d.martial_progress.proficiencies = BTreeMap::from([
             ("wudang_knowledge".into(), SkillProgress::new(30, 0)),
             ("wudang_chore_unarmed".into(), SkillProgress::new(30, 0)),
@@ -972,6 +1092,45 @@ mod tests {
             30
         );
         assert!(d.martial_progress.proficiencies["basic_unarmed"].level > 30);
+    }
+
+    #[test]
+    fn attainment_caps_combat_skills_but_not_knowledge() {
+        let mut d = Disciple::default();
+        d.attributes.attainment = attainment_required_for_level(40);
+        d.martial_progress.proficiencies = BTreeMap::from([
+            ("basic_unarmed".into(), SkillProgress::new(40, 0)),
+            ("player_knowledge".into(), SkillProgress::new(40, 0)),
+        ]);
+
+        gain_skill_experience(&mut d, "basic_unarmed", 100_000);
+        gain_skill_experience(&mut d, "player_knowledge", 100_000);
+
+        assert_eq!(attainment_skill_cap(d.attributes.attainment), 40);
+        assert_eq!(d.martial_progress.proficiencies["basic_unarmed"].level, 40);
+        assert!(d.martial_progress.proficiencies["player_knowledge"].level > 40);
+
+        d.attributes.attainment = attainment_required_for_level(50);
+        gain_skill_experience(&mut d, "basic_unarmed", 100_000);
+        assert_eq!(d.martial_progress.proficiencies["basic_unarmed"].level, 50);
+    }
+
+    #[test]
+    fn sect_research_cap_limits_monthly_combat_growth_but_not_knowledge() {
+        let mut d = Disciple::default();
+        d.attributes.attainment = attainment_required_for_level(100);
+        d.martial_progress.proficiencies = BTreeMap::from([
+            ("basic_unarmed".into(), SkillProgress::new(40, 0)),
+            ("player_knowledge".into(), SkillProgress::new(40, 0)),
+        ]);
+
+        gain_skill_experience_with_cap(&mut d, "basic_unarmed", 100_000, Some(45));
+        gain_skill_experience_with_cap(&mut d, "player_knowledge", 100_000, Some(1));
+        assert_eq!(d.martial_progress.proficiencies["basic_unarmed"].level, 45);
+        assert!(d.martial_progress.proficiencies["player_knowledge"].level > 45);
+
+        gain_skill_experience_with_cap(&mut d, "basic_unarmed", 100_000, Some(60));
+        assert_eq!(d.martial_progress.proficiencies["basic_unarmed"].level, 60);
     }
 
     #[test]
@@ -988,10 +1147,10 @@ mod tests {
         d.attributes.neili.maximum = 700;
         d.attributes.neili.current = 650;
         let before = attribute_maxima(&d);
-        assert_eq!(neili_training_cap(&d), 1_000);
+        assert_eq!(neili_training_cap(&d), 1_133);
 
         prepare_skill(&mut d, "basic_force", "wudang_outer_force").unwrap();
-        assert_eq!(neili_training_cap(&d), 500);
+        assert_eq!(neili_training_cap(&d), 733);
         assert_eq!(d.attributes.neili.maximum, 700);
         assert_eq!(d.attributes.neili.current, 650);
 
@@ -1009,6 +1168,7 @@ mod tests {
     #[test]
     fn skill_growth_changes_aptitude_and_cap_but_not_actual_neili() {
         let mut d = Disciple::default();
+        d.attributes.attainment = attainment_required_for_level(80);
         d.martial_progress.proficiencies = BTreeMap::from([
             ("basic_force".into(), SkillProgress::new(49, 2_499)),
             ("hunyuan".into(), SkillProgress::new(80, 0)),

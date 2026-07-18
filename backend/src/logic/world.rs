@@ -1,8 +1,11 @@
+use crate::logic::country;
 use crate::logic::disciple::{
     add_permanent_neili, assign_sect_curriculum, generate_disciple, sync_legacy_attributes,
 };
 use crate::models::attributes::{Department, DiscipleRank};
-use crate::models::martial_art::{all_martial_arts, knowledge_skill_id};
+use crate::models::martial_art::{
+    all_martial_arts, knowledge_skill_id, martial_art_by_id, MartialTier,
+};
 use crate::models::named_npc::{all_named_npcs, NpcPosition};
 use crate::models::sect::{sect_buildings, MoralDirection, SectAttributes, SectPolicy, SectState};
 use crate::models::{Disciple, GameEvent, GameState};
@@ -295,6 +298,37 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
         for building in &mut buildings {
             building.level = 2 + (sect_index as i32 % 3);
         }
+        let public_books = std::iter::once(knowledge_skill_id(template.id))
+            .chain(
+                all_martial_arts()
+                    .into_iter()
+                    .filter(|art| {
+                        art.sect_id.as_deref() == Some(template.id)
+                            && art.is_combat
+                            && art.category != crate::models::martial_art::SkillCategory::Parry
+                    })
+                    .map(|art| art.id),
+            )
+            .collect::<Vec<_>>();
+        let mut martial_research = public_books
+            .iter()
+            .filter_map(|book| {
+                let art = martial_art_by_id(book)?;
+                art.is_combat.then(|| {
+                    let tier_cap = match art.tier {
+                        MartialTier::Basic => 70,
+                        MartialTier::Chore => 80,
+                        MartialTier::Outer => 120,
+                        MartialTier::Inner => 180,
+                    };
+                    (art.id, i64::from(tier_cap + prestige / 2))
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+        martial_research
+            .entry(template.signature.into())
+            .and_modify(|cap| *cap = (*cap).max(180 + i64::from(prestige)))
+            .or_insert(180 + i64::from(prestige));
         let mut sect = SectState {
             id: template.id.into(),
             name: template.name.into(),
@@ -323,24 +357,19 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
                 ("草药".into(), 30 + sect_index as i32),
                 ("精铁".into(), 18 + sect_index as i32 % 12),
             ]),
-            public_books: std::iter::once(knowledge_skill_id(template.id))
-                .chain(
-                    all_martial_arts()
-                        .into_iter()
-                        .filter(|art| {
-                            art.sect_id.as_deref() == Some(template.id)
-                                && art.is_combat
-                                && art.category != crate::models::martial_art::SkillCategory::Parry
-                        })
-                        .map(|art| art.id),
-                )
-                .collect(),
-            martial_research: BTreeMap::from([(template.signature.into(), 180 + prestige as i64)]),
+            public_books,
+            martial_research,
             relations: BTreeMap::new(),
             active_orders: vec![],
             productions: vec![],
+            auto_brew_queue: crate::models::medicine::PILL_RECIPES
+                .iter()
+                .map(|recipe| recipe.id.to_string())
+                .collect(),
             auto_brew_index: 0,
             auto_brew_progress: 0,
+            created_martial_arts: Vec::new(),
+            heritage_arts: Vec::new(),
         };
 
         let sect_named_npcs: Vec<_> = named_npcs
@@ -415,6 +444,8 @@ pub fn generate_npc_world(seed: u64) -> (Vec<SectState>, Vec<Disciple>) {
     }
 
     initialize_relations(&mut sects);
+    normalize_npc_master_lineages(&sects, &mut disciples);
+    crate::logic::sect::compute_lineage_generations(&mut disciples);
     for npc in named_npcs.iter().filter(|npc| npc.sect_id.is_none()) {
         let mut disciple = npc.build_disciple();
         sync_legacy_attributes(&mut disciple);
@@ -465,6 +496,7 @@ pub fn hydrate_world(state: &mut crate::models::GameState) {
         crate::logic::sect::normalize_elder_assignments(sect, &state.npc_disciples);
     }
     ensure_relations(&mut state.npc_sects);
+    normalize_npc_master_lineages(&state.npc_sects, &mut state.npc_disciples);
 }
 
 /// 不重置旧世界的经营进度，只更新两座朝廷模板并补入旧档缺失的枢密院。
@@ -527,17 +559,7 @@ fn migrate_courts(state: &mut GameState) {
 }
 
 fn hydrate_countries(state: &mut GameState) {
-    for canonical in crate::models::sect::default_countries() {
-        if let Some(existing) = state
-            .countries
-            .iter_mut()
-            .find(|country| country.id == canonical.id)
-        {
-            existing.name = canonical.name;
-        } else {
-            state.countries.push(canonical);
-        }
-    }
+    country::normalize_countries(&mut state.countries);
 }
 
 fn ensure_relations(sects: &mut [SectState]) {
@@ -555,6 +577,220 @@ fn ensure_relations(sects: &mut [SectState]) {
                 .insert(other_id.clone(), relation.clamp(-80, 60));
         }
     }
+}
+
+const MAX_ACTIVE_STUDENTS_PER_MASTER: usize = 5;
+const MIN_MASTER_RELATION: i32 = 50;
+
+/// 为 NPC 门派补齐稳定的师承谱系。
+///
+/// 旧档中仍然合法且未超过五名在籍弟子的师承会原样保留；失效引用清理后，
+/// 外门优先从在世内门中择师。掌门、在任长老排在最前，其余人再按功绩、
+/// 战力和稳定 ID 排序，因此同一份世界数据反复水合不会改变结果。
+pub(crate) fn normalize_npc_master_lineages(sects: &[SectState], disciples: &mut [Disciple]) {
+    for sect in sects {
+        for disciple in disciples.iter_mut().filter(|disciple| {
+            disciple.sect_id.as_deref() == Some(sect.id.as_str())
+                && (!disciple.alive || disciple.rank == DiscipleRank::Chore)
+        }) {
+            disciple.master_id = None;
+        }
+        let mut member_indices: Vec<usize> = disciples
+            .iter()
+            .enumerate()
+            .filter(|(_, disciple)| {
+                disciple.alive && disciple.sect_id.as_deref() == Some(sect.id.as_str())
+            })
+            .map(|(index, _)| index)
+            .collect();
+        member_indices.sort_by(|left, right| disciples[*left].id.cmp(&disciples[*right].id));
+
+        let elder_ids: std::collections::BTreeSet<&str> = sect
+            .buildings
+            .iter()
+            .filter_map(|building| building.elder_id.as_deref())
+            .collect();
+        let legacy_leader_id = format!("npc_{}_1", sect.id);
+        let role_priority = |disciple: &Disciple| {
+            if disciple.npc_position.as_deref() == Some(NpcPosition::SectLeader.display())
+                || disciple.id == legacy_leader_id
+            {
+                0
+            } else if elder_ids.contains(disciple.id.as_str())
+                || matches!(disciple.npc_position.as_deref(), Some("副掌门" | "长老"))
+            {
+                1
+            } else {
+                2
+            }
+        };
+
+        let mut master_indices: Vec<usize> = member_indices
+            .iter()
+            .copied()
+            .filter(|index| disciples[*index].rank == DiscipleRank::Inner)
+            .collect();
+        master_indices.sort_by(|left, right| {
+            role_priority(&disciples[*left])
+                .cmp(&role_priority(&disciples[*right]))
+                .then_with(|| disciples[*right].merit.cmp(&disciples[*left].merit))
+                .then_with(|| {
+                    crate::logic::disciple::get_combat_score(&disciples[*right])
+                        .cmp(&crate::logic::disciple::get_combat_score(&disciples[*left]))
+                })
+                .then_with(|| disciples[*left].id.cmp(&disciples[*right].id))
+        });
+        let master_by_id: BTreeMap<String, usize> = master_indices
+            .iter()
+            .map(|index| (disciples[*index].id.clone(), *index))
+            .collect();
+        let master_order: BTreeMap<String, usize> = master_indices
+            .iter()
+            .enumerate()
+            .map(|(order, index)| (disciples[*index].id.clone(), order))
+            .collect();
+        let mut master_load = BTreeMap::<String, usize>::new();
+        let mut accepted_assignments = BTreeMap::<String, String>::new();
+        let mut relationship_pairs = Vec::<(usize, usize)>::new();
+
+        // 先保留合法旧师承；以弟子稳定 ID 排序，让异常旧档超额时的取舍可复现。
+        for apprentice_index in member_indices.iter().copied() {
+            let apprentice_id = disciples[apprentice_index].id.clone();
+            let Some(master_id) = disciples[apprentice_index].master_id.clone() else {
+                continue;
+            };
+            let Some(master_index) = master_by_id.get(&master_id).copied() else {
+                disciples[apprentice_index].master_id = None;
+                continue;
+            };
+            if master_index == apprentice_index {
+                disciples[apprentice_index].master_id = None;
+                continue;
+            }
+            if would_close_master_cycle(&accepted_assignments, &apprentice_id, &master_id) {
+                disciples[apprentice_index].master_id = None;
+                continue;
+            }
+            let load = master_load.entry(master_id).or_default();
+            if *load >= MAX_ACTIVE_STUDENTS_PER_MASTER {
+                disciples[apprentice_index].master_id = None;
+                continue;
+            }
+            *load += 1;
+            accepted_assignments.insert(apprentice_id, disciples[master_index].id.clone());
+            relationship_pairs.push((apprentice_index, master_index));
+        }
+
+        // 外门最需要稳定授业，先于其他尚无师承的内门占用师资名额。
+        let mut apprentice_indices: Vec<usize> = member_indices
+            .iter()
+            .copied()
+            .filter(|index| {
+                disciples[*index].rank != DiscipleRank::Chore
+                    && disciples[*index].master_id.is_none()
+            })
+            .collect();
+        apprentice_indices.sort_by(|left, right| {
+            let rank_priority = |rank: &DiscipleRank| match rank {
+                DiscipleRank::Outer => 0,
+                DiscipleRank::Inner => 1,
+                DiscipleRank::Chore => 2,
+            };
+            rank_priority(&disciples[*left].rank)
+                .cmp(&rank_priority(&disciples[*right].rank))
+                .then_with(|| disciples[*left].id.cmp(&disciples[*right].id))
+        });
+
+        for apprentice_index in apprentice_indices {
+            let apprentice_id = disciples[apprentice_index].id.clone();
+            let apprentice_order = master_order.get(&apprentice_id).copied();
+            let chosen_master = master_indices.iter().copied().find(|master_index| {
+                if *master_index == apprentice_index {
+                    return false;
+                }
+                let master_id = &disciples[*master_index].id;
+                if master_load.get(master_id).copied().unwrap_or(0)
+                    >= MAX_ACTIVE_STUDENTS_PER_MASTER
+                {
+                    return false;
+                }
+                if would_close_master_cycle(&accepted_assignments, &apprentice_id, master_id) {
+                    return false;
+                }
+                // 内门只拜排序更前的前辈为师，避免新补谱系形成环。
+                apprentice_order.is_none_or(|order| {
+                    master_order
+                        .get(master_id)
+                        .is_some_and(|master_order| *master_order < order)
+                })
+            });
+            let Some(master_index) = chosen_master else {
+                continue;
+            };
+            let master_id = disciples[master_index].id.clone();
+            disciples[apprentice_index].master_id = Some(master_id.clone());
+            *master_load.entry(master_id.clone()).or_default() += 1;
+            accepted_assignments.insert(apprentice_id, master_id);
+            relationship_pairs.push((apprentice_index, master_index));
+        }
+
+        for (apprentice_index, master_index) in relationship_pairs {
+            ensure_mutual_disciple_relation(
+                disciples,
+                apprentice_index,
+                master_index,
+                MIN_MASTER_RELATION,
+            );
+        }
+    }
+}
+
+fn would_close_master_cycle(
+    accepted_assignments: &BTreeMap<String, String>,
+    apprentice_id: &str,
+    master_id: &str,
+) -> bool {
+    let mut current = master_id.to_string();
+    let mut visited = std::collections::BTreeSet::new();
+    loop {
+        if current == apprentice_id {
+            return true;
+        }
+        if !visited.insert(current.clone()) {
+            return true;
+        }
+        let Some(next) = accepted_assignments.get(&current) else {
+            return false;
+        };
+        current = next.clone();
+    }
+}
+
+fn ensure_mutual_disciple_relation(
+    disciples: &mut [Disciple],
+    left_index: usize,
+    right_index: usize,
+    minimum: i32,
+) {
+    if left_index == right_index {
+        return;
+    }
+    let (left, right) = if left_index < right_index {
+        let (before, after) = disciples.split_at_mut(right_index);
+        (&mut before[left_index], &mut after[0])
+    } else {
+        let (before, after) = disciples.split_at_mut(left_index);
+        (&mut after[0], &mut before[right_index])
+    };
+    left.relations
+        .entry(right.id.clone())
+        .and_modify(|relation| *relation = (*relation).max(minimum))
+        .or_insert(minimum);
+    right
+        .relations
+        .entry(left.id.clone())
+        .and_modify(|relation| *relation = (*relation).max(minimum))
+        .or_insert(minimum);
 }
 
 fn chronicle_figure_candidates<'a>(
@@ -824,13 +1060,20 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
             .filter(|building| building.elder_id.is_some())
             .count();
         let urgent = inner_limit < elder_count;
+        let country_id = state.npc_sects[sect_index].country_id.clone();
+        let (prosperity, order) = country::country_values(state, &country_id);
+        let recruit_permille = npc_recruit_probability_permille(prosperity, order, urgent);
         let mut notes = Vec::new();
-        if rng.gen_bool(if urgent { 0.82 } else { 0.08 })
+        if rng.gen_bool(recruit_permille as f64 / 1000.0)
             && state.npc_sects[sect_index].attributes.silver >= 35
         {
             state.npc_sects[sect_index].attributes.silver -= 35;
+            let recruit_id = next_npc_recruit_id(state, &sect_id);
+            let prestige_bonus = state.npc_sects[sect_index].attributes.prestige / 15;
             let mut recruit =
-                generate_disciple(rng, state.npc_sects[sect_index].attributes.prestige / 20);
+                generate_disciple(rng, prestige_bonus.max(2));
+            // 通用弟子生成器的临时 ID 带墙钟时间；NPC 月结须改为存档内可复现的序号。
+            recruit.id = recruit_id;
             recruit.sect_id = Some(sect_id.clone());
             recruit.origin_sect_id = Some(sect_id.clone());
             recruit.rank = DiscipleRank::Chore;
@@ -933,6 +1176,8 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
         }
     }
 
+    // NPC 门派深化：武学研究、丹药炼制与建筑维护
+    deepen_npc_sect_management(rng, state);
     // 江湖纪事不再按门派数组顺序截取，改由各派掌门、在任长老中随机取材。
     // 这里只写人物行止，不把幕后经营数值直接摊在纪事中。
     let mut figures = Vec::new();
@@ -989,6 +1234,133 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
         .collect()
 }
 
+/// 国势只改变 NPC 开山纳新的意愿；成本、名额和长老补贴仍沿用门派规则。
+fn npc_recruit_probability_permille(prosperity: i32, order: i32, urgent: bool) -> u32 {
+    let prosperity = prosperity.clamp(0, 100);
+    let order = order.clamp(0, 100);
+    // 繁荣度和治安共同决定人口吸引力，紧急时大幅放宽
+    let adjustment = (prosperity - 70) * 2 + (order - 65);
+    if urgent {
+        (820 + adjustment).clamp(650, 950) as u32
+    } else {
+        (80 + adjustment).clamp(30, 200) as u32
+    }
+}
+
+fn next_npc_recruit_id(state: &GameState, sect_id: &str) -> String {
+    let prefix = format!("npc_recruit_{}_{}_{}", sect_id, state.year, state.month);
+    let mut serial = state
+        .npc_disciples
+        .iter()
+        .filter(|disciple| disciple.id.starts_with(&prefix))
+        .count();
+    loop {
+        let candidate = format!("{prefix}_{serial}");
+        if !state
+            .npc_disciples
+            .iter()
+            .any(|disciple| disciple.id == candidate)
+        {
+            return candidate;
+        }
+        serial += 1;
+    }
+}
+
+/// NPC 门派每月自动推进武学研究、丹药炼制与建筑维护。
+fn deepen_npc_sect_management(rng: &mut impl Rng, state: &mut GameState) {
+    // 先快照所有需要的不可变数据
+    struct SectBuildSnapshot {
+        has_scripture_elder: bool,
+        has_herb_elder: bool,
+        herbs: i32,
+        scripture_eff: i32,
+        first_combat_art: Option<String>,
+        silver: i32,
+        iron: i32,
+        building_conditions: Vec<(usize, i32)>, // (index, condition)
+    }
+    let snapshots: Vec<SectBuildSnapshot> = state.npc_sects.iter().map(|sect| {
+        let has_scripture_elder = sect.buildings.iter()
+            .any(|b| b.id == "scripture" && b.elder_id.is_some() && b.condition > 0);
+        let has_herb_elder = sect.buildings.iter()
+            .any(|b| b.id == "herb_hall" && b.elder_id.is_some() && b.condition > 0);
+        let herbs = *sect.inventory.get("草药").unwrap_or(&0);
+        let scripture_eff = crate::logic::sect::building_effectiveness(sect, "scripture");
+        let first_combat_art = sect.public_books.iter()
+            .filter_map(|id| {
+                let art = crate::models::martial_art::martial_art_by_id(id)?;
+                art.is_combat.then_some(id.clone())
+            })
+            .next();
+        let silver = sect.attributes.silver;
+        let iron = *sect.inventory.get("精铁").unwrap_or(&0);
+        let building_conditions = sect.buildings.iter()
+            .enumerate()
+            .map(|(i, b)| (i, b.condition))
+            .collect();
+        SectBuildSnapshot {
+            has_scripture_elder, has_herb_elder, herbs, scripture_eff,
+            first_combat_art, silver, iron, building_conditions,
+        }
+    }).collect();
+
+    // 再根据快照执行修改
+    for (sect_index, snap) in snapshots.iter().enumerate() {
+        // 经文研究
+        if snap.has_scripture_elder && snap.scripture_eff > 0 {
+            if let Some(ref art_id) = snap.first_combat_art {
+                let gain = 1_i64
+                    + (snap.scripture_eff / 30).max(0) as i64
+                    + i64::from(rng.gen_bool(0.3));
+                *state.npc_sects[sect_index]
+                    .martial_research
+                    .entry(art_id.clone())
+                    .or_insert(50) += gain;
+            }
+        }
+
+        // 丹药炼制
+        if snap.has_herb_elder && snap.herbs >= 8 {
+            state.npc_sects[sect_index]
+                .inventory
+                .entry("草药".into())
+                .and_modify(|h| *h = (*h - 8).max(0));
+            let med = if rng.gen_bool(0.5) {
+                crate::models::medicine::Medicine::Wound
+            } else {
+                crate::models::medicine::Medicine::Qi
+            };
+            *state.npc_sects[sect_index]
+                .inventory
+                .entry(med.name().into())
+                .or_default() += 1;
+        }
+
+        // 建筑修缮与磨损：先预判每栋建筑的修缮操作
+        let repairs: Vec<(usize, bool, bool, i32)> = snap.building_conditions.iter().map(
+            |&(b_idx, condition)| {
+                let can_repair = condition < 50 && snap.silver >= 15
+                    && snap.iron >= (100 - condition + 24) / 25;
+                let will_wear = condition > 0 && rng.gen_bool(0.3);
+                let iron_cost = if can_repair { (100 - condition + 24) / 25 } else { 0 };
+                (b_idx, can_repair, will_wear, iron_cost)
+            }
+        ).collect();
+
+        for (b_idx, can_repair, will_wear, iron_cost) in repairs {
+            if can_repair {
+                *state.npc_sects[sect_index].inventory.entry("精铁".into()).or_default() -= iron_cost;
+                state.npc_sects[sect_index].attributes.silver -= 15;
+                state.npc_sects[sect_index].buildings[b_idx].condition = 100;
+            }
+            if will_wear {
+                let cond = &mut state.npc_sects[sect_index].buildings[b_idx].condition;
+                *cond = (*cond - 1).max(0);
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1165,10 +1537,356 @@ mod tests {
     }
 
     #[test]
+    fn legacy_country_hydration_preserves_progress_fills_missing_and_clamps() {
+        let mut state = GameState {
+            countries: vec![
+                crate::models::sect::Country {
+                    id: "song".into(),
+                    name: "旧宋".into(),
+                    prosperity: 88,
+                    order: 61,
+                    population: 11200,
+                },
+                crate::models::sect::Country {
+                    id: "yuan".into(),
+                    name: "旧元".into(),
+                    prosperity: 130,
+                    order: -9,
+                    population: 7800,
+                },
+            ],
+            ..GameState::default()
+        };
+
+        hydrate_countries(&mut state);
+
+        assert_eq!(state.countries.len(), 4);
+        let song = country::find_country(&state.countries, "song").unwrap();
+        assert_eq!(
+            (song.name.as_str(), song.prosperity, song.order),
+            ("大宋", 88, 61)
+        );
+        let yuan = country::find_country(&state.countries, "yuan").unwrap();
+        assert_eq!(
+            (yuan.name.as_str(), yuan.prosperity, yuan.order),
+            ("大元", 100, 0)
+        );
+        assert!(country::find_country(&state.countries, "dali").is_some());
+        assert!(country::find_country(&state.countries, "xia").is_some());
+    }
+
+    #[test]
+    fn npc_recruit_probability_obeys_country_bounds_and_urgency() {
+        assert_eq!(npc_recruit_probability_permille(70, 65, false), 80);
+        assert_eq!(npc_recruit_probability_permille(0, 0, false), 30);
+        assert_eq!(npc_recruit_probability_permille(100, 100, false), 175);
+        assert_eq!(npc_recruit_probability_permille(70, 65, true), 820);
+        assert_eq!(npc_recruit_probability_permille(0, 0, true), 650);
+        assert_eq!(npc_recruit_probability_permille(100, 100, true), 915);
+        assert_eq!(npc_recruit_probability_permille(-999, 999, false), 30);
+        assert_eq!(npc_recruit_probability_permille(999, -999, true), 815);
+    }
+
+    #[test]
+    fn npc_ai_is_deterministic_for_a_fixed_seed_and_country_snapshot() {
+        let (sects, disciples) = generate_npc_world(97);
+        let state = GameState {
+            npc_sects: sects,
+            npc_disciples: disciples,
+            ..GameState::default()
+        };
+        let mut left = state.clone();
+        let mut right = state;
+        let mut left_rng = StdRng::seed_from_u64(20260719);
+        let mut right_rng = StdRng::seed_from_u64(20260719);
+
+        let left_events = run_npc_ai(&mut left_rng, &mut left);
+        let right_events = run_npc_ai(&mut right_rng, &mut right);
+
+        assert_eq!(
+            left_events
+                .iter()
+                .map(|event| (&event.text, &event.mood, &event.category))
+                .collect::<Vec<_>>(),
+            right_events
+                .iter()
+                .map(|event| (&event.text, &event.mood, &event.category))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            serde_json::to_value(left).unwrap(),
+            serde_json::to_value(right).unwrap()
+        );
+    }
+
+    #[test]
     fn seeded_world_is_stable() {
-        let (sects_a, _) = generate_npc_world(9);
-        let (sects_b, _) = generate_npc_world(9);
+        let (sects_a, disciples_a) = generate_npc_world(9);
+        let (sects_b, disciples_b) = generate_npc_world(9);
         assert_eq!(sects_a[7].attributes.silver, sects_b[7].attributes.silver);
+        let lineage_snapshot = |disciples: &[Disciple]| {
+            disciples
+                .iter()
+                .filter(|disciple| disciple.sect_id.is_some())
+                .map(|disciple| {
+                    (
+                        disciple.id.clone(),
+                        disciple.master_id.clone(),
+                        disciple.relations.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            lineage_snapshot(&disciples_a),
+            lineage_snapshot(&disciples_b)
+        );
+    }
+
+    #[test]
+    fn all_npc_outer_disciples_have_valid_local_master_lineages() {
+        let (sects, disciples) = generate_npc_world(73);
+        assert_eq!(sects.len(), 24);
+        let mut sects_with_teachers = 0;
+        let mut outer_count = 0;
+
+        for sect in &sects {
+            let teachers: BTreeMap<&str, &Disciple> = disciples
+                .iter()
+                .filter(|disciple| {
+                    disciple.alive
+                        && disciple.rank == DiscipleRank::Inner
+                        && disciple.sect_id.as_deref() == Some(sect.id.as_str())
+                })
+                .map(|disciple| (disciple.id.as_str(), disciple))
+                .collect();
+            if teachers.is_empty() {
+                continue;
+            }
+            sects_with_teachers += 1;
+            let mut loads = BTreeMap::<&str, usize>::new();
+            for apprentice in disciples.iter().filter(|disciple| {
+                disciple.alive && disciple.sect_id.as_deref() == Some(sect.id.as_str())
+            }) {
+                if apprentice.rank == DiscipleRank::Chore {
+                    assert!(
+                        apprentice.master_id.is_none(),
+                        "{}的杂役{}不应有固定师承",
+                        sect.name,
+                        apprentice.name
+                    );
+                }
+                if apprentice.rank == DiscipleRank::Outer {
+                    outer_count += 1;
+                    assert!(
+                        apprentice.master_id.is_some(),
+                        "{}的外门弟子{}没有师父",
+                        sect.name,
+                        apprentice.name
+                    );
+                }
+                let Some(master_id) = apprentice.master_id.as_deref() else {
+                    continue;
+                };
+                let master = teachers.get(master_id).unwrap_or_else(|| {
+                    panic!(
+                        "{}的弟子{}拜了无效或非内门师父{}",
+                        sect.name, apprentice.name, master_id
+                    )
+                });
+                assert_ne!(apprentice.id, master.id);
+                assert_eq!(master.sect_id, apprentice.sect_id);
+                assert!(
+                    apprentice.relations.get(master_id).copied().unwrap_or(0)
+                        >= MIN_MASTER_RELATION
+                );
+                assert!(
+                    master.relations.get(&apprentice.id).copied().unwrap_or(0)
+                        >= MIN_MASTER_RELATION
+                );
+                *loads.entry(master_id).or_default() += 1;
+            }
+            assert!(
+                loads
+                    .values()
+                    .all(|load| *load <= MAX_ACTIVE_STUDENTS_PER_MASTER),
+                "{}存在超过五名在籍弟子的师父",
+                sect.name
+            );
+        }
+
+        assert_eq!(sects_with_teachers, 24);
+        assert!(outer_count > 0);
+    }
+
+    #[test]
+    fn legacy_world_hydration_preserves_valid_masters_and_fills_missing_ones() {
+        let seed = 81;
+        let (sects, mut disciples) = generate_npc_world(seed);
+        let missing_index = disciples
+            .iter()
+            .enumerate()
+            .find(|(_, disciple)| {
+                disciple.alive
+                    && disciple.rank == DiscipleRank::Outer
+                    && disciple.master_id.is_some()
+            })
+            .map(|(index, _)| index)
+            .unwrap();
+        let preserved_index = disciples
+            .iter()
+            .enumerate()
+            .find(|(index, disciple)| {
+                *index != missing_index
+                    && disciple.alive
+                    && disciple.rank != DiscipleRank::Chore
+                    && disciple.master_id.is_some()
+            })
+            .map(|(index, _)| index)
+            .unwrap();
+        let preserved_id = disciples[preserved_index].id.clone();
+        let missing_id = disciples[missing_index].id.clone();
+        let preserved_master_id = disciples[preserved_index].master_id.clone().unwrap();
+        let preserved_master_index = disciples
+            .iter()
+            .position(|disciple| disciple.id == preserved_master_id)
+            .unwrap();
+        disciples[preserved_index]
+            .relations
+            .insert(preserved_master_id.clone(), -20);
+        disciples[preserved_master_index]
+            .relations
+            .insert(preserved_id.clone(), 7);
+        disciples[missing_index].master_id = None;
+
+        let mut state = GameState {
+            world_seed: seed,
+            npc_sects: sects,
+            npc_disciples: disciples,
+            ..GameState::default()
+        };
+        hydrate_world(&mut state);
+
+        let preserved = state
+            .npc_disciples
+            .iter()
+            .find(|disciple| disciple.id == preserved_id)
+            .unwrap();
+        assert_eq!(
+            preserved.master_id.as_deref(),
+            Some(preserved_master_id.as_str())
+        );
+        let preserved_master = state
+            .npc_disciples
+            .iter()
+            .find(|disciple| disciple.id == preserved_master_id)
+            .unwrap();
+        assert!(
+            preserved
+                .relations
+                .get(&preserved_master.id)
+                .copied()
+                .unwrap_or(0)
+                >= MIN_MASTER_RELATION
+        );
+        assert!(
+            preserved_master
+                .relations
+                .get(&preserved.id)
+                .copied()
+                .unwrap_or(0)
+                >= MIN_MASTER_RELATION
+        );
+
+        let filled = state
+            .npc_disciples
+            .iter()
+            .find(|disciple| disciple.id == missing_id)
+            .unwrap();
+        let filled_master_id = filled.master_id.as_deref().unwrap();
+        let filled_master = state
+            .npc_disciples
+            .iter()
+            .find(|disciple| disciple.id == filled_master_id)
+            .unwrap();
+        assert_eq!(filled_master.rank, DiscipleRank::Inner);
+        assert_eq!(filled_master.sect_id, filled.sect_id);
+        assert_ne!(filled_master.id, filled.id);
+    }
+
+    #[test]
+    fn legacy_master_cycles_are_broken_in_stable_id_order() {
+        let seed = 91;
+        let (sects, mut disciples) = generate_npc_world(seed);
+        let mut cycle_indices: Vec<usize> = disciples
+            .iter()
+            .enumerate()
+            .filter(|(_, disciple)| {
+                disciple.alive
+                    && disciple.rank == DiscipleRank::Inner
+                    && disciple.sect_id.as_deref() == Some("wudang")
+            })
+            .map(|(index, _)| index)
+            .collect();
+        cycle_indices.sort_by(|left, right| disciples[*left].id.cmp(&disciples[*right].id));
+        cycle_indices.truncate(3);
+        assert_eq!(cycle_indices.len(), 3);
+
+        for disciple in disciples
+            .iter_mut()
+            .filter(|disciple| disciple.alive && disciple.sect_id.as_deref() == Some("wudang"))
+        {
+            disciple.master_id = None;
+        }
+        let cycle_ids: Vec<String> = cycle_indices
+            .iter()
+            .map(|index| disciples[*index].id.clone())
+            .collect();
+        disciples[cycle_indices[0]].master_id = Some(cycle_ids[1].clone());
+        disciples[cycle_indices[1]].master_id = Some(cycle_ids[2].clone());
+        disciples[cycle_indices[2]].master_id = Some(cycle_ids[0].clone());
+
+        let state = GameState {
+            world_seed: seed,
+            npc_sects: sects,
+            npc_disciples: disciples,
+            ..GameState::default()
+        };
+        let mut first = state.clone();
+        let mut second = state;
+        hydrate_world(&mut first);
+        hydrate_world(&mut second);
+
+        let lineage_snapshot = |state: &GameState| {
+            state
+                .npc_disciples
+                .iter()
+                .filter(|disciple| disciple.sect_id.as_deref() == Some("wudang"))
+                .map(|disciple| (disciple.id.clone(), disciple.master_id.clone()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let first_lineage = lineage_snapshot(&first);
+        assert_eq!(first_lineage, lineage_snapshot(&second));
+        assert_eq!(
+            first_lineage.get(&cycle_ids[0]).and_then(Option::as_ref),
+            Some(&cycle_ids[1])
+        );
+        assert_eq!(
+            first_lineage.get(&cycle_ids[1]).and_then(Option::as_ref),
+            Some(&cycle_ids[2])
+        );
+
+        for start_id in first_lineage.keys() {
+            let mut current = start_id;
+            let mut visited = std::collections::BTreeSet::new();
+            while let Some(Some(master_id)) = first_lineage.get(current) {
+                assert!(
+                    visited.insert(current.clone()),
+                    "水合后仍存在以{start_id}为起点的师承环"
+                );
+                current = master_id;
+            }
+        }
     }
 
     #[test]

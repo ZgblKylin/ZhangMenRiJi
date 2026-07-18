@@ -1,8 +1,9 @@
 use crate::logic::disciple as disc;
+use crate::models::sect::{MoralDirection, SectPolicy, SectState};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EventEffect {
     pub prestige: Option<i32>,
     pub silver: Option<i32>,
@@ -38,6 +39,157 @@ pub struct PendingWorldEvent {
     pub title: String,
     pub text: String,
     pub choices: Vec<EventChoice>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventTag {
+    /// 扶危济困、以礼服人或因侠名而来的机会。
+    Righteous,
+    /// 可借机获取银钱、物资或世俗利益。
+    Profit,
+    /// 恶名、门人失序或江湖仇怨招来的追缉与反噬。
+    Backlash,
+    Martial,
+    Scholarly,
+    Mercantile,
+    Reclusive,
+    Domestic,
+}
+
+/// 事件标签只属于静态模板，不写入 pending_event，避免改变旧存档中的待决事件结构。
+fn event_tags(id: &str) -> &'static [EventTag] {
+    use EventTag::*;
+    match id {
+        "choice_provocation" => &[Martial, Backlash],
+        "choice_rice" => &[Profit, Mercantile, Domestic],
+        "choice_deviation" => &[Martial, Reclusive],
+        "choice_court" => &[Profit, Martial],
+        "choice_refugees" => &[Righteous, Domestic],
+        "choice_cave" => &[Martial, Scholarly],
+        "choice_herbs" => &[Profit, Mercantile, Reclusive],
+        "choice_alliance" => &[Righteous, Martial],
+        "choice_apprentice" => &[Martial, Scholarly, Domestic],
+        "choice_smuggler" => &[Profit, Backlash, Mercantile],
+        "choice_plague" => &[Righteous, Martial, Domestic],
+
+        "jh_01" => &[Righteous],
+        "jh_02" => &[Martial, Backlash],
+        "jh_03" | "jh_04" => &[Righteous],
+        "jh_05" | "jh_10" => &[Righteous, Profit, Martial],
+        "jh_06" => &[Martial, Backlash],
+        "jh_07" => &[Scholarly, Reclusive],
+        "jh_08" => &[Righteous, Martial],
+        "jh_09" | "jh_11" => &[Backlash],
+        "jh_12" => &[Profit, Mercantile, Reclusive],
+
+        "ms_01" => &[Mercantile, Domestic],
+        "ms_02" => &[Martial, Reclusive, Domestic],
+        "ms_03" | "ms_05" => &[Domestic],
+        "ms_04" => &[Martial, Scholarly, Reclusive, Domestic],
+        "ms_06" | "ms_10" => &[Reclusive, Domestic],
+        "ms_07" => &[Backlash, Domestic],
+        "ms_08" | "ms_11" => &[Domestic],
+        "ms_09" => &[Mercantile, Domestic],
+        "ms_12" => &[Profit, Domestic],
+
+        "ex_01" | "ex_09" => &[Reclusive, Domestic],
+        "ex_02" => &[Scholarly, Domestic],
+        "ex_03" => &[Profit, Mercantile, Domestic],
+        "ex_04" => &[Martial, Domestic],
+        "ex_05" | "ex_10" => &[Righteous, Domestic],
+        "ex_06" => &[Backlash, Domestic],
+        "ex_07" => &[Righteous, Martial],
+        "ex_08" => &[Domestic],
+        "ex_11" => &[Mercantile, Domestic],
+        "ex_12" => &[Righteous, Reclusive, Domestic],
+        "ex_13" => &[Domestic],
+        "ex_14" => &[Backlash, Domestic],
+        "ex_15" => &[Martial, Domestic],
+        "ex_16" => &[Reclusive, Domestic],
+        "ex_17" => &[Righteous, Martial],
+        "ex_18" => &[Profit, Mercantile],
+        "ex_19" => &[Backlash, Martial],
+        "ex_20" => &[Righteous, Profit, Domestic],
+        "ex_21" => &[Righteous, Domestic],
+        "ex_22" => &[Domestic, Reclusive],
+        "ex_23" => &[Profit, Mercantile, Scholarly, Domestic],
+        "ex_24" => &[Righteous, Martial],
+        "season_spring" => &[Domestic, Mercantile],
+        "season_summer" => &[Domestic, Reclusive],
+        "season_autumn" => &[Martial, Domestic, Mercantile],
+        "season_winter" => &[Reclusive, Scholarly, Domestic],
+        _ => &[],
+    }
+}
+
+/// 门风决定正邪机会与后果，经营方针决定题材侧重。所有修正均为温和加减，
+/// 最低仍保留十分权重，避免某种门风永久删去一类江湖内容。
+fn event_weight(sect: &SectState, event_id: &str) -> u32 {
+    use EventTag::*;
+    let tags = event_tags(event_id);
+    let has = |tag| tags.contains(&tag);
+    let mut weight = 100_i32;
+
+    match sect.moral_direction {
+        MoralDirection::Righteous => {
+            if has(Righteous) {
+                weight += 60;
+            }
+            if has(Backlash) {
+                weight -= 30;
+            }
+        }
+        MoralDirection::Neutral => {
+            if has(Domestic) {
+                weight += 20;
+            }
+        }
+        MoralDirection::Villainous => {
+            if has(Righteous) {
+                weight -= 35;
+            }
+            if has(Profit) {
+                weight += 45;
+            }
+            if has(Backlash) {
+                weight += 45;
+            }
+        }
+    }
+
+    let policy_match = match sect.policy {
+        SectPolicy::Balanced => has(Domestic),
+        SectPolicy::Martial => has(Martial),
+        SectPolicy::Scholarly => has(Scholarly),
+        SectPolicy::Chivalrous => has(Righteous),
+        SectPolicy::Mercantile => has(Mercantile) || has(Profit),
+        SectPolicy::Reclusive => has(Reclusive),
+    };
+    if policy_match {
+        weight += if sect.policy == SectPolicy::Balanced {
+            15
+        } else {
+            30
+        };
+    }
+
+    weight.max(10) as u32
+}
+
+fn choose_weighted<T>(rng: &mut impl Rng, choices: Vec<(T, u32)>) -> T {
+    let total = choices
+        .iter()
+        .map(|(_, weight)| u64::from(*weight))
+        .sum::<u64>();
+    assert!(total > 0, "事件池及权重不得为空");
+    let mut roll = rng.gen_range(0..total);
+    for (choice, weight) in choices {
+        if roll < u64::from(weight) {
+            return choice;
+        }
+        roll -= u64::from(weight);
+    }
+    unreachable!("事件权重抽取应在总权重内命中")
 }
 
 fn effect(
@@ -241,9 +393,17 @@ pub fn interactive_events() -> Vec<PendingWorldEvent> {
     ]
 }
 
-pub fn trigger_interactive_event(rng: &mut impl Rng) -> PendingWorldEvent {
-    let pool = interactive_events();
-    pool[rng.gen_range(0..pool.len())].clone()
+pub fn trigger_interactive_event(rng: &mut impl Rng, sect: &SectState) -> PendingWorldEvent {
+    choose_weighted(
+        rng,
+        interactive_events()
+            .into_iter()
+            .map(|event| {
+                let weight = event_weight(sect, &event.id);
+                (event, weight)
+            })
+            .collect(),
+    )
 }
 
 fn expanded_events() -> Vec<RandomEvent> {
@@ -581,19 +741,72 @@ fn mensheng_events() -> Vec<RandomEvent> {
     ]
 }
 
-/// 触发普通月闻：江湖、门内与生活杂闻各占一部分。
-pub fn trigger_random_event(rng: &mut impl Rng) -> RandomEvent {
-    let roll = rng.gen_range(0..100);
-    if roll < 40 {
-        let pool = jianghu_events();
-        pool[rng.gen_range(0..pool.len())].clone()
-    } else if roll < 75 {
-        let pool = mensheng_events();
-        pool[rng.gen_range(0..pool.len())].clone()
-    } else {
-        let pool = expanded_events();
-        pool[rng.gen_range(0..pool.len())].clone()
-    }
+/// 触发普通月闻：无方略修正时，江湖、门内生活与扩展杂闻仍保持 40:35:25
+/// 的基础占比；具体事件再由门风与经营方针共同偏置。
+/// 时令事件：按游戏月份返回春、夏、秋、冬四时各一条生活流事件。
+fn seasonal_events() -> Vec<RandomEvent> {
+    [
+        // 季春 — 茶山采青
+        RandomEvent {
+            id: "season_spring".into(),
+            text: "三月采茶时节，门中杂役背上竹篓进山采青。今年的新茶比往年肥厚，炒制后满院茶香，弟子们分饮之余，还用茶饼换了邻镇几石白米。".into(),
+            effect: EventEffect {
+                morale: Some(3),
+                silver: Some(5),
+                ..Default::default()
+            },
+            good: true,
+        },
+        // 盛夏 — 消暑练功
+        RandomEvent {
+            id: "season_summer".into(),
+            text: "酷暑难当，演武场石板晒得烫脚。掌门命弟子寅时起身，趁晨凉练功，午间在藏经阁避暑研读。一月下来，门中拳脚比往常精进了几分。".into(),
+            effect: EventEffect {
+                morale: Some(2),
+                prestige: Some(1),
+                ..Default::default()
+            },
+            good: true,
+        },
+        // 金秋 — 社日比武
+        RandomEvent {
+            id: "season_autumn".into(),
+            text: "秋社之日，掌门在山门外摆下石锁、箭靶与擂台，邀四邻壮士前来较技。弟子们与乡民切磋一日，虽未尽全力，却也展了本门的威风，四邻心服，送来不少秋收贺礼。".into(),
+            effect: EventEffect {
+                prestige: Some(4),
+                silver: Some(10),
+                morale: Some(3),
+                ..Default::default()
+            },
+            good: true,
+        },
+        // 严冬 — 抗寒修行
+        RandomEvent {
+            id: "season_winter".into(),
+            text: "数九寒冬，山中滴水成冰。掌门下令门中上下晨起先打熬气血一个时辰方可进食。初时众人叫苦不迭，半月后却人人都觉得筋骨比入冬前强韧了不少。".into(),
+            effect: EventEffect {
+                silver: Some(-3),
+                morale: Some(1),
+                ..Default::default()
+            },
+            good: true,
+        },
+    ].into_iter().collect()
+}
+
+pub fn trigger_random_event(rng: &mut impl Rng, sect: &SectState) -> RandomEvent {
+    let weighted_pool = jianghu_events()
+        .into_iter()
+        .map(|event| (event, 35_u32))
+        .chain(mensheng_events().into_iter().map(|event| (event, 30_u32)))
+        .chain(expanded_events().into_iter().map(|event| (event, 20_u32)))
+        .chain(seasonal_events().into_iter().map(|event| (event, 15_u32)))
+        .map(|(event, category_weight)| {
+            let weight = category_weight.saturating_mul(event_weight(sect, &event.id));
+            (event, weight)
+        })
+        .collect();
+    choose_weighted(rng, weighted_pool)
 }
 
 use crate::models::martial_art::all_martial_arts;
@@ -631,21 +844,39 @@ pub fn apply_event_effect(
     if let Some(ref special) = e.special {
         match special.as_str() {
             "manual" => {
-                let learned = &state.martial_arts_learned;
+                let privately_held = state
+                    .disciples
+                    .iter()
+                    .flat_map(|disciple| disciple.martial_progress.private_books.iter())
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
                 let arts = all_martial_arts();
                 let unlearned: Vec<_> = arts
                     .iter()
                     .filter(|a| {
-                        !learned.contains(&a.id)
+                        !state.sect.public_books.contains(&a.id)
+                            && !state.martial_arts_learned.contains(&a.id)
+                            && !privately_held.contains(&a.id)
                             && !(a.category == crate::models::martial_art::SkillCategory::Parry
                                 && a.tier != crate::models::martial_art::MartialTier::Basic)
                     })
                     .collect();
-                if !unlearned.is_empty() {
+                let owners = state
+                    .disciples
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, disciple)| disciple.alive)
+                    .map(|(index, _)| index)
+                    .collect::<Vec<_>>();
+                if !unlearned.is_empty() && !owners.is_empty() {
                     let art = unlearned[rng.gen_range(0..unlearned.len())];
-                    state.martial_arts_learned.push(art.id.clone());
-                    state.sect.public_books.push(art.id.clone());
-                    extra_events.push(format!("获得武学残卷，参悟《{}》！", art.name));
+                    let owner_index = owners[rng.gen_range(0..owners.len())];
+                    let owner = &mut state.disciples[owner_index];
+                    owner.martial_progress.private_books.push(art.id.clone());
+                    extra_events.push(format!(
+                        "{}偶得《{}》残卷，暂收入个人行囊，可自行研读或献入藏经阁。",
+                        owner.name, art.name
+                    ));
                 }
             }
             "stock_grain" => *state.sect.inventory.entry("粮秣".into()).or_default() += 60,
@@ -685,8 +916,18 @@ pub fn apply_event_effect(
             }
             "improve_relation" => {
                 if !state.npc_sects.is_empty() {
-                    let other = &state.npc_sects[rng.gen_range(0..state.npc_sects.len())];
-                    *state.sect.relations.entry(other.id.clone()).or_default() += 8;
+                    let index = rng.gen_range(0..state.npc_sects.len());
+                    let other_id = state.npc_sects[index].id.clone();
+                    let other_name = state.npc_sects[index].name.clone();
+                    let player_id = state.sect.id.clone();
+                    let player_relation = state.sect.relations.entry(other_id.clone()).or_default();
+                    *player_relation = (*player_relation + 8).clamp(-100, 100);
+                    let other_relation = state.npc_sects[index]
+                        .relations
+                        .entry(player_id)
+                        .or_default();
+                    *other_relation = (*other_relation + 8).clamp(-100, 100);
+                    extra_events.push(format!("本派与{}互致盟书，双方交情各有进益。", other_name));
                 }
             }
             "epiphany" => {
@@ -727,6 +968,9 @@ pub fn apply_event_effect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::sect::{MoralDirection, SectPolicy, SectState};
+    use crate::models::{Disciple, GameState};
+    use rand::{rngs::StdRng, SeedableRng};
 
     #[test]
     fn interactive_pool_has_multiple_wuxia_categories_and_choices() {
@@ -736,6 +980,112 @@ mod tests {
             events.iter().map(|event| event.category.as_str()).collect();
         assert!(categories.len() >= 5);
         assert!(events.iter().all(|event| event.choices.len() >= 2));
+    }
+
+    #[test]
+    fn moral_direction_and_policy_have_exact_thematic_event_weights() {
+        let mut righteous = SectState::default();
+        righteous.moral_direction = MoralDirection::Righteous;
+        righteous.policy = SectPolicy::Balanced;
+        let mut neutral = righteous.clone();
+        neutral.moral_direction = MoralDirection::Neutral;
+        let mut villainous = righteous.clone();
+        villainous.moral_direction = MoralDirection::Villainous;
+
+        // 救济既合正派门风，又属于持中方针偏爱的门内生计。
+        assert_eq!(event_weight(&righteous, "choice_refugees"), 175);
+        assert_eq!(event_weight(&neutral, "choice_refugees"), 135);
+        assert_eq!(event_weight(&villainous, "choice_refugees"), 80);
+
+        // 邪派同时更容易遇到可牟利的朝廷差事，以及仇怨上门的反噬。
+        assert_eq!(event_weight(&righteous, "choice_court"), 100);
+        assert_eq!(event_weight(&villainous, "choice_court"), 145);
+        assert_eq!(event_weight(&righteous, "choice_provocation"), 70);
+        assert_eq!(event_weight(&villainous, "choice_provocation"), 145);
+        assert_eq!(event_weight(&righteous, "jh_05"), 160);
+        assert_eq!(event_weight(&villainous, "jh_05"), 110);
+        assert_eq!(event_weight(&righteous, "jh_09"), 70);
+        assert_eq!(event_weight(&villainous, "jh_09"), 145);
+
+        let mut mercantile = SectState::default();
+        mercantile.moral_direction = MoralDirection::Neutral;
+        mercantile.policy = SectPolicy::Mercantile;
+        let mut reclusive = mercantile.clone();
+        reclusive.policy = SectPolicy::Reclusive;
+        assert_eq!(event_weight(&mercantile, "choice_rice"), 150);
+        assert_eq!(event_weight(&reclusive, "choice_rice"), 120);
+        assert_eq!(event_weight(&mercantile, "jh_07"), 100);
+        assert_eq!(event_weight(&reclusive, "jh_07"), 130);
+    }
+
+    #[test]
+    fn every_event_remains_possible_under_every_governance_combination() {
+        let ids = interactive_events()
+            .into_iter()
+            .map(|event| event.id)
+            .chain(jianghu_events().into_iter().map(|event| event.id))
+            .chain(mensheng_events().into_iter().map(|event| event.id))
+            .chain(expanded_events().into_iter().map(|event| event.id))
+            .collect::<Vec<_>>();
+        let directions = [
+            MoralDirection::Righteous,
+            MoralDirection::Neutral,
+            MoralDirection::Villainous,
+        ];
+        let policies = [
+            SectPolicy::Balanced,
+            SectPolicy::Martial,
+            SectPolicy::Scholarly,
+            SectPolicy::Chivalrous,
+            SectPolicy::Mercantile,
+            SectPolicy::Reclusive,
+        ];
+
+        for direction in directions {
+            for policy in &policies {
+                let mut sect = SectState::default();
+                sect.moral_direction = direction.clone();
+                sect.policy = policy.clone();
+                assert!(
+                    ids.iter().all(|id| event_weight(&sect, id) > 0),
+                    "{direction:?} / {policy:?} 不得将任何事件权重降为零"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_seed_picks_more_matching_interactive_events() {
+        let mut righteous = SectState::default();
+        righteous.moral_direction = MoralDirection::Righteous;
+        righteous.policy = SectPolicy::Chivalrous;
+        let mut villainous = SectState::default();
+        villainous.moral_direction = MoralDirection::Villainous;
+        villainous.policy = SectPolicy::Mercantile;
+        let mut righteous_rng = StdRng::seed_from_u64(20260719);
+        let mut villainous_rng = StdRng::seed_from_u64(20260719);
+        let mut righteous_rescues = 0;
+        let mut villainous_rescues = 0;
+        let mut righteous_profit_or_backlash = 0;
+        let mut villainous_profit_or_backlash = 0;
+
+        for _ in 0..10_000 {
+            let righteous_event = trigger_interactive_event(&mut righteous_rng, &righteous);
+            let villainous_event = trigger_interactive_event(&mut villainous_rng, &villainous);
+            righteous_rescues += usize::from(righteous_event.id == "choice_refugees");
+            villainous_rescues += usize::from(villainous_event.id == "choice_refugees");
+            righteous_profit_or_backlash += usize::from(matches!(
+                righteous_event.id.as_str(),
+                "choice_rice" | "choice_court" | "choice_herbs" | "choice_provocation"
+            ));
+            villainous_profit_or_backlash += usize::from(matches!(
+                villainous_event.id.as_str(),
+                "choice_rice" | "choice_court" | "choice_herbs" | "choice_provocation"
+            ));
+        }
+
+        assert!(righteous_rescues > villainous_rescues);
+        assert!(villainous_profit_or_backlash > righteous_profit_or_backlash);
     }
 
     #[test]
@@ -749,5 +1099,58 @@ mod tests {
                 && !event.text.contains("两")
                 && !event.text.contains('+')
         }));
+    }
+
+    #[test]
+    fn manual_events_create_a_real_private_book_instead_of_a_public_unlock() {
+        let mut state = GameState::default();
+        state.disciples.push(Disciple {
+            name: "沈归鸿".into(),
+            ..Disciple::default()
+        });
+        let public_before = state.sect.public_books.clone();
+        let learned_before = state.martial_arts_learned.clone();
+        let event = RandomEvent {
+            id: "private-manual-test".into(),
+            text: "山中偶得残卷。".into(),
+            effect: effect(0, 0, 0, 0, Some("manual")),
+            good: true,
+        };
+        let mut rng = StdRng::seed_from_u64(20260718);
+
+        let extra = apply_event_effect(&mut rng, &mut state, &event);
+
+        assert_eq!(state.disciples[0].martial_progress.private_books.len(), 1);
+        let book = &state.disciples[0].martial_progress.private_books[0];
+        assert!(!state.sect.public_books.contains(book));
+        assert_eq!(state.sect.public_books, public_before);
+        assert_eq!(state.martial_arts_learned, learned_before);
+        assert!(extra[0].contains("个人行囊"));
+    }
+
+    #[test]
+    fn alliance_event_improves_both_factions_relations_with_bounds() {
+        let mut state = GameState::default();
+        let mut other = SectState {
+            id: "wudang".into(),
+            name: "武当派".into(),
+            ..SectState::default()
+        };
+        state.sect.relations.insert(other.id.clone(), 96);
+        other.relations.insert(state.sect.id.clone(), 95);
+        state.npc_sects.push(other);
+        let event = RandomEvent {
+            id: "bilateral-alliance-test".into(),
+            text: "两派互致盟书。".into(),
+            effect: effect(0, 0, 0, 0, Some("improve_relation")),
+            good: true,
+        };
+        let mut rng = StdRng::seed_from_u64(20260719);
+
+        let extra = apply_event_effect(&mut rng, &mut state, &event);
+
+        assert_eq!(state.sect.relations.get("wudang"), Some(&100));
+        assert_eq!(state.npc_sects[0].relations.get(&state.sect.id), Some(&100));
+        assert!(extra.iter().any(|text| text.contains("武当派")));
     }
 }
