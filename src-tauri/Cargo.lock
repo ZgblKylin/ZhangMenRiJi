@@ -5522,7 +5522,7 @@ dependencies = [
 
 [[package]]
 name = "zhangmenriji"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5543,7 +5543,7 @@ dependencies = [
 
 [[package]]
 name = "zhangmenriji-desktop"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "serde_json",
  "tauri",

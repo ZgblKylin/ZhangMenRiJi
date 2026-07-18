@@ -1,6 +1,6 @@
 [package]
 name = "zhangmenriji"
-version = "3.0.0"
+version = "3.1.0"
 edition = "2021"
 description = "《掌门日记》v3 — 武侠门派经营模拟器后端"
 

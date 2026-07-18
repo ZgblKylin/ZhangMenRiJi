@@ -18,6 +18,7 @@ export const ui = reactive({
   tournament: null as Tournament | null,
   resolvingEvent: false,
   settingsOpen: false,
+  changelogOpen: false,
 })
 
 export const aliveDisciples = computed(() => G.value?.disciples?.filter(d => d.alive) || [])

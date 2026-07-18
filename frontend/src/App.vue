@@ -10,6 +10,7 @@ import SavePanel from './components/SavePanel.vue'
 import EventPopup from './components/EventPopup.vue'
 import LoadingOverlay from './components/LoadingOverlay.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import ChangelogPanel from './components/ChangelogPanel.vue'
 
 import SettingsPanel from './components/SettingsPanel.vue'
 import type { Disciple, ManagementRequest } from './types'
@@ -57,7 +58,7 @@ const resolveEvent = (optionId: string) => loading(async () => { if (!gameId.val
 const closePopup = () => { if (G.value?.pending_event) return; ui.popup = false; ui.popupSectEvents = []; ui.popupWorldEvents = []; ui.tournament = null }
 const restart = async () => { if (await askConfirmation({ title: '重开山门', message: '现有推演将就此搁下，确定返回山门初立之时？', confirmLabel: '重开山门', danger: true })) resetGame() }
 const expel = async (disciple: Disciple) => { if (await askConfirmation({ title: '逐出门墙', message: `当真要将${disciple.name}逐出山门？此令一出，再难挽回。`, confirmLabel: '逐出山门', danger: true })) await manage({ action: 'expel', disciple_id: disciple.id }) }
-const keyboard = (event: KeyboardEvent) => { if (event.key === 'Escape') { if (confirmation.open) settleConfirmDialog(false); else if (ui.popup && !G.value?.pending_event) closePopup(); else if (!G.value?.pending_event) ui.savePanel = false } else if (!confirmation.open && ui.popup && !G.value?.pending_event && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); closePopup() } }
+const keyboard = (event: KeyboardEvent) => { if (event.key === 'Escape') { if (confirmation.open) settleConfirmDialog(false); else if (ui.changelogOpen) ui.changelogOpen = false; else if (ui.popup && !G.value?.pending_event) closePopup(); else if (!G.value?.pending_event) ui.savePanel = false } else if (!confirmation.open && ui.popup && !G.value?.pending_event && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); closePopup() } }
 onMounted(() => { loadStaticData(); refreshSaves(); document.addEventListener('keydown', keyboard) })
 onBeforeUnmount(() => document.removeEventListener('keydown', keyboard))
 </script>
@@ -71,6 +72,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', keyboard))
   <SavePanel :open="ui.savePanel" :groups="saveGroups" :current-id="gameId" :current-group-id="gameGroupId" @close="ui.savePanel = false" @load="loadGame" @remove-save="removeSave" @remove-group="removeGroup" />
   <EventPopup :open="ui.popup" :sect-events="ui.popupSectEvents" :world-events="ui.popupWorldEvents" :tournament="ui.tournament" :pending="G?.pending_event" :choosing="ui.resolvingEvent" @choose="resolveEvent" @close="closePopup" />
   <SettingsPanel :open="ui.settingsOpen" @close="ui.settingsOpen = false" />
+  <ChangelogPanel :open="ui.changelogOpen" @close="ui.changelogOpen = false" />
   <ConfirmDialog v-bind="confirmation" @confirm="settleConfirmDialog(true)" @cancel="settleConfirmDialog(false)" />
   <LoadingOverlay :show="ui.loading" />
 </template>

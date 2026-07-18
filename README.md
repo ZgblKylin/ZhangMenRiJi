@@ -1,4 +1,4 @@
-# 《掌门日记》— 武侠门派经营模拟器 v3.0
+# 《掌门日记》— 武侠门派经营模拟器 v3.1
 
 前后端分离架构，Rust 后端 + Vue 3 前端，SQLite 持久化，Tauri 桌面应用打包。
 
@@ -76,7 +76,7 @@ ZhangMenRiJi/
 │   │   ├── api.ts          # API 调用层
 │   │   ├── store.ts        # 响应式状态
 │   │   ├── types.ts        # TypeScript 类型
-│   │   └── components/     # 15 个 Vue 组件
+│   │   └── components/     # 16 个 Vue 组件
 │   ├── dist/               # 构建产物（npm run build 生成）
 │   └── package.json
 ├── backend/                # Rust axum 后端
@@ -127,6 +127,7 @@ ZhangMenRiJi/
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v3.1 | 2026-07 | 群侠列传：小说群侠融入江湖、SQLite 本地存储与应用配置完善 |
 | v3.0 | 2026-07 | 侠客行式属性、二十三派世界、并行行动、完整经营与交互事件 |
 | v2.1 | 2026-07 | Tauri 桌面应用迁移，后端拆分为 lib/bin 双 target |
 | v2.0 | 2026-07 | Vue 3 + Vite + Tailwind 前端重构，后端添加静态文件服务 |
