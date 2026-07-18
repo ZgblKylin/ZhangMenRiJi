@@ -20,6 +20,10 @@ pub struct Disciple {
     pub sect_id: Option<String>,
     /// 武学来历；改投别派后仍用于决定本门兵器基础与知识技能。
     pub origin_sect_id: Option<String>,
+    /// 是否为小说中有名有姓的固定 NPC；旧存档与随机弟子默认为否。
+    pub is_named_npc: bool,
+    /// 固定 NPC 的江湖身份，如掌门、长老或散人。
+    pub npc_position: Option<String>,
     pub name: String,
     pub talent: i32,
     pub inner_power: i32,
@@ -60,6 +64,8 @@ impl Default for Disciple {
             id: String::new(),
             sect_id: Some("player".into()),
             origin_sect_id: Some("player".into()),
+            is_named_npc: false,
+            npc_position: None,
             name: String::new(),
             talent: 20,
             inner_power: 30,

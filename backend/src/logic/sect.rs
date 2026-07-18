@@ -1,7 +1,7 @@
 use crate::models::attributes::DiscipleRank;
 use crate::models::game::GameState;
 use crate::models::medicine::{Medicine, LEGACY_WOUND_MEDICINE_NAME};
-use crate::models::sect::{default_buildings, Building, SectState};
+use crate::models::sect::{sect_buildings, Building, SectState};
 use crate::models::Disciple;
 use std::collections::BTreeSet;
 
@@ -62,7 +62,7 @@ fn normalize_inventory(sect: &mut SectState) {
 /// 将早期 v3 的五库与药库布局迁移为七座职能建筑。
 pub fn normalize_buildings(sect: &mut SectState) {
     let stored = std::mem::take(&mut sect.buildings);
-    let mut normalized = default_buildings();
+    let mut normalized = sect_buildings(&sect.id);
     for building in &mut normalized {
         let aliases: &[&str] = match building.id.as_str() {
             "warehouse" => &["warehouse", "treasury", "inner_store", "outer_store"],
@@ -369,6 +369,19 @@ mod tests {
             .map(|building| building.elder_title.as_str())
             .collect();
         assert_eq!(titles.len(), 7);
+    }
+
+    #[test]
+    fn building_migration_keeps_sect_specific_titles() {
+        let mut sect = SectState {
+            id: "shaolin".into(),
+            ..SectState::default()
+        };
+
+        normalize_buildings(&mut sect);
+
+        assert_eq!(sect.buildings[0].elder_title, "罗汉堂首座");
+        assert_eq!(sect.buildings[6].elder_title, "都寺");
     }
 
     #[test]

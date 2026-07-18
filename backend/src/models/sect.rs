@@ -206,19 +206,59 @@ impl Default for SectState {
 }
 
 pub fn default_buildings() -> Vec<Building> {
+    default_buildings_with_titles(
+        "传武长老",
+        "传功长老",
+        "司库长老",
+        "司药长老",
+        "天枢长老",
+        "执事长老",
+        "庶务长老",
+    )
+}
+
+pub fn default_buildings_with_titles(
+    practice_title: &str,
+    scripture_title: &str,
+    warehouse_title: &str,
+    herb_hall_title: &str,
+    intelligence_title: &str,
+    affairs_title: &str,
+    logistics_title: &str,
+) -> Vec<Building> {
     [
-        ("practice", "演武场", BuildingKind::Practice, "传武长老"),
-        ("scripture", "藏经阁", BuildingKind::Scripture, "传功长老"),
-        ("warehouse", "仓库", BuildingKind::Warehouse, "司库长老"),
-        ("herb_hall", "百草堂", BuildingKind::HerbHall, "司药长老"),
+        ("practice", "演武场", BuildingKind::Practice, practice_title),
+        (
+            "scripture",
+            "藏经阁",
+            BuildingKind::Scripture,
+            scripture_title,
+        ),
+        (
+            "warehouse",
+            "仓库",
+            BuildingKind::Warehouse,
+            warehouse_title,
+        ),
+        (
+            "herb_hall",
+            "百草堂",
+            BuildingKind::HerbHall,
+            herb_hall_title,
+        ),
         (
             "intelligence",
             "天枢阁",
             BuildingKind::Intelligence,
-            "天枢长老",
+            intelligence_title,
         ),
-        ("affairs", "执事堂", BuildingKind::Affairs, "执事长老"),
-        ("logistics", "庶务堂", BuildingKind::Logistics, "庶务长老"),
+        ("affairs", "执事堂", BuildingKind::Affairs, affairs_title),
+        (
+            "logistics",
+            "庶务堂",
+            BuildingKind::Logistics,
+            logistics_title,
+        ),
     ]
     .into_iter()
     .map(|(id, name, kind, elder_title)| Building {
@@ -230,6 +270,207 @@ pub fn default_buildings() -> Vec<Building> {
         ..Building::default()
     })
     .collect()
+}
+
+pub fn sect_buildings(sect_id: &str) -> Vec<Building> {
+    let titles = match sect_id {
+        "wudang" => [
+            "演武真人",
+            "掌经真人",
+            "司库真人",
+            "丹房真人",
+            "知客真人",
+            "执事真人",
+            "督造真人",
+        ],
+        "shaolin" => [
+            "罗汉堂首座",
+            "达摩院首座",
+            "监寺",
+            "药王院首座",
+            "知客僧",
+            "戒律院首座",
+            "都寺",
+        ],
+        "mingjiao" => [
+            "光明左使",
+            "光明右使",
+            "掌库使",
+            "掌药使",
+            "五散人",
+            "掌旗使",
+            "掌工使",
+        ],
+        "quanzhen" => [
+            "演武真人",
+            "藏经真人",
+            "司库真人",
+            "丹鼎真人",
+            "知客真人",
+            "巡察真人",
+            "督造真人",
+        ],
+        "tianlong" => [
+            "武僧统领",
+            "参经长老",
+            "库头",
+            "药师长老",
+            "知客长老",
+            "戒律长老",
+            "督工长老",
+        ],
+        "taohua" => [
+            "奇门护法",
+            "书阁护法",
+            "库房护法",
+            "丹房护法",
+            "知客护法",
+            "巡察护法",
+            "督造护法",
+        ],
+        "gumu" => ["剑侍", "书侍", "库侍", "药侍", "知客侍", "巡察侍", "匠侍"],
+        "gaibang" => [
+            "执法长老",
+            "传功长老",
+            "掌钵长老",
+            "掌药长老",
+            "掌棒长老",
+            "巡察长老",
+            "督工长老",
+        ],
+        "emei" => [
+            "演武师太",
+            "藏经师太",
+            "司库师太",
+            "药师师太",
+            "知客师太",
+            "戒律师太",
+            "督造师太",
+        ],
+        "riyue" => [
+            "左护法",
+            "右护法",
+            "掌库使",
+            "掌药使",
+            "风雷堂主",
+            "青龙堂主",
+            "督造使",
+        ],
+        "xingxiu" => [
+            "大弟子",
+            "秘典使",
+            "库使",
+            "毒药使",
+            "知客使",
+            "巡察使",
+            "匠使",
+        ],
+        "murong" => [
+            "家将统领",
+            "书阁统领",
+            "司库统领",
+            "丹房统领",
+            "知客统领",
+            "巡察统领",
+            "督造统领",
+        ],
+        "dalun" => [
+            "护法金刚",
+            "经阁上师",
+            "库头上师",
+            "药王上师",
+            "知客上师",
+            "戒律上师",
+            "督工上师",
+        ],
+        "court" => [
+            "怯薛长",
+            "翰林学士",
+            "度支使",
+            "太医令",
+            "宣徽使",
+            "御史中丞",
+            "将作监",
+        ],
+        "lingjiu" => [
+            "钧天部",
+            "昊天部",
+            "库使",
+            "药使",
+            "阳天部",
+            "朱天部",
+            "匠使",
+        ],
+        "baituo" => [
+            "蛇奴统领",
+            "秘典使",
+            "库使",
+            "药师",
+            "知客使",
+            "巡察使",
+            "匠使",
+        ],
+        "xueshan" => [
+            "剑术教头",
+            "书阁长老",
+            "司库长老",
+            "药师长老",
+            "知客长老",
+            "巡察长老",
+            "督造长老",
+        ],
+        "tiandihui" => [
+            "香主",
+            "书阁香主",
+            "掌库香主",
+            "掌药香主",
+            "知客香主",
+            "巡察香主",
+            "督造香主",
+        ],
+        "shenlong" => [
+            "黑龙使",
+            "赤龙使",
+            "掌库使",
+            "掌药使",
+            "白龙使",
+            "青龙使",
+            "督造使",
+        ],
+        "jueqing" => ["渔隐", "书隐", "库隐", "药隐", "知客隐", "巡察隐", "匠隐"],
+        "wudu" => [
+            "蛊师统领",
+            "秘典蛊师",
+            "库房蛊师",
+            "药蛊师",
+            "知客蛊师",
+            "巡察蛊师",
+            "督造蛊师",
+        ],
+        "qingcheng" => [
+            "剑术教头",
+            "书阁长老",
+            "司库长老",
+            "丹房长老",
+            "知客长老",
+            "巡察长老",
+            "督造长老",
+        ],
+        "song_court" => [
+            "马军都指挥",
+            "翰林承旨",
+            "三司使",
+            "翰林医官",
+            "客省使",
+            "御史中丞",
+            "将作监",
+        ],
+        _ => return default_buildings(),
+    };
+
+    default_buildings_with_titles(
+        titles[0], titles[1], titles[2], titles[3], titles[4], titles[5], titles[6],
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,7 +512,7 @@ pub fn default_countries() -> Vec<Country> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Building, SectState};
+    use super::{default_buildings, sect_buildings, Building, SectState};
 
     #[test]
     fn legacy_building_without_duty_target_deserializes() {
@@ -298,5 +539,117 @@ mod tests {
 
         assert_eq!(sect.description, "");
         assert_eq!(sect.landmark, "");
+    }
+
+    #[test]
+    fn sect_building_titles_match_faction_customs() {
+        let expected = [
+            (
+                "wudang",
+                "演武真人/掌经真人/司库真人/丹房真人/知客真人/执事真人/督造真人",
+            ),
+            (
+                "shaolin",
+                "罗汉堂首座/达摩院首座/监寺/药王院首座/知客僧/戒律院首座/都寺",
+            ),
+            (
+                "mingjiao",
+                "光明左使/光明右使/掌库使/掌药使/五散人/掌旗使/掌工使",
+            ),
+            (
+                "quanzhen",
+                "演武真人/藏经真人/司库真人/丹鼎真人/知客真人/巡察真人/督造真人",
+            ),
+            (
+                "tianlong",
+                "武僧统领/参经长老/库头/药师长老/知客长老/戒律长老/督工长老",
+            ),
+            (
+                "taohua",
+                "奇门护法/书阁护法/库房护法/丹房护法/知客护法/巡察护法/督造护法",
+            ),
+            ("gumu", "剑侍/书侍/库侍/药侍/知客侍/巡察侍/匠侍"),
+            (
+                "gaibang",
+                "执法长老/传功长老/掌钵长老/掌药长老/掌棒长老/巡察长老/督工长老",
+            ),
+            (
+                "emei",
+                "演武师太/藏经师太/司库师太/药师师太/知客师太/戒律师太/督造师太",
+            ),
+            (
+                "riyue",
+                "左护法/右护法/掌库使/掌药使/风雷堂主/青龙堂主/督造使",
+            ),
+            ("xingxiu", "大弟子/秘典使/库使/毒药使/知客使/巡察使/匠使"),
+            (
+                "murong",
+                "家将统领/书阁统领/司库统领/丹房统领/知客统领/巡察统领/督造统领",
+            ),
+            (
+                "dalun",
+                "护法金刚/经阁上师/库头上师/药王上师/知客上师/戒律上师/督工上师",
+            ),
+            (
+                "court",
+                "怯薛长/翰林学士/度支使/太医令/宣徽使/御史中丞/将作监",
+            ),
+            ("lingjiu", "钧天部/昊天部/库使/药使/阳天部/朱天部/匠使"),
+            ("baituo", "蛇奴统领/秘典使/库使/药师/知客使/巡察使/匠使"),
+            (
+                "xueshan",
+                "剑术教头/书阁长老/司库长老/药师长老/知客长老/巡察长老/督造长老",
+            ),
+            (
+                "tiandihui",
+                "香主/书阁香主/掌库香主/掌药香主/知客香主/巡察香主/督造香主",
+            ),
+            (
+                "shenlong",
+                "黑龙使/赤龙使/掌库使/掌药使/白龙使/青龙使/督造使",
+            ),
+            ("jueqing", "渔隐/书隐/库隐/药隐/知客隐/巡察隐/匠隐"),
+            (
+                "wudu",
+                "蛊师统领/秘典蛊师/库房蛊师/药蛊师/知客蛊师/巡察蛊师/督造蛊师",
+            ),
+            (
+                "qingcheng",
+                "剑术教头/书阁长老/司库长老/丹房长老/知客长老/巡察长老/督造长老",
+            ),
+            (
+                "song_court",
+                "马军都指挥/翰林承旨/三司使/翰林医官/客省使/御史中丞/将作监",
+            ),
+        ];
+
+        for (sect_id, titles) in expected {
+            assert_eq!(
+                sect_buildings(sect_id)
+                    .iter()
+                    .map(|building| building.elder_title.as_str())
+                    .collect::<Vec<_>>()
+                    .join("/"),
+                titles,
+                "unexpected building titles for {sect_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_sect_uses_default_buildings() {
+        let default = default_buildings();
+        let unknown = sect_buildings("huashan");
+
+        assert_eq!(
+            unknown
+                .iter()
+                .map(|building| (&building.id, &building.name, &building.elder_title))
+                .collect::<Vec<_>>(),
+            default
+                .iter()
+                .map(|building| (&building.id, &building.name, &building.elder_title))
+                .collect::<Vec<_>>()
+        );
     }
 }

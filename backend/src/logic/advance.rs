@@ -174,6 +174,9 @@ fn finish_month(
         });
     }
     events.extend(crate::logic::world::run_npc_ai(rng, state));
+    events.extend(crate::logic::world::generate_named_npc_chronicles(
+        rng, state,
+    ));
     events.extend(crate::logic::interaction::run_monthly_interactions(
         rng, state,
     ));
@@ -655,6 +658,10 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(31);
         let mut elder = disc::generate_disciple(&mut rng, 0);
         elder.rank = crate::models::attributes::DiscipleRank::Inner;
+        elder.action = Some(crate::models::attributes::ActionPlan {
+            kind: ActionKind::Recover,
+            ..Default::default()
+        });
         let elder_id = elder.id.clone();
         state.disciples.push(elder);
         state.sect.buildings[0].elder_id = Some(elder_id);

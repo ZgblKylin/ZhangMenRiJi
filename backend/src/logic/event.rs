@@ -637,8 +637,7 @@ pub fn apply_event_effect(
                     .iter()
                     .filter(|a| {
                         !learned.contains(&a.id)
-                            && !(a.category
-                                == crate::models::martial_art::SkillCategory::Parry
+                            && !(a.category == crate::models::martial_art::SkillCategory::Parry
                                 && a.tier != crate::models::martial_art::MartialTier::Basic)
                     })
                     .collect();

@@ -1,3 +1,4 @@
+use crate::models::named_npc::NpcPosition;
 use crate::models::sect::{SectPolicy, SectState};
 use crate::models::{Disciple, GameEvent, GameState};
 use rand::Rng;
@@ -492,10 +493,11 @@ fn choose_member(
 }
 
 fn is_npc_leader(disciple: &Disciple) -> bool {
-    disciple
-        .sect_id
-        .as_deref()
-        .is_some_and(|sect_id| disciple.id == format!("npc_{sect_id}_1"))
+    disciple.npc_position.as_deref() == Some(NpcPosition::SectLeader.display())
+        || disciple
+            .sect_id
+            .as_deref()
+            .is_some_and(|sect_id| disciple.id == format!("npc_{sect_id}_1"))
 }
 
 fn take_member(state: &mut GameState, slot: usize, id: &str) -> Option<Disciple> {

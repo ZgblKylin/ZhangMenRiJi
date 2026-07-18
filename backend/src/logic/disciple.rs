@@ -414,11 +414,7 @@ pub fn prepare_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Re
     if basic.tier != MartialTier::Basic || basic.category == SkillCategory::Knowledge {
         return Err("这门武学不能作为准备槽位。".into());
     }
-    if !can_prepare_for_slot(
-        &basic_skill_id,
-        &art,
-        &d.martial_progress.proficiencies,
-    ) {
+    if !can_prepare_for_slot(&basic_skill_id, &art, &d.martial_progress.proficiencies) {
         return Err("这门武学与基础武学并不相配。".into());
     }
     if !d
@@ -664,11 +660,16 @@ pub fn assign_sect_curriculum(d: &mut Disciple, origin: &str, combat_level: i32)
 pub fn gain_skill_experience(d: &mut Disciple, art_id: &str, amount: i64) -> i32 {
     let art_id = canonical_skill_id(art_id);
     let art = martial_art_by_id(&art_id);
-    let knowledge_cap = knowledge_skill_for_art(&art_id)
-        .map(|knowledge_id| skill_level(d, &knowledge_id));
+    let knowledge_cap =
+        knowledge_skill_for_art(&art_id).map(|knowledge_id| skill_level(d, &knowledge_id));
     let basic_cap = art.as_ref().and_then(|art| {
         (art.tier != MartialTier::Basic && !art.basic_skill.is_empty())
-            .then(|| d.martial_progress.proficiencies.get(&art.basic_skill).map(|p| p.level))
+            .then(|| {
+                d.martial_progress
+                    .proficiencies
+                    .get(&art.basic_skill)
+                    .map(|p| p.level)
+            })
             .flatten()
     });
     let cap = knowledge_cap.into_iter().chain(basic_cap).min();

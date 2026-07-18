@@ -28,9 +28,7 @@ pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
     // 加载配置（文件优先 → 环境变量 → 默认值）
     let app_config = config::AppConfig::load_effective(config_path);
     if let Some(path) = config_path.filter(|path| !path.exists()) {
-        app_config
-            .save_to_file(path)
-            .map_err(anyhow::Error::msg)?;
+        app_config.save_to_file(path).map_err(anyhow::Error::msg)?;
     }
     if let Some(parent) = Path::new(&app_config.db_path)
         .parent()
@@ -45,18 +43,17 @@ pub async fn run_server(config_path: Option<&Path>) -> anyhow::Result<()> {
     );
 
     // SQLite 默认以只打开模式连接；未显式指定 mode 时允许首次启动创建数据库文件。
-    let connection_url = if cfg.database_url.starts_with("sqlite://")
-        && !cfg.database_url.contains("mode=")
-    {
-        let separator = if cfg.database_url.contains('?') {
-            '&'
+    let connection_url =
+        if cfg.database_url.starts_with("sqlite://") && !cfg.database_url.contains("mode=") {
+            let separator = if cfg.database_url.contains('?') {
+                '&'
+            } else {
+                '?'
+            };
+            format!("{}{separator}mode=rwc", cfg.database_url)
         } else {
-            '?'
+            cfg.database_url.clone()
         };
-        format!("{}{separator}mode=rwc", cfg.database_url)
-    } else {
-        cfg.database_url.clone()
-    };
     let pool = SqlitePool::connect(&connection_url).await?;
     tracing::info!("数据库连接成功");
 

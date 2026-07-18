@@ -524,11 +524,8 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         ActionKind::Read => {
             let art = preferred_book(actor);
             let intelligence = disciple::effective_intelligence(d);
-            let gain = adjusted_training_experience(
-                d,
-                &art,
-                skill_experience(d, &art, intelligence, 85),
-            );
+            let gain =
+                adjusted_training_experience(d, &art, skill_experience(d, &art, intelligence, 85));
             let foundation = accompanying_basic_training(d, &art, intelligence, 35, rng);
             delta.spirit -= 10;
             delta.energy -= 3;
@@ -554,11 +551,8 @@ fn execute_solo(actor: &Actor, kind: &ActionKind, rng: &mut StdRng) -> JobResult
         ActionKind::Practice => {
             let art = practice_art(d, rng);
             let aptitude = (d.aptitudes.strength + d.aptitudes.agility) / 2;
-            let mut gain = adjusted_training_experience(
-                d,
-                &art,
-                skill_experience(d, &art, aptitude, 115),
-            );
+            let mut gain =
+                adjusted_training_experience(d, &art, skill_experience(d, &art, aptitude, 115));
             if !training_funded {
                 gain = (gain / 2).max(1);
             }
@@ -929,7 +923,9 @@ fn corresponding_basic(d: &Disciple, art_id: &str) -> Option<String> {
     let art = crate::models::martial_art::martial_art_by_id(art_id)?;
     (art.tier != crate::models::martial_art::MartialTier::Basic
         && !art.basic_skill.is_empty()
-        && d.martial_progress.proficiencies.contains_key(&art.basic_skill))
+        && d.martial_progress
+            .proficiencies
+            .contains_key(&art.basic_skill))
     .then_some(art.basic_skill)
 }
 
@@ -965,11 +961,8 @@ fn accompanying_basic_training(
     if !rng.gen_bool(0.3) {
         return None;
     }
-    let gain = adjusted_training_experience(
-        d,
-        &basic,
-        skill_experience(d, &basic, aptitude, intensity),
-    );
+    let gain =
+        adjusted_training_experience(d, &basic, skill_experience(d, &basic, aptitude, intensity));
     Some((basic, gain))
 }
 
