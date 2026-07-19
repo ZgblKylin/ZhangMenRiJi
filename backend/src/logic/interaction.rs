@@ -63,6 +63,16 @@ pub fn run_monthly_interactions(rng: &mut impl Rng, state: &mut GameState) -> Ve
         events.push(event);
     }
 
+    // 每月先检查是否需要抑制一家独大
+    if let Some(hegemony_text) = check_hegemony_coalition(state) {
+        events.push(GameEvent {
+            text: hegemony_text,
+            mood: "neutral".into(),
+            year: state.year,
+            month: state.month,
+            category: "world".into(),
+        });
+    }
     while events.len() < target {
         let factions = faction_snapshot(state);
         let mut candidates = Vec::new();
@@ -502,11 +512,21 @@ fn border_conflict(state: &mut GameState, a: &Faction, b: &Faction) -> (String, 
         (b, a)
     };
     change_prestige(state, strong.slot, 1);
-    change_prestige(state, weak.slot, -2);
+    change_prestige(state, weak.slot, -3);
     change_relation(state, a, b, -5);
     adjust_countries_once(state, [a.country.as_str(), b.country.as_str()], 0, -1);
+    // 弱势一方遭劫掠：堂舍损毁、银两粮秣被掠
+    damage_random_building(state, weak.slot);
+    let loot = (sect_ref(state, weak.slot).attributes.silver / 10).min(25).max(5);
+    change_silver(state, weak.slot, -loot);
+    change_silver(state, strong.slot, loot);
+    if let Some(grain) = sect_ref(state, weak.slot).inventory.get("粮秣").copied() {
+        let stolen = (grain / 8).min(8).max(1);
+        change_inventory(state, weak.slot, "粮秣", -stolen);
+        change_inventory(state, strong.slot, "粮秣", stolen);
+    }
     (
-        format!("{}仗势侵占{}地界，后者被迫退让。", strong.name, weak.name),
+        format!("{}仗势侵占{}地界，掠银{}两、毁损堂舍，后者被迫退让。", strong.name, weak.name, loot),
         "bad",
     )
 }
@@ -733,6 +753,15 @@ fn alliance_betrayal(
     change_prestige(state, victim.slot, 1);
     change_morale(state, betrayer.slot, -4);
     change_morale(state, victim.slot, -6);
+    // 背盟夜袭，受害方堂舍受损、粮秣草药被掠
+    damage_random_building(state, victim.slot);
+    for item in ["粮秣", "草药"] {
+        if let Some(qty) = sect_ref(state, victim.slot).inventory.get(item).copied() {
+            let taken = (qty / 6).min(6).max(1);
+            change_inventory(state, victim.slot, item, -taken);
+            change_inventory(state, betrayer.slot, item, taken);
+        }
+    }
     adjust_countries_once(
         state,
         [betrayer.country.as_str(), victim.country.as_str()],
@@ -741,7 +770,7 @@ fn alliance_betrayal(
     );
     Some((
         format!(
-            "{}利令智昏公然背盟，劫走{}库银{}两；两派盟誓破裂，{}声望受损、双方士气大跌。",
+            "{}利令智昏公然背盟，劫走{}库银{}两并毁损堂舍；两派盟誓破裂，{}声望受损、双方士气大跌。",
             betrayer.name, victim.name, stolen, betrayer.name
         ),
         "bad",
@@ -1390,6 +1419,91 @@ fn mutual_relation(state: &GameState, a: &Faction, b: &Faction) -> i32 {
     left.min(right)
 }
 
+/// 随机对弱势方一处完好度高于 20 的建筑施加 5–15 点损毁。
+fn damage_random_building(state: &mut GameState, slot: usize) {
+    let sect = sect_mut(state, slot);
+    let candidates: Vec<usize> = sect
+        .buildings
+        .iter()
+        .enumerate()
+        .filter(|(_, building)| building.condition > 20)
+        .map(|(index, _)| index)
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    let index = candidates[0]; // deterministic by stable iteration order during parallel snapshot
+    let building = &mut sect.buildings[index];
+    building.condition = (building.condition - 12).max(0);
+}
+
+/// 修改特定库存物资数量，永不跌破零。
+fn change_inventory(state: &mut GameState, slot: usize, item: &str, delta: i32) {
+    let inventory = &mut sect_mut(state, slot).inventory;
+    let entry = inventory.entry(item.to_string()).or_default();
+    *entry = (*entry + delta).max(0);
+}
+
+/// 抑制一家独大的合纵机制：声望最高的门派若大幅超出均值，
+/// 其他相邻门派会结成临时联盟共同制衡，削弱其声望与物资。
+fn check_hegemony_coalition(state: &mut GameState) -> Option<String> {
+    let factions: Vec<(usize, &str, i32, &str)> = std::iter::once((0, state.sect.id.as_str(), state.sect.attributes.prestige, state.sect.country_id.as_str()))
+        .chain(state.npc_sects.iter().enumerate().map(|(i, s)| {
+            (i + 1, s.id.as_str(), s.attributes.prestige, s.country_id.as_str())
+        }))
+        .collect();
+    if factions.len() < 3 {
+        return None;
+    }
+    let total_prestige: i32 = factions.iter().map(|(_, _, p, _)| p).sum();
+    let avg_prestige = total_prestige / factions.len() as i32;
+    let top = factions.iter().max_by_key(|(_, _, p, _)| *p)?;
+    if top.2 < avg_prestige * 3 / 2 || top.2 < 80 {
+        return None;
+    }
+    // 强势方声望超出均值一半且不低于八十时触发
+    let mut coalition = vec![];
+    let top_slot = top.0;
+    for (slot, _, prestige, country_id) in &factions {
+        if *slot == top_slot || *prestige >= top.2 * 2 / 3 {
+            continue;
+        }
+        if *country_id == top.3 || *prestige > 20 {
+            coalition.push(*slot);
+        }
+        if coalition.len() >= 3 {
+            break;
+        }
+    }
+    if coalition.len() < 2 {
+        return None;
+    }
+
+    let mut report = format!(
+        "{}声望{}已远超诸派均值{}。",
+        if top_slot == 0 { state.sect.name.as_str() } else { state.npc_sects[top_slot - 1].name.as_str() },
+        top.2, avg_prestige
+    );
+    let coalition_names: Vec<String> = coalition.iter().map(|slot| {
+        if *slot == 0 { state.sect.name.clone() } else { state.npc_sects[*slot - 1].name.clone() }
+    }).collect();
+    for (idx, slot) in coalition.iter().enumerate() {
+        change_relation_by_slot(state, top_slot, *slot, 10);
+        report.push_str(&format!("{}与", coalition_names[idx]));
+    }
+    report.push_str("诸派结成合纵，共抑强宗。");
+    // 强势方付出代价
+    change_prestige(state, top_slot, -(3 + coalition.len() as i32));
+    let silver_cost = (10 + coalition.len() as i32 * 5).min(40);
+    change_silver(state, top_slot, -silver_cost);
+    // 合纵参与方各得一些增益
+    for slot in &coalition {
+        change_prestige(state, *slot, 2);
+    }
+
+    Some(report)
+}
+
 fn change_prestige(state: &mut GameState, slot: usize, delta: i32) {
     let attributes = &mut sect_mut(state, slot).attributes;
     attributes.prestige = (attributes.prestige + delta).clamp(0, 1000);
@@ -1408,6 +1522,24 @@ fn change_morality(state: &mut GameState, slot: usize, delta: i32) {
 fn change_morale(state: &mut GameState, slot: usize, delta: i32) {
     let attributes = &mut sect_mut(state, slot).attributes;
     attributes.morale = (attributes.morale + delta).clamp(0, 100);
+}
+
+fn change_relation_by_slot(state: &mut GameState, a: usize, b: usize, delta: i32) {
+    let (id_a, id_b) = {
+        let a_ref = sect_ref(state, a);
+        let b_ref = sect_ref(state, b);
+        (a_ref.id.clone(), b_ref.id.clone())
+    };
+    let left = sect_mut(state, a)
+        .relations
+        .entry(id_b.clone())
+        .or_default();
+    *left = (*left + delta).clamp(-100, 100);
+    let right = sect_mut(state, b)
+        .relations
+        .entry(id_a)
+        .or_default();
+    *right = (*right + delta).clamp(-100, 100);
 }
 
 fn change_relation(state: &mut GameState, a: &Faction, b: &Faction, delta: i32) {
