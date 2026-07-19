@@ -1320,8 +1320,18 @@ fn deepen_npc_sect_management(rng: &mut impl Rng, state: &mut GameState) {
             }
         }
 
-        // 丹药炼制
-        if snap.has_herb_elder && snap.herbs >= 8 {
+        // 丹药炼制：有丹房长老时每月至少炼一炉；草药充裕时可炼多炉。
+        let herb_stock = *state.npc_sects[sect_index].inventory.get("草药").unwrap_or(&0);
+        let brew_count = if snap.has_herb_elder && herb_stock >= 8 {
+            ((herb_stock / 16) + 1).clamp(1, ((herb_stock / 8).min(3)) as i32)
+        } else {
+            0
+        };
+        for _ in 0..brew_count {
+            let current = *state.npc_sects[sect_index].inventory.get("草药").unwrap_or(&0);
+            if current < 8 {
+                break;
+            }
             state.npc_sects[sect_index]
                 .inventory
                 .entry("草药".into())

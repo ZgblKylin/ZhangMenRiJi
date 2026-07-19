@@ -192,6 +192,19 @@ pub fn execute_management(
             if building.work_required > 0 {
                 return Err("此处尚在施工，不可再兴土木。".into());
             }
+            // 扩建等级不得超越庶务堂；庶务堂本身不在此限。
+            if building.kind != crate::models::sect::BuildingKind::Logistics {
+                let logistics_level = crate::logic::sect::building_level(&state.sect, "logistics");
+                if building.level >= logistics_level {
+                    return Err(format!(
+                        "{}已是{}级，而庶务堂仅{}级。请先将庶务堂升至{}级以上方可续建。",
+                        building.name,
+                        building.level,
+                        logistics_level,
+                        building.level + 1,
+                    ));
+                }
+            }
             let (silver_cost, iron_cost) = upgrade_building_cost(building.level);
             require_inventory(state, "精铁", iron_cost)?;
             spend(state, silver_cost)?;
@@ -1408,11 +1421,16 @@ fn execute_elder_duty(
             );
         }
         "expand" => {
+            let logistics_level = crate::logic::sect::building_level(&state.sect, "logistics");
             let candidates = state
                 .sect
                 .buildings
                 .iter()
-                .filter(|building| building.work_required == 0)
+                .filter(|building| {
+                    building.work_required == 0
+                        && (building.kind == crate::models::sect::BuildingKind::Logistics
+                            || building.level < logistics_level)
+                })
                 .map(|building| (building.id.clone(), building.level))
                 .collect::<Vec<_>>();
             if candidates.is_empty() {
@@ -2591,19 +2609,20 @@ mod tests {
         let mut state = GameState::default();
         let mut rng = StdRng::seed_from_u64(12);
         state.sect.attributes.silver = 300;
+        // 扩建庶务堂本身不受庶务堂等级约束
         state.sect.inventory.insert("精铁".into(), 4);
 
         let error = execute_management(
             &mut rng,
             &mut state,
             ManagementRequest::UpgradeBuilding {
-                building_id: "practice".into(),
+                building_id: "logistics".into(),
             },
         )
         .unwrap_err();
         assert!(error.contains("精铁不足"));
         assert_eq!(state.sect.attributes.silver, 300);
-        assert_eq!(state.sect.buildings[0].work_required, 0);
+        assert_eq!(state.sect.buildings[6].work_required, 0);
         assert_eq!(state.decisions_used, 0);
 
         state.sect.inventory.insert("精铁".into(), 5);
@@ -2611,14 +2630,14 @@ mod tests {
             &mut rng,
             &mut state,
             ManagementRequest::UpgradeBuilding {
-                building_id: "practice".into(),
+                building_id: "logistics".into(),
             },
         )
         .unwrap();
         assert_eq!(state.sect.attributes.silver, 160);
         assert_eq!(state.sect.inventory["精铁"], 0);
-        assert_eq!(state.sect.buildings[0].work_required, 40);
-        assert_eq!(state.sect.buildings[0].upgrading_months, 4);
+        assert_eq!(state.sect.buildings[6].work_required, 40);
+        assert_eq!(state.sect.buildings[6].upgrading_months, 4);
     }
 
     #[test]
@@ -2886,6 +2905,14 @@ mod tests {
         elder.rank = DiscipleRank::Inner;
         let elder_id = elder.id.clone();
         state.disciples.push(elder);
+        // 扩建其他建筑须庶务堂至少高于目标等级；先升一级庶务堂以通过约束。
+        state
+            .sect
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == "logistics")
+            .unwrap()
+            .level = 2;
         let logistics = state
             .sect
             .buildings
