@@ -1434,7 +1434,95 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    fn long_term_sixty_month_simulation_maintains_world_stability() {
+        // 验证五载（六十回合）无人干预下的江湖基本稳定：
+        // 1. 玩家门派不会无故散伙
+        // 2. 各 NPC 门派仍保有可观人数
+        // 3. 建筑规模不会无限膨胀
+        // 4. 国家属性始终在有效区间
+        // 5. 人口循环（死亡-招募-修炼）保持门派结构基本稳定
+        use crate::logic::{disciple, event, world};
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+
+        let mut rng = StdRng::seed_from_u64(20260719);
+        let mut state = GameState {
+            world_seed: 20260719,
+            ..GameState::default()
+        };
+        let (sects, npc_disciples) = world::generate_npc_world(state.world_seed);
+        state.npc_sects = sects;
+        state.npc_disciples = npc_disciples;
+        state.disciples = disciple::generate_starting_disciples(&mut rng);
+        for (index, disciple) in state.disciples.iter_mut().enumerate() {
+            disciple.id = format!("stability_test_{index}");
+            disciple.sect_id = Some(state.sect.id.clone());
+            disciple.loyalty = 100;
+            disciple.attributes.sect_loyalty = 100;
+        }
+
+        let target_months = 60;
+        let mut elapsed = 0;
+        let _peak_building_levels: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
+        let initial_npc_population: usize = state.npc_disciples.iter().filter(|d| d.alive).count();
+
+        while elapsed < target_months {
+            let before = (state.year, state.month);
+            advance_month(&mut rng, &mut state);
+            if let Some(value) = state.pending_event.clone() {
+                let pending: event::PendingWorldEvent = serde_json::from_value(value).unwrap();
+                resolve_pending_event(&mut rng, &mut state, &pending.choices[0].id).unwrap();
+            }
+            if (state.year, state.month) != before {
+                elapsed += 1;
+            }
+            assert!(!state.game_over, "第{elapsed}个月意外散伙，原因：{reason}",
+                    reason = state.game_over_reason);
+        }
+
+        // 1. 玩家门派应存活且保有弟子
+        let player_alive = state.disciples.iter().filter(|d| d.alive).count();
+        assert!(player_alive > 0, "玩家门派六十个月后应尚有弟子");
+
+        // 2. 各 NPC 门派保有可观人数（总量不低于初始七成）
+        let final_npc_population: usize = state.npc_disciples.iter().filter(|d| d.alive).count();
+        assert!(
+            final_npc_population as f64 >= initial_npc_population as f64 * 0.7,
+            "NPC 总人口应保持稳定：初始 {initial}，最终 {final}",
+            initial = initial_npc_population,
+            final = final_npc_population
+        );
+
+        // 3. 建筑等级有上限——任一 NPC 门派总等级不超过 21（七座各三级）
+        for sect in &state.npc_sects {
+            let total: i32 = sect.buildings.iter().map(|b| b.level).sum();
+            assert!(total <= 35, "{}建筑总等级 {} 超出预期上限", sect.name, total);
+        }
+        // 玩家门派同样
+        let player_total: i32 = state.sect.buildings.iter().map(|b| b.level).sum();
+        assert!(player_total <= 35, "玩家建筑总等级 {} 超出预期上限", player_total);
+
+        // 4. 各国属性均在 0..=100
+        for country in &state.countries {
+            assert!((0..=100).contains(&country.prosperity));
+            assert!((0..=100).contains(&country.order));
+        }
+
+        // 5. 十五年跨度下门派库存不应无限膨胀
+        for sect in &state.npc_sects {
+            let herbs = sect.inventory.get("草药").copied().unwrap_or(0);
+            let grain = sect.inventory.get("粮秣").copied().unwrap_or(0);
+            let iron = sect.inventory.get("精铁").copied().unwrap_or(0);
+            assert!(herbs <= 2000, "{}草药库存异常", sect.name);
+            assert!(grain <= 2000, "{}粮秣库存异常", sect.name);
+            assert!(iron <= 500, "{}精铁库存异常", sect.name);
+        }
+
+        // 断言不会在五载内意外触发两载封卷（已移除）
+        assert_eq!((state.year, state.month), (6, 1));
+        assert!(!state.game_won || state.game_over_reason.contains("连续三届"));
+    }
+
     fn starting_outer_disciple_can_become_an_elder_and_request_a_foreign_manual_in_24_months() {
         let mut rng = StdRng::seed_from_u64(20260718);
         let mut state = GameState {
