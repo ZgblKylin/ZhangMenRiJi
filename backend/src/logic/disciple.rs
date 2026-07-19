@@ -316,8 +316,10 @@ pub fn recalculate_attribute_maxima(d: &mut Disciple) {
     let new = attribute_maxima(d);
     // 先保留原始衰老结果判死，再将展示值收束到零；不可提前钳成 1，
     // 否则“最大气血/精神不足 1 时死亡”永远不可达。
-    d.attributes.qi.maximum = new.qi.max(0);
-    d.attributes.spirit.maximum = new.spirit.max(0);
+    let qi_floor = if d.is_named_npc { 1 } else { 0 };
+    let spirit_floor = if d.is_named_npc { 1 } else { 0 };
+    d.attributes.qi.maximum = new.qi.max(qi_floor);
+    d.attributes.spirit.maximum = new.spirit.max(spirit_floor);
     d.attributes.neili.maximum = d.attributes.neili.maximum.max(1);
     d.attributes.energy.maximum = d.attributes.energy.maximum.max(1);
     d.attributes.qi.current = d.attributes.qi.current.clamp(0, d.attributes.qi.maximum);
@@ -338,29 +340,51 @@ pub fn recalculate_attribute_maxima(d: &mut Disciple) {
         .clamp(0, d.attributes.energy.maximum);
 }
 
-/// 35 岁前按固定年龄刻度增长，35 岁后按固定刻度衰减。
+/// 35 岁前成长，35–60 岁壮年平台，60 岁后衰减，内力修为可延缓气血衰老。
+#[allow(dead_code)]
 pub fn age_qi_modifier(age: i32) -> i32 {
+    age_qi_modifier_extended(age, 0)
+}
+
+/// 衰减有效年龄 = 实际年龄 − 每百点内力延寿一岁（最多推迟五年），仅作用于六十岁以后。
+pub fn age_qi_modifier_extended(age: i32, max_neili: i32) -> i32 {
+    let plateau = 63_i32;
     if age <= 35 {
-        (age - 14).max(0) * 3
+        (age - 14).max(0).saturating_mul(3)
+    } else if age <= 60 {
+        plateau
     } else {
-        63 - (age - 35) * 4
+        let extension = max_neili.min(500).saturating_div(100);
+        let effective_decline = (age - 60).saturating_sub(extension);
+        plateau.saturating_sub(effective_decline.saturating_mul(3))
     }
 }
 
+#[allow(dead_code)]
 pub fn age_spirit_modifier(age: i32) -> i32 {
+    age_spirit_modifier_extended(age, 0)
+}
+
+/// 精力延寿规则与内力相同。
+pub fn age_spirit_modifier_extended(age: i32, max_energy: i32) -> i32 {
+    let plateau = 42_i32;
     if age <= 35 {
-        (age - 14).max(0) * 2
+        (age - 14).max(0).saturating_mul(2)
+    } else if age <= 60 {
+        plateau
     } else {
-        42 - (age - 35) * 3
+        let extension = max_energy.min(500).saturating_div(100);
+        let effective_decline = (age - 60).saturating_sub(extension);
+        plateau.saturating_sub(effective_decline.saturating_mul(3))
     }
 }
 
 pub fn qi_maximum(age: i32, aptitude: &Aptitudes, max_neili: i32) -> i32 {
-    20 + aptitude.constitution * 4 + max_neili / 2 + age_qi_modifier(age)
+    20 + aptitude.constitution * 4 + max_neili / 2 + age_qi_modifier_extended(age, max_neili)
 }
 
 pub fn spirit_maximum(age: i32, intelligence: i32, max_energy: i32) -> i32 {
-    20 + intelligence * 4 + max_energy / 2 + age_spirit_modifier(age)
+    20 + intelligence * 4 + max_energy / 2 + age_spirit_modifier_extended(age, max_energy)
 }
 
 pub fn sync_legacy_attributes(d: &mut Disciple) {
@@ -991,16 +1015,22 @@ mod tests {
 
     #[test]
     fn age_curve_grows_then_declines_by_fixed_points() {
+        // 35 岁前逐年增长，35–60 为壮年平台，60 岁后逐年衰减。
         assert_eq!(age_qi_modifier(35) - age_qi_modifier(34), 3);
-        assert_eq!(age_qi_modifier(36) - age_qi_modifier(35), -4);
+        assert_eq!(age_qi_modifier(36) - age_qi_modifier(35), 0);
+        assert_eq!(age_qi_modifier(60) - age_qi_modifier(59), 0);
+        assert_eq!(age_qi_modifier(61) - age_qi_modifier(60), -3);
         assert_eq!(age_spirit_modifier(35) - age_spirit_modifier(34), 2);
-        assert_eq!(age_spirit_modifier(36) - age_spirit_modifier(35), -3);
+        assert_eq!(age_spirit_modifier(36) - age_spirit_modifier(35), 0);
+        assert_eq!(age_spirit_modifier(60) - age_spirit_modifier(59), 0);
+        assert_eq!(age_spirit_modifier(61) - age_spirit_modifier(60), -3);
     }
 
     #[test]
     fn age_decline_can_reach_death_instead_of_being_clamped_to_one() {
         let mut d = Disciple::default();
-        d.age = 100;
+        // 60 岁后衰减；无内力者约 107 岁气绝。
+        d.age = 120;
         d.aptitudes = Aptitudes {
             strength: 0,
             intelligence: 0,

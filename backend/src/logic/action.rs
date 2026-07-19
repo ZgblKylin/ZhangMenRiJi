@@ -921,8 +921,12 @@ fn execute_solo_with_encounters(
                     .min(d.attributes.qi.current.saturating_sub(1))
             };
             let mut gain = if !at_cap && cost >= 10 {
-                (1 + level / 80 + d.aptitudes.constitution / 25)
-                    .min((cap - d.attributes.neili.maximum).max(0))
+                let raw = (1 + level / 80 + d.aptitudes.constitution / 25)
+                    .min((cap - d.attributes.neili.maximum).max(0));
+                // 打坐难度随内力接近瓶颈递增；修满九成以上时收益骤降。
+                let ratio = d.attributes.neili.maximum as f32 / cap.max(1) as f32;
+                let scale = (1.0 - ratio).max(0.05);
+                (raw as f32 * scale).ceil().max(1.0) as i32
             } else {
                 0
             };
@@ -967,8 +971,11 @@ fn execute_solo_with_encounters(
                 (10 + intelligence / 4).min(d.attributes.spirit.current.saturating_sub(1))
             };
             let gain = if !at_cap && cost >= 10 {
-                (1 + knowledge / 100 + intelligence / 30)
-                    .min((cap - d.attributes.energy.maximum).max(0))
+                let raw = (1 + knowledge / 100 + intelligence / 30)
+                    .min((cap - d.attributes.energy.maximum).max(0));
+                let ratio = d.attributes.energy.maximum as f32 / cap.max(1) as f32;
+                let scale = (1.0 - ratio).max(0.05);
+                (raw as f32 * scale).ceil().max(1.0) as i32
             } else {
                 0
             };
