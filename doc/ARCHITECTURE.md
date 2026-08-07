@@ -347,9 +347,8 @@ Tauri 使用系统应用配置目录；独立后端入口也使用 `config::defa
 # 安装根目录 Tauri CLI 与前端依赖
 npm run setup
 
-# 桌面开发 / release 开发
+# 桌面开发（release 模式，不产生 debug 构建）
 npm run dev
-npm run dev:release
 
 # 两终端 Web 开发
 npm run web-backend

@@ -1,4 +1,4 @@
-# 《掌门日记》— 武侠门派经营模拟器 v3.1
+﻿# 《掌门日记》— 武侠门派经营模拟器 v3.1
 
 《掌门日记》是一款按月推进的单机武侠门派经营游戏。当前版本采用 Vue 3 前端、Rust/axum 后端与 SQLite 单文件存档；桌面端由 Tauri 2 打包，浏览器开发模式复用同一套真实 HTTP API，不在前端模拟业务逻辑。
 
@@ -47,11 +47,7 @@ npm run setup
 npm run dev
 ```
 
-`npm run dev` 会启动 Vite、编译 Tauri/Rust，并打开 1600×900 的桌面窗口。需要用 release 配置观察性能时可运行：
-
-```bash
-npm run dev:release
-```
+`npm run dev` 会启动 Vite、以 release 模式编译 Tauri/Rust，并打开 1600×900 的桌面窗口。
 
 ### 浏览器开发模式
 
