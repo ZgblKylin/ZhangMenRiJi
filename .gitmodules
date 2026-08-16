@@ -1,0 +1,3 @@
+[submodule "doc/reference"]
+	path = doc/reference/xkx100
+	url = https://github.com/mudchina/xkx100.git
