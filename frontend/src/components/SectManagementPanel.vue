@@ -576,6 +576,15 @@ const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months
         </div>
         <div v-if="availableCreationArts.length && !game.sect.created_martial_arts?.length" class="building-prose" style="margin-top:0.5rem">另有{{ availableCreationArts.length }}部待研创武学可由掌门召众合参。</div>
       </section>
+      <section v-if="createdArts.length" class="private-manual-shelf">
+        <div class="management-row-title">本门传承</div>
+        <div>
+          <article v-for="art in createdArts" :key="art.id">
+            <span><b>《{{ art.name }}》</b><small>{{ isHeritageArt(art.id) ? '传承核心' : '本门武学' }}</small></span>
+            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @click="command({ action: 'set_heritage_art', martial_art_id: art.id })">{{ isHeritageArt(art.id) ? '移出核心' : '列为核心' }}</button>
+          </article>
+        </div>
+      </section>
       <section v-if="privateBookHoldings.length" class="private-manual-shelf">
         <div class="management-row-title">门人私藏与遗卷</div>
         <div>
@@ -667,13 +676,13 @@ const recipeSilverCost = (medicine: typeof medicines[number]) => medicine.months
           <div class="management-row-title" id="alliance-actions-title">盟务署令</div>
           <p class="building-prose">遣内门弟子出使列盟，共襄武备、通问论道、互通有无。每次行事消耗一次掌门定夺。</p>
           <div class="alliance-action-list">
-            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || game.sect.attributes.silver < 60 || !!game.pending_event" @click="command({ action: 'joint_patrol', sect_id: alliedSects[0]?.id, disciple_id: innerCandidates[0]?.id })">联合巡行 · 60两</button>
-            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || game.sect.attributes.silver < 80 || !!game.pending_event" @click="command({ action: 'call_aid', sect_id: alliedSects[0]?.id })">召集援手 · 80两</button>
-            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || game.sect.attributes.silver < 40 || !!game.pending_event" @click="command({ action: 'host_exchange', sect_id: alliedSects[0]?.id, disciple_id: innerCandidates[0]?.id })">武学论道 · 40两</button>
+            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || game.sect.attributes.silver < 60 || !!game.pending_event" @click="command({ action: 'joint_patrol', sect_id: alliedSects[0]?.sect.id, disciple_id: innerCandidates[0]?.id })">联合巡行 · 60两</button>
+            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || game.sect.attributes.silver < 80 || !!game.pending_event" @click="command({ action: 'call_aid', sect_id: alliedSects[0]?.sect.id })">召集援手 · 80两</button>
+            <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || game.sect.attributes.silver < 40 || !!game.pending_event" @click="command({ action: 'host_exchange', sect_id: alliedSects[0]?.sect.id, disciple_id: innerCandidates[0]?.id })">武学论道 · 40两</button>
             <label class="alliance-trade-control"><span>通商易货</span>
               <select v-model="tradeItem" class="wuxia-select"><option value="草药">草药</option><option value="精铁">精铁</option><option value="粮秣">粮秣</option></select>
               <select v-model="tradeQty" class="wuxia-select"><option :value="5">5份</option><option :value="10">10份</option><option :value="20">20份</option></select>
-              <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || !!game.pending_event" @click="command({ action: 'trade_with_ally', sect_id: alliedSects[0]?.id, item: tradeItem, quantity: tradeQty })">发货</button>
+              <button class="btn btn-sm" :disabled="game.decisions_used >= game.max_decisions || currentEffectiveness <= 0 || !!game.pending_event" @click="command({ action: 'trade_with_ally', sect_id: alliedSects[0]?.sect.id, item: tradeItem, quantity: tradeQty })">发货</button>
             </label>
           </div>
         </section>
