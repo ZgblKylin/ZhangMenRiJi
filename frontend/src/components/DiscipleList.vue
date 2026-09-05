@@ -329,6 +329,10 @@ const actionTargetChoices = (disciple: Disciple, kind: ActionKind) => {
 }
 const actionNeedsTarget = (kind: ActionKind) => ['maintain', 'construct', 'teach', 'spar'].includes(kind)
 const actionNeedsMartial = (kind: ActionKind) => ['read', 'practice', 'teach'].includes(kind)
+const targetChoicesFor = (disciple: Disciple, kind: ActionKind) =>
+  ['maintain', 'construct'].includes(kind)
+    ? props.buildings.map(building => building.id)
+    : actionTargetChoices(disciple, kind).map(candidate => candidate.id)
 const actionMartialChoices = (disciple: Disciple, kind: ActionKind): ActionMartialChoice[] => {
   if (kind === 'read') {
     const privateBooks = new Set(disciple.martial_progress?.private_books || [])
@@ -370,9 +374,7 @@ const actionMartialChoices = (disciple: Disciple, kind: ActionKind): ActionMarti
     }))
 }
 const selectedTargetFor = (disciple: Disciple, kind: ActionKind) => {
-  const choices = ['maintain', 'construct'].includes(kind)
-    ? props.buildings.map(building => building.id)
-    : actionTargetChoices(disciple, kind).map(candidate => candidate.id)
+  const choices = targetChoicesFor(disciple, kind)
   const stored = selectedTarget[selectionKey(disciple, kind)]
     || (disciple.action?.kind === kind ? disciple.action.target_id || '' : '')
   return choices.includes(stored) ? stored : choices[0] || ''
@@ -385,6 +387,8 @@ const selectedMartialFor = (disciple: Disciple, kind: ActionKind) => {
     ? stored
     : choices.find(choice => !choice.blocked)?.id || ''
 }
+const availableMartialChoices = (disciple: Disciple, kind: ActionKind) =>
+  actionMartialChoices(disciple, kind).filter(choice => !choice.blocked)
 const setAction = (disciple: Disciple, event: Event) => {
   selected[disciple.id] = (event.target as HTMLSelectElement).value as ActionKind
 }
@@ -512,39 +516,54 @@ const appointMaster = (disciple: Disciple) => emit('manage', {
                 {{ label }}{{ actionUnavailableReason(d, value) ? `（${actionUnavailableReason(d, value)}）` : '' }}
               </option>
             </select>
-            <select
-              v-if="['maintain', 'construct'].includes(chosenAction(d))"
-              :value="selectedTargetFor(d, chosenAction(d))"
-              :disabled="orderBlocked(d)"
-              aria-label="选择建筑"
-              @change="setActionTarget(d, chosenAction(d), $event)"
-            >
-              <option v-for="building in buildings" :key="building.id" :value="building.id">{{ building.name }}</option>
-            </select>
-            <select
-              v-else-if="['teach', 'spar'].includes(chosenAction(d))"
-              :value="selectedTargetFor(d, chosenAction(d))"
-              :disabled="orderBlocked(d)"
-              aria-label="选择同门"
-              @change="setActionTarget(d, chosenAction(d), $event)"
-            >
-              <option v-if="!actionTargetChoices(d, chosenAction(d)).length" value="">
-                {{ chosenAction(d) === 'teach' ? '暂无嫡传或亲近同门可授' : '暂无可同行门' }}
-              </option>
-              <option v-for="peer in actionTargetChoices(d, chosenAction(d))" :key="peer.id" :value="peer.id">{{ peer.name }} · {{ rankName[peer.rank] }}</option>
-            </select>
-            <select
-              v-if="actionNeedsMartial(chosenAction(d))"
-              :value="selectedMartialFor(d, chosenAction(d))"
-              :disabled="orderBlocked(d)"
-              aria-label="选择武学"
-              @change="setActionMartial(d, chosenAction(d), $event)"
-            >
-              <option v-if="!actionMartialChoices(d, chosenAction(d)).length" value="">暂无可选武学</option>
-              <option v-for="choice in actionMartialChoices(d, chosenAction(d))" :key="choice.id" :value="choice.id" :disabled="!!choice.blocked">
-                {{ choice.name }}{{ choice.level === undefined ? '' : ` · ${choice.level}级` }} · {{ choice.note }}{{ choice.blocked ? `（${choice.blocked}）` : '' }}
-              </option>
-            </select>
+            <template v-if="['maintain', 'construct'].includes(chosenAction(d))">
+              <span v-if="targetChoicesFor(d, chosenAction(d)).length === 1" class="action-auto-choice">
+                {{ targetName(selectedTargetFor(d, chosenAction(d))) }} · 自动
+              </span>
+              <select
+                v-else
+                :value="selectedTargetFor(d, chosenAction(d))"
+                :disabled="orderBlocked(d)"
+                aria-label="选择建筑"
+                @change="setActionTarget(d, chosenAction(d), $event)"
+              >
+                <option v-for="building in buildings" :key="building.id" :value="building.id">{{ building.name }}</option>
+              </select>
+            </template>
+            <template v-else-if="['teach', 'spar'].includes(chosenAction(d))">
+              <span v-if="actionTargetChoices(d, chosenAction(d)).length === 1" class="action-auto-choice">
+                {{ targetName(selectedTargetFor(d, chosenAction(d))) }} · 自动
+              </span>
+              <select
+                v-else
+                :value="selectedTargetFor(d, chosenAction(d))"
+                :disabled="orderBlocked(d)"
+                aria-label="选择同门"
+                @change="setActionTarget(d, chosenAction(d), $event)"
+              >
+                <option v-if="!actionTargetChoices(d, chosenAction(d)).length" value="">
+                  {{ chosenAction(d) === 'teach' ? '暂无嫡传或亲近同门可授' : '暂无可同行门' }}
+                </option>
+                <option v-for="peer in actionTargetChoices(d, chosenAction(d))" :key="peer.id" :value="peer.id">{{ peer.name }} · {{ rankName[peer.rank] }}</option>
+              </select>
+            </template>
+            <template v-if="actionNeedsMartial(chosenAction(d))">
+              <span v-if="availableMartialChoices(d, chosenAction(d)).length === 1" class="action-auto-choice">
+                {{ availableMartialChoices(d, chosenAction(d))[0].name }} · 自动
+              </span>
+              <select
+                v-else
+                :value="selectedMartialFor(d, chosenAction(d))"
+                :disabled="orderBlocked(d)"
+                aria-label="选择武学"
+                @change="setActionMartial(d, chosenAction(d), $event)"
+              >
+                <option v-if="!actionMartialChoices(d, chosenAction(d)).length" value="">暂无可选武学</option>
+                <option v-for="choice in actionMartialChoices(d, chosenAction(d))" :key="choice.id" :value="choice.id" :disabled="!!choice.blocked">
+                  {{ choice.name }}{{ choice.level === undefined ? '' : ` · ${choice.level}级` }} · {{ choice.note }}{{ choice.blocked ? `（${choice.blocked}）` : '' }}
+                </option>
+              </select>
+            </template>
             <button class="btn btn-sm" :disabled="orderBlocked(d) || missingActionChoice(d)" :title="interactionOwner(d) ? `已列入${interactionOwner(d)!.name}的同修安排` : ''" @click="assign(d)">传令</button>
           </div>
           <div class="personnel-actions">
