@@ -440,7 +440,10 @@ fn finish_month(
                 year_mark, state.year, rank
             )
         } else {
-            format!("又一年除夕，本派在年终论剑中名列第{}位。门人守岁共饮，静待来年。", rank)
+            format!(
+                "又一年除夕，本派在年终论剑中名列第{}位。门人守岁共饮，静待来年。",
+                rank
+            )
         };
         events.push(GameEvent {
             text: season_text,
@@ -450,7 +453,9 @@ fn finish_month(
             category: "sect".into(),
         });
         // 长期胜利条件：连续三年论剑前三，且声望不低于 500
-        let last_two = state.tournament_history.iter()
+        let last_two = state
+            .tournament_history
+            .iter()
             .rev()
             .take(2)
             .filter(|t| t.rank <= 3)
@@ -472,7 +477,14 @@ fn finish_month(
         }
     }
 
-    // 10. 推进时间
+    normalize_non_negative_resources(state);
+
+    // 10. 月末里程碑与部门任职事件必须在推进时间前生成，沿用本月年月。
+    // 保持辈分事件在部门事件之前的既有顺序。
+    events.extend(generate_lineage_events(state, rng));
+    events.extend(generate_department_events(state, rng));
+
+    // 11. 推进时间
     state.month += 1;
     if state.month > 12 {
         state.month = 1;
@@ -486,18 +498,15 @@ fn finish_month(
         });
     }
 
-    // ★ 将本轮事件追加到 state.event_log（保留最近 50 条）
+    // ★ 将本轮事件追加到 state.event_log（保留最近 80 条）
     for ev in &events {
         state.event_log.push(ev.clone());
     }
     trim_log(state);
 
-    // 11. 重置决策
+    // 12. 重置决策
     state.decisions_used = 0;
     state.pending_event = None;
-    // 辈分事件、部门晋升与弟子生命周期深化
-    events.extend(generate_lineage_events(state, rng));
-    events.extend(generate_department_events(state, rng));
 
     crate::logic::sect::sync_legacy_fields(state);
 
@@ -871,6 +880,33 @@ fn trim_log(state: &mut GameState) {
     }
 }
 
+/// 月结结束时清理旧档或 NPC 后台维护可能遗留的负资源，保持存档状态有效。
+fn normalize_non_negative_resources(state: &mut GameState) {
+    for sect in std::iter::once(&mut state.sect).chain(state.npc_sects.iter_mut()) {
+        sect.attributes.silver = sect.attributes.silver.max(0);
+        for amount in sect.inventory.values_mut() {
+            *amount = (*amount).max(0);
+        }
+    }
+    for disciple in state
+        .disciples
+        .iter_mut()
+        .chain(state.npc_disciples.iter_mut())
+    {
+        disciple.personal_silver = disciple.personal_silver.max(0);
+        disciple.personal_rations = disciple.personal_rations.max(0);
+        for pool in [
+            &mut disciple.attributes.qi,
+            &mut disciple.attributes.spirit,
+            &mut disciple.attributes.neili,
+            &mut disciple.attributes.energy,
+        ] {
+            pool.current = pool.current.max(0);
+            pool.maximum = pool.maximum.max(0);
+        }
+    }
+}
+
 fn interactive_category(category: &str) -> &'static str {
     match category {
         "江湖" | "朝廷" | "乡里" => "world",
@@ -879,10 +915,7 @@ fn interactive_category(category: &str) -> &'static str {
 }
 
 /// 每月检查弟子辈分里程碑并生成纪事条目。
-fn generate_lineage_events(
-    state: &mut GameState,
-    rng: &mut impl rand::Rng,
-) -> Vec<GameEvent> {
+fn generate_lineage_events(state: &mut GameState, rng: &mut impl rand::Rng) -> Vec<GameEvent> {
     let mut entries = Vec::new();
     // Snapshot names/ages before mutable access
     let snapshots: Vec<(usize, String, i32, i32, i32, i32)> = state
@@ -890,7 +923,16 @@ fn generate_lineage_events(
         .iter()
         .enumerate()
         .filter(|(_, d)| d.alive)
-        .map(|(i, d)| (i, d.name.clone(), d.months_in_sect, d.lineage_generation, d.age, d.attributes.sect_loyalty))
+        .map(|(i, d)| {
+            (
+                i,
+                d.name.clone(),
+                d.months_in_sect,
+                d.lineage_generation,
+                d.age,
+                d.attributes.sect_loyalty,
+            )
+        })
         .collect();
     for (idx, name, months_in_sect, lineage_gen, age, loyalty) in &snapshots {
         let idx = *idx;
@@ -925,30 +967,22 @@ fn generate_lineage_events(
                 month: state.month,
                 category: "sect".into(),
             });
-            state.disciples[idx].attributes.sect_loyalty =
-                (loyalty + 2).min(100);
+            state.disciples[idx].attributes.sect_loyalty = (loyalty + 2).min(100);
         }
         // 成年加冠礼：年满 18 且门中已度过 12 个月
         if age == 18 && months_in_sect >= 12 && rng.gen_bool(0.6) {
             entries.push(GameEvent {
-                text: format!(
-                    "{}年已及冠，掌门亲为束发授剑，自此正式列入门墙。",
-                    name
-                ),
+                text: format!("{}年已及冠，掌门亲为束发授剑，自此正式列入门墙。", name),
                 mood: "good".into(),
                 year: state.year,
                 month: state.month,
                 category: "sect".into(),
             });
             state.disciples[idx].merit += 5;
-            state.disciples[idx].attributes.sect_loyalty =
-                (loyalty + 5).min(100);
+            state.disciples[idx].attributes.sect_loyalty = (loyalty + 5).min(100);
         }
         // 开门立派之祖年过半百
-        if lineage_gen == 0
-            && (age == 50 || age == 60)
-            && rng.gen_bool(0.5)
-        {
+        if lineage_gen == 0 && (age == 50 || age == 60) && rng.gen_bool(0.5) {
             entries.push(GameEvent {
                 text: format!(
                     "开山立派之祖{}年届{}，门中上下齐贺，江湖各派亦遣使道贺。",
@@ -959,24 +993,19 @@ fn generate_lineage_events(
                 month: state.month,
                 category: "sect".into(),
             });
-            state.sect.attributes.prestige =
-                (state.sect.attributes.prestige + 5).min(1000);
-            state.sect.attributes.morale =
-                (state.sect.attributes.morale + 3).min(100);
+            state.sect.attributes.prestige = (state.sect.attributes.prestige + 5).min(1000);
+            state.sect.attributes.morale = (state.sect.attributes.morale + 3).min(100);
         }
     }
     entries
 }
 
 /// 每月检查弟子部门任职里程碑，生成纪事条目并自动晋升职级。
-fn generate_department_events(
-    state: &mut GameState,
-    rng: &mut impl rand::Rng,
-) -> Vec<GameEvent> {
+fn generate_department_events(state: &mut GameState, rng: &mut impl rand::Rng) -> Vec<GameEvent> {
     let mut entries = Vec::new();
     // 先收集快照，避免同时持有不可变与可变引用
     struct DeptSnapshot {
-    #[allow(dead_code)]
+        #[allow(dead_code)]
         idx: usize,
         name: String,
         alive: bool,
@@ -1004,13 +1033,15 @@ fn generate_department_events(
             continue;
         }
         let idx = snap.idx;
-        state.disciples[idx].department_months += 1;
+        state.disciples[idx].department_months =
+            state.disciples[idx].department_months.saturating_add(1);
         let dept = snap.department.clone().unwrap();
         let dept_name = department_display_name(&dept);
         let dept_months = state.disciples[idx].department_months;
         // 部门任职满 12 个月触发一次职级事件
         if dept_months > 0 && dept_months % 12 == 0 {
-            state.disciples[idx].department_merit += 8;
+            state.disciples[idx].department_merit =
+                state.disciples[idx].department_merit.saturating_add(8);
             entries.push(GameEvent {
                 text: format!(
                     "{}掌理{}已满{}个月，处事愈见老练，部门诸务益加井井有条。",
@@ -1028,8 +1059,7 @@ fn generate_department_events(
             || (dept_merit >= 80 && snap.rank == DiscipleRank::Outer)
         {
             use crate::logic::sect;
-            let (outer_limit, inner_limit) =
-                sect::rank_limits(&state.sect, &state.disciples);
+            let (outer_limit, inner_limit) = sect::rank_limits(&state.sect, &state.disciples);
             let target: Option<(DiscipleRank, usize, &str)> = if snap.rank == DiscipleRank::Chore {
                 Some((DiscipleRank::Outer, outer_limit, "外门"))
             } else {
@@ -1345,6 +1375,85 @@ mod tests {
     }
 
     #[test]
+    fn month_end_milestones_use_current_date_and_are_logged() {
+        let mut state = GameState {
+            year: 4,
+            month: 12,
+            ..GameState::default()
+        };
+        state.disciples = vec![
+            Disciple {
+                id: "lineage-milestone".into(),
+                name: "五年弟子".into(),
+                // 月末结算后达到 60 个月，触发五年门龄纪事。
+                months_in_sect: 59,
+                ..Disciple::default()
+            },
+            Disciple {
+                id: "department-milestone".into(),
+                name: "藏经弟子".into(),
+                department: Some(Department::Library),
+                // 部门事件生成时再加一个月，达到 12 个月任职。
+                department_months: 11,
+                rank: DiscipleRank::Inner,
+                ..Disciple::default()
+            },
+        ];
+        let mut rng = StdRng::seed_from_u64(314);
+        let (events, _, _) = finish_month(&mut rng, &mut state, vec![]);
+        let current_date = (4, 12);
+
+        let markers = ["五年弟子已在门中度过五年", "藏经弟子掌理藏经已满12个月"];
+        for marker in markers {
+            let returned = events
+                .iter()
+                .find(|event| event.text.contains(marker))
+                .unwrap_or_else(|| panic!("未找到里程碑事件：{marker}"));
+            assert_eq!((returned.year, returned.month), current_date);
+            assert!(state.event_log.iter().any(|logged| {
+                logged.text == returned.text && (logged.year, logged.month) == current_date
+            }));
+        }
+
+        assert_eq!((state.year, state.month), (5, 1));
+    }
+
+    #[test]
+    fn department_milestone_counters_saturate_at_storage_limits() {
+        let mut state = GameState::default();
+        state.disciples = vec![
+            Disciple {
+                id: "max-tenure".into(),
+                name: "极长任职者".into(),
+                department: Some(Department::Library),
+                department_months: i32::MAX,
+                department_merit: i64::MAX,
+                rank: DiscipleRank::Inner,
+                ..Disciple::default()
+            },
+            Disciple {
+                id: "max-merit".into(),
+                name: "极高功绩者".into(),
+                department: Some(Department::Library),
+                department_months: 11,
+                department_merit: i64::MAX,
+                rank: DiscipleRank::Inner,
+                ..Disciple::default()
+            },
+        ];
+        let mut rng = StdRng::seed_from_u64(315);
+
+        generate_department_events(&mut state, &mut rng);
+
+        assert_eq!(state.disciples[0].department_months, i32::MAX);
+        assert!(state.disciples[0].department_months >= 0);
+        assert_eq!(state.disciples[0].department_merit, i64::MAX);
+        assert_eq!(state.disciples[1].department_months, 12);
+        assert_eq!(state.disciples[1].department_merit, i64::MAX);
+        assert!(state.disciples[1].department_merit >= 0);
+    }
+
+    #[test]
     fn a_failed_second_winter_cannot_be_overwritten_by_the_stage_victory() {
         let mut state = GameState {
             year: 2,
@@ -1421,7 +1530,10 @@ mod tests {
         // 不应因两载届满而自动封卷；若门中散伙乃自然经营结果
         if state.game_over {
             assert!(!state.game_won, "不应以胜利封卷");
-            assert!(!state.game_over_reason.contains("首卷至此功成"), "不应含两载功成结语");
+            assert!(
+                !state.game_over_reason.contains("首卷至此功成"),
+                "不应含两载功成结语"
+            );
         }
         assert!(state
             .event_log
@@ -1463,7 +1575,8 @@ mod tests {
 
         let target_months = 60;
         let mut elapsed = 0;
-        let _peak_building_levels: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
+        let _peak_building_levels: std::collections::BTreeMap<String, i32> =
+            std::collections::BTreeMap::new();
         let initial_npc_population: usize = state.npc_disciples.iter().filter(|d| d.alive).count();
 
         while elapsed < target_months {
@@ -1476,8 +1589,11 @@ mod tests {
             if (state.year, state.month) != before {
                 elapsed += 1;
             }
-            assert!(!state.game_over, "第{elapsed}个月意外散伙，原因：{reason}",
-                    reason = state.game_over_reason);
+            assert!(
+                !state.game_over,
+                "第{elapsed}个月意外散伙，原因：{reason}",
+                reason = state.game_over_reason
+            );
         }
 
         // 1. 玩家门派应存活且保有弟子
@@ -1496,11 +1612,20 @@ mod tests {
         // 3. 建筑等级有上限——任一 NPC 门派总等级不超过 21（七座各三级）
         for sect in &state.npc_sects {
             let total: i32 = sect.buildings.iter().map(|b| b.level).sum();
-            assert!(total <= 35, "{}建筑总等级 {} 超出预期上限", sect.name, total);
+            assert!(
+                total <= 35,
+                "{}建筑总等级 {} 超出预期上限",
+                sect.name,
+                total
+            );
         }
         // 玩家门派同样
         let player_total: i32 = state.sect.buildings.iter().map(|b| b.level).sum();
-        assert!(player_total <= 35, "玩家建筑总等级 {} 超出预期上限", player_total);
+        assert!(
+            player_total <= 35,
+            "玩家建筑总等级 {} 超出预期上限",
+            player_total
+        );
 
         // 4. 各国属性均在 0..=100
         for country in &state.countries {
@@ -1521,6 +1646,121 @@ mod tests {
         // 断言不会在五载内意外触发两载封卷（已移除）
         assert_eq!((state.year, state.month), (6, 1));
         assert!(!state.game_won || state.game_over_reason.contains("连续三届"));
+    }
+
+    #[test]
+    fn twenty_year_fixed_seed_pressure_run_preserves_state_invariants() {
+        use crate::logic::{disciple, event, world};
+
+        fn assert_state_invariants(state: &GameState) {
+            for country in &state.countries {
+                assert!(
+                    (0..=100).contains(&country.prosperity),
+                    "{}繁荣度越界：{}",
+                    country.name,
+                    country.prosperity
+                );
+                assert!(
+                    (0..=100).contains(&country.order),
+                    "{}秩序越界：{}",
+                    country.name,
+                    country.order
+                );
+            }
+
+            for sect in std::iter::once(&state.sect).chain(state.npc_sects.iter()) {
+                assert!(sect.attributes.silver >= 0, "{}银两为负", sect.name);
+                for (item, amount) in &sect.inventory {
+                    assert!(*amount >= 0, "{}库存{}为负：{}", sect.name, item, amount);
+                }
+                for building in &sect.buildings {
+                    assert!(
+                        (0..=100).contains(&building.condition),
+                        "{}的{}完好度越界：{}",
+                        sect.name,
+                        building.name,
+                        building.condition
+                    );
+                }
+            }
+
+            for disciples in [&state.disciples, &state.npc_disciples] {
+                for disciple in disciples {
+                    assert!(disciple.personal_silver >= 0, "{}私银为负", disciple.name);
+                    assert!(disciple.personal_rations >= 0, "{}口粮为负", disciple.name);
+                    for pool in [
+                        &disciple.attributes.qi,
+                        &disciple.attributes.spirit,
+                        &disciple.attributes.neili,
+                        &disciple.attributes.energy,
+                    ] {
+                        assert!(
+                            pool.current >= 0 && pool.maximum >= 0,
+                            "{}资源池出现负值：{}/{}",
+                            disciple.name,
+                            pool.current,
+                            pool.maximum
+                        );
+                    }
+                }
+            }
+
+            assert!(serde_json::to_value(&state.disciples).is_ok());
+            assert!(serde_json::to_value(&state.npc_disciples).is_ok());
+        }
+
+        let world_seed = 20260720;
+        let mut rng = StdRng::seed_from_u64(world_seed);
+        let mut state = GameState {
+            world_seed,
+            ..GameState::default()
+        };
+        let (sects, npc_disciples) = world::generate_npc_world(state.world_seed);
+        state.npc_sects = sects;
+        state.npc_disciples = npc_disciples;
+        state.disciples = disciple::generate_starting_disciples(&mut rng);
+        for (index, disciple) in state.disciples.iter_mut().enumerate() {
+            disciple.id = format!("pressure_test_{index}");
+            disciple.sect_id = Some(state.sect.id.clone());
+            disciple.loyalty = 100;
+            disciple.attributes.sect_loyalty = 100;
+        }
+
+        let target_months = 240;
+        let mut elapsed = 0;
+        while elapsed < target_months && !state.game_over {
+            let before = (state.year, state.month);
+            advance_month(&mut rng, &mut state);
+            if let Some(value) = state.pending_event.clone() {
+                let pending: event::PendingWorldEvent = serde_json::from_value(value).unwrap();
+                resolve_pending_event(&mut rng, &mut state, &pending.choices[0].id).unwrap();
+            }
+            assert_ne!(
+                (state.year, state.month),
+                before,
+                "未终局月份未能完成推进：{}-{}",
+                before.0,
+                before.1
+            );
+            elapsed += 1;
+            assert_state_invariants(&state);
+        }
+
+        if state.game_over {
+            let sealed = serde_json::to_value(&state).unwrap();
+            let sealed_date = (state.year, state.month);
+            let (events, tournament, game_over) = advance_month(&mut rng, &mut state);
+            assert!(game_over);
+            assert!(events.is_empty());
+            assert!(tournament.is_none());
+            assert_eq!((state.year, state.month), sealed_date);
+            assert_eq!(serde_json::to_value(&state).unwrap(), sealed);
+        } else {
+            assert_eq!(elapsed, target_months);
+            assert_eq!((state.year, state.month), (21, 1));
+        }
+
+        assert_state_invariants(&state);
     }
 
     fn starting_outer_disciple_can_become_an_elder_and_request_a_foreign_manual_in_24_months() {

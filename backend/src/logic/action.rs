@@ -2,6 +2,7 @@ use crate::logic::{country, disciple, sect};
 use crate::models::attributes::{
     ActionKind, ActionPlan, Department, DiscipleRank, JourneyOutcome, JourneyProgress,
 };
+use crate::models::martial_art::{martial_art_by_id_with_created, MartialArt};
 use crate::models::sect::MoralDirection;
 use crate::models::{Disciple, GameEvent, GameState};
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -14,6 +15,7 @@ struct Actor {
     sect_id: String,
     player: bool,
     public_books: Vec<String>,
+    created_martial_arts: Vec<MartialArt>,
     recovery_bonus: i32,
     practice_effectiveness: i32,
     scripture_effectiveness: i32,
@@ -125,6 +127,7 @@ fn collect_actors(state: &GameState) -> Vec<Actor> {
             sect_id: "player".into(),
             player: true,
             public_books: state.sect.public_books.clone(),
+            created_martial_arts: state.sect.created_martial_arts.clone(),
             recovery_bonus: player_recovery,
             practice_effectiveness: sect::building_effectiveness(&state.sect, "practice"),
             scripture_effectiveness: sect::building_effectiveness(&state.sect, "scripture"),
@@ -153,6 +156,7 @@ fn collect_actors(state: &GameState) -> Vec<Actor> {
                 public_books: npc_sect
                     .map(|sect| sect.public_books.clone())
                     .unwrap_or_default(),
+                created_martial_arts: Vec::new(),
                 recovery_bonus: npc_sect
                     .map(|sect| {
                         sect::policy_bonus(sect, "recovery") + sect::order_bonus(sect, "recovery")
@@ -217,7 +221,12 @@ fn plan_actions(state: &GameState, actors: &[Actor]) -> Vec<PlannedAction> {
                                 .as_ref()
                                 .and_then(|plan| plan.martial_art_id.as_deref())
                                 .is_some_and(|art| {
-                                    can_teach_art(&actor.disciple, &actors[*target].disciple, art)
+                                    can_teach_art(
+                                        &actor.disciple,
+                                        &actors[*target].disciple,
+                                        art,
+                                        &actor.created_martial_arts,
+                                    )
                                 })))
                 });
             let target = match kind {
@@ -430,7 +439,12 @@ fn choose_teaching_partner(
                 && other.sect_id == sect_id
                 && disciple::can_act(&other.disciple)
                 && sect::teaching_relationship_eligible(teacher, &other.disciple)
-                && teaching_art(teacher, &other.disciple).is_some()
+                && teaching_art(
+                    teacher,
+                    &other.disciple,
+                    &actors[actor].created_martial_arts,
+                )
+                .is_some()
         })
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
@@ -543,8 +557,21 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                         .and_then(|plan| plan.martial_art_id.clone())
                 })
                 .flatten()
-                .filter(|art| can_teach_art(&teacher.disciple, &student.disciple, art))
-                .or_else(|| teaching_art(&teacher.disciple, &student.disciple))
+                .filter(|art| {
+                    can_teach_art(
+                        &teacher.disciple,
+                        &student.disciple,
+                        art,
+                        &teacher.created_martial_arts,
+                    )
+                })
+                .or_else(|| {
+                    teaching_art(
+                        &teacher.disciple,
+                        &student.disciple,
+                        &teacher.created_martial_arts,
+                    )
+                })
                 .unwrap_or_else(|| teacher.disciple.martial_art.clone());
             let teacher_level = skill_level(&teacher.disciple, &art);
             let student_level = skill_level(&student.disciple, &art);
@@ -556,6 +583,7 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                         &art,
                         student.disciple.aptitudes.intelligence,
                         105 + gap_bonus.min(80) as i32,
+                        &student.created_martial_arts,
                     ),
                     student.practice_effectiveness,
                 ),
@@ -569,6 +597,7 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                         &art,
                         teacher.disciple.aptitudes.intelligence,
                         25,
+                        &teacher.created_martial_arts,
                     ),
                     teacher.practice_effectiveness,
                 ),
@@ -594,10 +623,10 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                         "{}向{}传授{}，彼此印证；{}经验 +{}，{}经验 +{}。",
                         teacher.disciple.name,
                         student.disciple.name,
-                        art_display(&art),
-                        art_display(&art),
+                        art_display(&art, &teacher.created_martial_arts),
+                        art_display(&art, &teacher.created_martial_arts),
                         gain,
-                        art_display(&art),
+                        art_display(&art, &teacher.created_martial_arts),
                         teacher_gain
                     )
                 } else {
@@ -605,7 +634,7 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                         "{}向{}传授{}，师徒在堂中反复拆解招式。",
                         teacher.disciple.name,
                         student.disciple.name,
-                        art_display(&art)
+                        art_display(&art, &teacher.created_martial_arts)
                     )
                 },
             ));
@@ -622,12 +651,14 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                 &art_a,
                 (first.disciple.aptitudes.strength + first.disciple.aptitudes.agility) / 2,
                 90 + (level_b - level_a).clamp(0, 50),
+                &first.created_martial_arts,
             );
             let mut gain_b = skill_experience(
                 &second.disciple,
                 &art_b,
                 (second.disciple.aptitudes.strength + second.disciple.aptitudes.agility) / 2,
                 90 + (level_a - level_b).clamp(0, 50),
+                &second.created_martial_arts,
             );
             if !funded_a {
                 gain_a = (gain_a / 2).max(1);
@@ -670,9 +701,9 @@ fn execute_pair(job: &ActionJob, rng: &mut StdRng) -> JobResult {
                         "{}与{}在演武场切磋，{}经验 +{}，{}经验 +{}。",
                         first.disciple.name,
                         second.disciple.name,
-                        art_display(&art_a),
+                        art_display(&art_a, &first.created_martial_arts),
                         gain_a,
-                        art_display(&art_b),
+                        art_display(&art_b, &second.created_martial_arts),
                         gain_b
                     )
                 } else {
@@ -755,6 +786,7 @@ fn execute_solo_with_encounters(
                     } else {
                         85
                     },
+                    &actor.created_martial_arts,
                 ),
                 d,
                 &department_kind,
@@ -781,7 +813,7 @@ fn execute_solo_with_encounters(
                 "{}自{}风尘归山；{}经验 +{}。{}{}",
                 d.name,
                 journey_destination_name(&journey.destination_id),
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
                 gain,
                 settlement,
                 encounter
@@ -795,7 +827,7 @@ fn execute_solo_with_encounters(
                 d.name,
                 journey_destination_name(&journey.destination_id),
                 journey_template_name(&journey.template_id),
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
                 gain
             )
         };
@@ -820,14 +852,22 @@ fn execute_solo_with_encounters(
                     adjusted_training_experience(
                         d,
                         &art,
-                        skill_experience(d, &art, intelligence, 85),
+                        skill_experience(d, &art, intelligence, 85, &actor.created_martial_arts),
+                        &actor.created_martial_arts,
                     ),
                     actor.scripture_effectiveness,
                 ),
                 d,
                 kind,
             );
-            let mut foundation = accompanying_basic_training(d, &art, intelligence, 35, rng);
+            let mut foundation = accompanying_basic_training(
+                d,
+                &art,
+                intelligence,
+                35,
+                rng,
+                &actor.created_martial_arts,
+            );
             if let Some((_, basic_gain)) = &mut foundation {
                 *basic_gain = scale_experience(*basic_gain, actor.scripture_effectiveness);
                 *basic_gain = scale_department_experience(*basic_gain, d, kind);
@@ -841,29 +881,40 @@ fn execute_solo_with_encounters(
             log = format!(
                 "{}研读{}有所领悟，{}经验 +{}{}。",
                 d.name,
-                art_display(&art),
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
+                art_display(&art, &actor.created_martial_arts),
                 gain,
                 foundation
                     .map(|(basic, basic_gain)| format!(
                         "，并夯实{}，经验 +{}",
-                        art_display(&basic),
+                        art_display(&basic, &actor.created_martial_arts),
                         basic_gain
                     ))
                     .unwrap_or_default()
             );
         }
         ActionKind::Practice => {
-            let art = practice_art(d, rng);
+            let art = practice_art(d, rng, &actor.created_martial_arts);
             let aptitude = (d.aptitudes.strength + d.aptitudes.agility) / 2;
-            let mut gain =
-                adjusted_training_experience(d, &art, skill_experience(d, &art, aptitude, 115));
+            let mut gain = adjusted_training_experience(
+                d,
+                &art,
+                skill_experience(d, &art, aptitude, 115, &actor.created_martial_arts),
+                &actor.created_martial_arts,
+            );
             if !training_funded {
                 gain = (gain / 2).max(1);
             }
             gain = scale_experience(gain, actor.practice_effectiveness);
             gain = scale_department_experience(gain, d, kind);
-            let mut foundation = accompanying_basic_training(d, &art, aptitude, 45, rng);
+            let mut foundation = accompanying_basic_training(
+                d,
+                &art,
+                aptitude,
+                45,
+                rng,
+                &actor.created_martial_arts,
+            );
             if !training_funded {
                 if let Some((_, basic_gain)) = &mut foundation {
                     *basic_gain = (*basic_gain / 2).max(1);
@@ -883,13 +934,13 @@ fn execute_solo_with_encounters(
             log = format!(
                 "{}在演武场反复练习{}，{}经验 +{}{}。",
                 d.name,
-                art_display(&art),
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
+                art_display(&art, &actor.created_martial_arts),
                 gain,
                 foundation
                     .map(|(basic, basic_gain)| format!(
                         "，并夯实{}，经验 +{}",
-                        art_display(&basic),
+                        art_display(&basic, &actor.created_martial_arts),
                         basic_gain
                     ))
                     .unwrap_or_default()
@@ -943,7 +994,7 @@ fn execute_solo_with_encounters(
                 format!(
                     "{}盘膝打坐，但现有内力已达到{}所能承载的修炼上限。",
                     d.name,
-                    art_display(&art)
+                    art_display(&art, &actor.created_martial_arts)
                 )
             } else if !spirit_ready {
                 format!("{}心神不宁，精神不足七成，只得暂缓打坐。", d.name)
@@ -1016,7 +1067,13 @@ fn execute_solo_with_encounters(
             let art = d.martial_art.clone();
             let skill_gain = country::scale_positive_i64(
                 scale_department_experience(
-                    skill_experience(d, &art, d.aptitudes.strength, 35),
+                    skill_experience(
+                        d,
+                        &art,
+                        d.aptitudes.strength,
+                        35,
+                        &actor.created_martial_arts,
+                    ),
                     d,
                     kind,
                 ),
@@ -1030,7 +1087,7 @@ fn execute_solo_with_encounters(
                 journey_destination_name(&journey.destination_id),
                 journey.difficulty,
                 duration,
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
                 skill_gain
             );
         }
@@ -1052,7 +1109,13 @@ fn execute_solo_with_encounters(
             let art = d.martial_art.clone();
             let skill_gain = country::scale_positive_i64(
                 scale_department_experience(
-                    skill_experience(d, &art, d.aptitudes.agility, 45),
+                    skill_experience(
+                        d,
+                        &art,
+                        d.aptitudes.agility,
+                        45,
+                        &actor.created_martial_arts,
+                    ),
                     d,
                     kind,
                 ),
@@ -1065,7 +1128,7 @@ fn execute_solo_with_encounters(
                 journey_destination_name(&journey.destination_id),
                 journey.difficulty,
                 duration,
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
                 skill_gain
             );
         }
@@ -1272,10 +1335,16 @@ fn skill_level(d: &Disciple, art: &str) -> i32 {
 }
 
 /// 把 MUD 中连续多次练习压缩为一个月：基础技能越深，每月可获得的技能经验越多。
-fn skill_experience(d: &Disciple, art: &str, aptitude: i32, intensity: i32) -> i64 {
+fn skill_experience(
+    d: &Disciple,
+    art: &str,
+    aptitude: i32,
+    intensity: i32,
+    created_martial_arts: &[MartialArt],
+) -> i64 {
     let level = skill_level(d, art).max(1);
     let sessions = 14 + aptitude.max(0) / 2;
-    let difficulty = crate::models::martial_art::martial_art_by_id(art)
+    let difficulty = martial_art_by_id_with_created(art, created_martial_arts)
         .map(|candidate| candidate.difficulty)
         .unwrap_or(10)
         .max(5);
@@ -1344,7 +1413,7 @@ fn scale_department_experience(value: i64, disciple: &Disciple, kind: &ActionKin
     )
 }
 
-fn practice_art(d: &Disciple, rng: &mut impl Rng) -> String {
+fn practice_art(d: &Disciple, rng: &mut impl Rng, created_martial_arts: &[MartialArt]) -> String {
     let selected = d
         .action
         .as_ref()
@@ -1359,15 +1428,19 @@ fn practice_art(d: &Disciple, rng: &mut impl Rng) -> String {
         selected
     };
     if d.action.is_none() && rng.gen_bool(0.25) {
-        if let Some(basic) = corresponding_basic(d, &selected) {
+        if let Some(basic) = corresponding_basic(d, &selected, created_martial_arts) {
             return basic;
         }
     }
     selected
 }
 
-fn corresponding_basic(d: &Disciple, art_id: &str) -> Option<String> {
-    let art = crate::models::martial_art::martial_art_by_id(art_id)?;
+fn corresponding_basic(
+    d: &Disciple,
+    art_id: &str,
+    created_martial_arts: &[MartialArt],
+) -> Option<String> {
+    let art = martial_art_by_id_with_created(art_id, created_martial_arts)?;
     (art.tier != crate::models::martial_art::MartialTier::Basic
         && !art.basic_skill.is_empty()
         && d.martial_progress
@@ -1377,8 +1450,13 @@ fn corresponding_basic(d: &Disciple, art_id: &str) -> Option<String> {
 }
 
 /// 基础武学修炼多得两成半；高级武学顶到基础等级后进入半效瓶颈。
-fn adjusted_training_experience(d: &Disciple, art_id: &str, gain: i64) -> i64 {
-    let Some(art) = crate::models::martial_art::martial_art_by_id(art_id) else {
+fn adjusted_training_experience(
+    d: &Disciple,
+    art_id: &str,
+    gain: i64,
+    created_martial_arts: &[MartialArt],
+) -> i64 {
+    let Some(art) = martial_art_by_id_with_created(art_id, created_martial_arts) else {
         return gain;
     };
     if art.tier == crate::models::martial_art::MartialTier::Basic {
@@ -1403,13 +1481,18 @@ fn accompanying_basic_training(
     aptitude: i32,
     intensity: i32,
     rng: &mut impl Rng,
+    created_martial_arts: &[MartialArt],
 ) -> Option<(String, i64)> {
-    let basic = corresponding_basic(d, art_id)?;
+    let basic = corresponding_basic(d, art_id, created_martial_arts)?;
     if !rng.gen_bool(0.3) {
         return None;
     }
-    let gain =
-        adjusted_training_experience(d, &basic, skill_experience(d, &basic, aptitude, intensity));
+    let gain = adjusted_training_experience(
+        d,
+        &basic,
+        skill_experience(d, &basic, aptitude, intensity, created_martial_arts),
+        created_martial_arts,
+    );
     Some((basic, gain))
 }
 
@@ -1419,16 +1502,26 @@ fn inner_skill(d: &Disciple) -> String {
         .to_string()
 }
 
-fn can_teach_art(teacher: &Disciple, student: &Disciple, art_id: &str) -> bool {
-    skill_level(teacher, art_id) > skill_level(student, art_id) && can_study_book(student, art_id)
+fn can_teach_art(
+    teacher: &Disciple,
+    student: &Disciple,
+    art_id: &str,
+    created_martial_arts: &[MartialArt],
+) -> bool {
+    skill_level(teacher, art_id) > skill_level(student, art_id)
+        && can_study_book(student, art_id, created_martial_arts)
 }
 
-fn teaching_art(teacher: &Disciple, student: &Disciple) -> Option<String> {
+fn teaching_art(
+    teacher: &Disciple,
+    student: &Disciple,
+    created_martial_arts: &[MartialArt],
+) -> Option<String> {
     teacher
         .martial_progress
         .proficiencies
         .keys()
-        .filter(|art| can_teach_art(teacher, student, art))
+        .filter(|art| can_teach_art(teacher, student, art, created_martial_arts))
         .max_by_key(|art| skill_level(teacher, art) - skill_level(student, art))
         .cloned()
 }
@@ -1446,7 +1539,7 @@ fn preferred_book(actor: &Actor) -> String {
         .private_books
         .iter()
         .chain(actor.public_books.iter())
-        .filter(|book| can_study_book(d, book))
+        .filter(|book| can_study_book(d, book, &actor.created_martial_arts))
         .min_by_key(|book| {
             d.martial_progress
                 .proficiencies
@@ -1458,8 +1551,8 @@ fn preferred_book(actor: &Actor) -> String {
         .unwrap_or_else(|| d.martial_art.clone())
 }
 
-fn can_study_book(d: &Disciple, art_id: &str) -> bool {
-    let Some(art) = crate::models::martial_art::martial_art_by_id(art_id) else {
+fn can_study_book(d: &Disciple, art_id: &str, created_martial_arts: &[MartialArt]) -> bool {
+    let Some(art) = martial_art_by_id_with_created(art_id, created_martial_arts) else {
         return false;
     };
     let rank_allowed = match art.tier {
@@ -1510,7 +1603,7 @@ fn create_journey(
         "free_wander"
     };
     let destination_id = DESTINATIONS[rng.gen_range(0..DESTINATIONS.len())];
-    let capability = journey_capability(&actor.disciple, template_id);
+    let capability = journey_capability(&actor.disciple, template_id, &actor.created_martial_arts);
     let difficulty = (capability + rng.gen_range(-12..=18)).clamp(20, 300);
     let encounter_id = with_encounter.then(|| {
         travel_encounter_id(choose_travel_encounter(actor, action, true, rng)).to_string()
@@ -1540,7 +1633,11 @@ fn settle_journey(
     if journey.settled {
         return "这份旅程卷宗早已验收，不再重复发赏。".into();
     }
-    let capability = journey_capability(&actor.disciple, &journey.template_id);
+    let capability = journey_capability(
+        &actor.disciple,
+        &journey.template_id,
+        &actor.created_martial_arts,
+    );
     let road_support = (actor.safety_percent - 100) / 3;
     let margin = capability + road_support + rng.gen_range(-12..=12) - journey.difficulty;
     let outcome = journey
@@ -1748,9 +1845,9 @@ fn mission_item_reward(
     }
 }
 
-fn journey_capability(d: &Disciple, template_id: &str) -> i32 {
+fn journey_capability(d: &Disciple, template_id: &str, created_martial_arts: &[MartialArt]) -> i32 {
     let aptitude = disciple::effective_aptitudes(d);
-    let combat = disciple::get_combat_score(d).clamp(0, 600);
+    let combat = disciple::get_combat_score_with_created(d, created_martial_arts).clamp(0, 600);
     match template_id {
         "escort_supplies" => aptitude.strength + aptitude.constitution + combat / 4,
         "seek_physician" => {
@@ -1867,7 +1964,7 @@ fn apply_travel_encounter(
     result: &mut JobResult,
 ) -> String {
     let d = &actor.disciple;
-    let art = travel_training_art(d);
+    let art = travel_training_art(d, &actor.created_martial_arts);
     match encounter {
         TravelEncounterKind::QuietRoad => {
             if matches!(action, ActionKind::SectMission) {
@@ -1895,12 +1992,14 @@ fn apply_travel_encounter(
                     } else {
                         70
                     },
+                    &actor.created_martial_arts,
                 ),
                 d,
                 action,
             );
-            let prevailed =
-                disciple::get_combat_score(d) + rng.gen_range(0..=80) >= 65 + rng.gen_range(0..=80);
+            let prevailed = disciple::get_combat_score_with_created(d, &actor.created_martial_arts)
+                + rng.gen_range(0..=80)
+                >= 65 + rng.gen_range(0..=80);
             disciple_delta.qi -= qi_cost;
             disciple_delta.attainment += 4 + i64::from(d.aptitudes.fortune.max(0) / 10);
             *disciple_delta
@@ -1918,14 +2017,15 @@ fn apply_travel_encounter(
                 } else {
                     "虽落下风，却也看清自身破绽"
                 },
-                art_display(&art),
+                art_display(&art, &actor.created_martial_arts),
                 gain,
                 qi_cost
             )
         }
         TravelEncounterKind::BanditAmbush => {
             let danger = (115 - actor.safety_percent).clamp(0, 60);
-            let own_score = disciple::get_combat_score(d) + rng.gen_range(0..=70);
+            let own_score = disciple::get_combat_score_with_created(d, &actor.created_martial_arts)
+                + rng.gen_range(0..=70);
             let threat_score = 55 + danger * 2 + rng.gen_range(0..=65);
             let prevailed = own_score >= threat_score;
             let gain = scale_department_experience(
@@ -1934,6 +2034,7 @@ fn apply_travel_encounter(
                     &art,
                     d.aptitudes.strength,
                     if prevailed { 80 } else { 30 },
+                    &actor.created_martial_arts,
                 ),
                 d,
                 action,
@@ -1958,7 +2059,7 @@ fn apply_travel_encounter(
                 }
                 format!(
                     "撞破一伙剪径悍匪，力战驱散群寇；{}经验 +{}、气血 -{}，缴获{}两，个人声名 +2、本派声望 +1。",
-                    art_display(&art),
+                    art_display(&art, &actor.created_martial_arts),
                     gain,
                     qi_cost,
                     spoils
@@ -1973,7 +2074,7 @@ fn apply_travel_encounter(
                 disciple_delta.attainment += 2;
                 format!(
                     "遭悍匪围攻，苦战脱身；{}经验 +{}、气血 -{}、精神 -{}{}。",
-                    art_display(&art),
+                    art_display(&art, &actor.created_martial_arts),
                     gain,
                     qi_loss,
                     spirit_loss,
@@ -2050,13 +2151,13 @@ fn apply_travel_encounter(
             disciple_delta.reputation += 1;
             format!(
                 "归途中在残碑夹层寻得{}遗卷，收入私人行囊；造诣 +12、个人声名 +1。",
-                art_display(&manual)
+                art_display(&manual, &actor.created_martial_arts)
             )
         }
     }
 }
 
-fn travel_training_art(d: &Disciple) -> String {
+fn travel_training_art(d: &Disciple, created_martial_arts: &[MartialArt]) -> String {
     if d.martial_progress
         .proficiencies
         .contains_key(&d.martial_art)
@@ -2067,7 +2168,8 @@ fn travel_training_art(d: &Disciple) -> String {
         .proficiencies
         .iter()
         .filter(|(id, _)| {
-            crate::models::martial_art::martial_art_by_id(id).is_some_and(|art| art.is_combat)
+            martial_art_by_id_with_created(id, created_martial_arts)
+                .is_some_and(|art| art.is_combat)
         })
         .max_by_key(|(_, progress)| progress.level)
         .map(|(id, _)| id.clone())
@@ -2075,8 +2177,15 @@ fn travel_training_art(d: &Disciple) -> String {
 }
 
 fn available_adventure_manuals(actor: &Actor) -> Vec<String> {
-    crate::models::martial_art::all_martial_arts()
-        .into_iter()
+    let mut arts = crate::models::martial_art::all_martial_arts();
+    for created in &actor.created_martial_arts {
+        if let Some(index) = arts.iter().position(|art| art.id == created.id) {
+            arts[index] = created.clone();
+        } else {
+            arts.push(created.clone());
+        }
+    }
+    arts.into_iter()
         .filter(|art| {
             art.is_combat
                 && art.tier != crate::models::martial_art::MartialTier::Basic
@@ -2114,6 +2223,7 @@ fn available_adventure_manuals(actor: &Actor) -> Vec<String> {
 }
 
 fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEvent> {
+    let player_created_martial_arts = state.sect.created_martial_arts.clone();
     let research_by_sect =
         std::iter::once(("player".to_string(), state.sect.martial_research.clone()))
             .chain(
@@ -2157,13 +2267,18 @@ fn apply_results(state: &mut GameState, results: Vec<JobResult>) -> Vec<GameEven
     }
     for delta in deltas {
         let research = research_by_sect.get(&delta.sect_id);
+        let created_martial_arts: &[MartialArt] = if delta.sect_id == "player" {
+            &player_created_martial_arts
+        } else {
+            &[]
+        };
         if let Some(d) = state
             .disciples
             .iter_mut()
             .chain(state.npc_disciples.iter_mut())
             .find(|d| d.id == delta.id)
         {
-            apply_disciple_delta(d, delta, research);
+            apply_disciple_delta(d, delta, research, created_martial_arts);
         }
     }
     for (id, delta) in sect_deltas {
@@ -2237,6 +2352,7 @@ fn apply_disciple_delta(
     d: &mut Disciple,
     delta: DiscipleDelta,
     martial_research: Option<&BTreeMap<String, i64>>,
+    created_martial_arts: &[MartialArt],
 ) {
     d.attribute_bonuses.qi += delta.qi_max;
     d.attribute_bonuses.spirit += delta.spirit_max;
@@ -2279,7 +2395,7 @@ fn apply_disciple_delta(
         } else {
             art
         };
-        let research_cap = crate::models::martial_art::martial_art_by_id(&trained_art)
+        let research_cap = martial_art_by_id_with_created(&trained_art, created_martial_arts)
             .filter(|art| art.is_combat)
             .map(|art| {
                 martial_research
@@ -2288,7 +2404,13 @@ fn apply_disciple_delta(
                     .unwrap_or(0)
                     .clamp(50, i64::from(i32::MAX)) as i32
             });
-        disciple::gain_skill_experience_with_cap(d, &trained_art, gain, research_cap);
+        disciple::gain_skill_experience_with_cap_with_created(
+            d,
+            &trained_art,
+            gain,
+            research_cap,
+            created_martial_arts,
+        );
     }
     if let Some(months) = delta.away_months {
         d.away_months = months;
@@ -2300,10 +2422,8 @@ fn apply_disciple_delta(
     disciple::sync_legacy_attributes(d);
 }
 
-fn art_display(id: &str) -> String {
-    crate::models::martial_art::all_martial_arts()
-        .into_iter()
-        .find(|art| art.id == id)
+fn art_display(id: &str, created_martial_arts: &[MartialArt]) -> String {
+    martial_art_by_id_with_created(id, created_martial_arts)
         .map(|art| format!("《{}》", art.name))
         .unwrap_or_else(|| format!("《{}》", id))
 }
@@ -2401,6 +2521,7 @@ mod tests {
             sect_id: "player".into(),
             player: true,
             public_books: vec![],
+            created_martial_arts: vec![],
             recovery_bonus: 0,
             practice_effectiveness: 100,
             scripture_effectiveness: 100,
@@ -2859,7 +2980,12 @@ mod tests {
         assert!(!actor.public_books.contains(&delta.private_books[0]));
         assert!(text.contains("私人行囊"));
         let manual = delta.private_books[0].clone();
-        apply_disciple_delta(&mut actor.disciple, delta, None);
+        apply_disciple_delta(
+            &mut actor.disciple,
+            delta,
+            None,
+            &actor.created_martial_arts,
+        );
         assert!(actor
             .disciple
             .martial_progress
@@ -3124,6 +3250,7 @@ mod tests {
                 sect_id: "player".into(),
                 player: true,
                 public_books: vec!["basic_unarmed".into()],
+                created_martial_arts: vec![],
                 recovery_bonus: 0,
                 practice_effectiveness: 100,
                 scripture_effectiveness: 100,
@@ -3201,6 +3328,7 @@ mod tests {
                 sect_id: "player".into(),
                 player: true,
                 public_books: vec![],
+                created_martial_arts: vec![],
                 recovery_bonus: 0,
                 practice_effectiveness: 100,
                 scripture_effectiveness: 100,
@@ -3247,6 +3375,7 @@ mod tests {
                 sect_id: "player".into(),
                 player: true,
                 public_books: vec![],
+                created_martial_arts: vec![],
                 recovery_bonus: 0,
                 practice_effectiveness: 100,
                 scripture_effectiveness: 100,

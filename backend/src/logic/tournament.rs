@@ -528,14 +528,20 @@ fn snapshot_lineup(state: &GameState, slot: usize, sect_id: &str) -> Vec<Tournam
     } else {
         &state.npc_disciples
     };
+    let created_martial_arts = if slot == 0 {
+        state.sect.created_martial_arts.as_slice()
+    } else {
+        &[]
+    };
     let mut lineup = members
         .iter()
         .filter(|member| member.sect_id.as_deref() == Some(sect_id) && disc::can_act(member))
         .map(|member| TournamentLineupMember {
             disciple_id: member.id.clone(),
             name: member.name.clone(),
-            martial_art_id: interaction::spar_art(member).unwrap_or_default(),
-            combat_score: disc::get_combat_score(member),
+            martial_art_id: interaction::spar_art_with_created(member, created_martial_arts)
+                .unwrap_or_default(),
+            combat_score: disc::get_combat_score_with_created(member, created_martial_arts),
         })
         .collect::<Vec<_>>();
     lineup.sort_by(|left, right| {

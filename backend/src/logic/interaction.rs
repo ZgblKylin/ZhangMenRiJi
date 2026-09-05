@@ -1,6 +1,6 @@
 use crate::logic::{country, disciple, sect};
 use crate::models::attributes::{Department, DiscipleRank};
-use crate::models::martial_art::{canonical_skill_id, martial_art_by_id};
+use crate::models::martial_art::{canonical_skill_id, martial_art_by_id_with_created, MartialArt};
 use crate::models::named_npc::NpcPosition;
 use crate::models::sect::{SectPolicy, SectState};
 use crate::models::{Disciple, GameEvent, GameState};
@@ -290,12 +290,12 @@ fn apply_interaction(
     match kind {
         InteractionKind::Spar => spar(rng, state, a, b),
         InteractionKind::Trade => Some(trade(state, a, b)),
-        InteractionKind::BorderConflict => Some(border_conflict(state, a, b)),
+        InteractionKind::BorderConflict => Some(border_conflict(rng, state, a, b)),
         InteractionKind::JointBandits => Some(joint_bandits(state, a, b)),
         InteractionKind::Alliance => Some(alliance(state, a, b)),
         InteractionKind::AlliedJointPatrol => allied_joint_patrol(rng, state, a, b),
         InteractionKind::AlliedRescue => allied_rescue(rng, state, a, b),
-        InteractionKind::AllianceBetrayal => alliance_betrayal(state, a, b),
+        InteractionKind::AllianceBetrayal => alliance_betrayal(rng, state, a, b),
         InteractionKind::Defection => defection(rng, state, a, b),
         InteractionKind::CourtConscription => court_conscription(rng, state, a, b),
         InteractionKind::YuanSongWar => Some(yuan_song_war(rng, state, a, b)),
@@ -316,10 +316,12 @@ fn spar(
 ) -> Option<(String, &'static str)> {
     let left = choose_sparring_member(rng, state, a.slot)?;
     let right = choose_sparring_member(rng, state, b.slot)?;
-    let left_art = spar_art(&left)?;
-    let right_art = spar_art(&right)?;
-    let left_score = combat_score(&left) + rng.gen_range(0..=80);
-    let right_score = combat_score(&right) + rng.gen_range(0..=80);
+    let left_created = created_martial_arts_for_slot(state, a.slot);
+    let right_created = created_martial_arts_for_slot(state, b.slot);
+    let left_art = spar_art_with_created(&left, &left_created)?;
+    let right_art = spar_art_with_created(&right, &right_created)?;
+    let left_score = combat_score_with_created(&left, &left_created) + rng.gen_range(0..=80);
+    let right_score = combat_score_with_created(&right, &right_created) + rng.gen_range(0..=80);
     let left_wins = left_score >= right_score;
     let (winner, loser) = if left_wins { (a, b) } else { (b, a) };
     let left_research_cap = sect::martial_research_level_cap(sect_ref(state, a.slot), &left_art);
@@ -338,6 +340,7 @@ fn spar(
         left_qi_cost,
         left_wins,
         left_research_cap,
+        &left_created,
     )?;
     let applied_right = apply_spar_result(
         state,
@@ -348,30 +351,43 @@ fn spar(
         right_qi_cost,
         !left_wins,
         right_research_cap,
+        &right_created,
     )?;
     change_prestige(state, winner.slot, 2);
     change_prestige(state, loser.slot, -1);
     change_relation(state, a, b, 1);
-    let (winner_name, winner_art, winner_experience, loser_name, loser_art, loser_experience) =
-        if left_wins {
-            (
-                left.name.as_str(),
-                left_art.as_str(),
-                applied_left,
-                right.name.as_str(),
-                right_art.as_str(),
-                applied_right,
-            )
-        } else {
-            (
-                right.name.as_str(),
-                right_art.as_str(),
-                applied_right,
-                left.name.as_str(),
-                left_art.as_str(),
-                applied_left,
-            )
-        };
+    let (
+        winner_name,
+        winner_art,
+        winner_slot,
+        winner_experience,
+        loser_name,
+        loser_art,
+        loser_slot,
+        loser_experience,
+    ) = if left_wins {
+        (
+            left.name.as_str(),
+            left_art.as_str(),
+            a.slot,
+            applied_left,
+            right.name.as_str(),
+            right_art.as_str(),
+            b.slot,
+            applied_right,
+        )
+    } else {
+        (
+            right.name.as_str(),
+            right_art.as_str(),
+            b.slot,
+            applied_right,
+            left.name.as_str(),
+            left_art.as_str(),
+            a.slot,
+            applied_left,
+        )
+    };
     Some((
         format!(
             "{}弟子{}与{}弟子{}切磋，{}以{}胜过{}，双方点到为止；{}{}经验 +{}，{}{}经验 +{}，{}个人声望 +1。",
@@ -380,13 +396,13 @@ fn spar(
             b.name,
             right.name,
             winner_name,
-            martial_name(winner_art),
+            martial_name_for_slot(state, winner_slot, winner_art),
             loser_name,
             winner_name,
-            martial_name(winner_art),
+            martial_name_for_slot(state, winner_slot, winner_art),
             winner_experience,
             loser_name,
-            martial_name(loser_art),
+            martial_name_for_slot(state, loser_slot, loser_art),
             loser_experience,
             winner_name,
         ),
@@ -395,9 +411,17 @@ fn spar(
 }
 
 pub(crate) fn spar_art(disciple: &Disciple) -> Option<String> {
+    spar_art_with_created(disciple, &[])
+}
+
+pub(crate) fn spar_art_with_created(
+    disciple: &Disciple,
+    created_martial_arts: &[MartialArt],
+) -> Option<String> {
     let is_known_combat = |id: &str| {
         disciple.martial_progress.proficiencies.contains_key(id)
-            && martial_art_by_id(id).is_some_and(|art| art.is_combat)
+            && martial_art_by_id_with_created(id, created_martial_arts)
+                .is_some_and(|art| art.is_combat)
     };
     if is_known_combat(&disciple.martial_art) {
         return Some(canonical_skill_id(&disciple.martial_art));
@@ -433,6 +457,7 @@ fn apply_spar_result(
     qi_cost: i32,
     won: bool,
     research_cap: Option<i32>,
+    created_martial_arts: &[MartialArt],
 ) -> Option<i64> {
     let disciple = member_mut(state, slot, disciple_id)?;
     if disciple.attributes.qi.current > 0 {
@@ -443,7 +468,13 @@ fn apply_spar_result(
             .saturating_sub(qi_cost)
             .max(1);
     }
-    let applied_experience = gain_spar_experience(disciple, art_id, experience, research_cap);
+    let applied_experience = gain_spar_experience_with_created(
+        disciple,
+        art_id,
+        experience,
+        research_cap,
+        created_martial_arts,
+    );
     if won {
         disciple.attributes.reputation = disciple
             .attributes
@@ -461,9 +492,25 @@ pub(crate) fn gain_spar_experience(
     experience: i64,
     research_cap: Option<i32>,
 ) -> i64 {
+    gain_spar_experience_with_created(disciple, art_id, experience, research_cap, &[])
+}
+
+fn gain_spar_experience_with_created(
+    disciple: &mut Disciple,
+    art_id: &str,
+    experience: i64,
+    research_cap: Option<i32>,
+    created_martial_arts: &[MartialArt],
+) -> i64 {
     let art_id = canonical_skill_id(art_id);
     let before = total_skill_experience(disciple, &art_id);
-    disciple::gain_skill_experience_with_cap(disciple, &art_id, experience, research_cap);
+    disciple::gain_skill_experience_with_cap_with_created(
+        disciple,
+        &art_id,
+        experience,
+        research_cap,
+        created_martial_arts,
+    );
     let after = total_skill_experience(disciple, &art_id);
     (after - before).clamp(0, i128::from(i64::MAX)) as i64
 }
@@ -485,9 +532,21 @@ fn total_skill_experience(disciple: &Disciple, art_id: &str) -> i128 {
 }
 
 fn martial_name(art_id: &str) -> String {
-    martial_art_by_id(art_id)
+    martial_name_with_created(art_id, &[])
+}
+
+fn martial_name_with_created(art_id: &str, created_martial_arts: &[MartialArt]) -> String {
+    martial_art_by_id_with_created(art_id, created_martial_arts)
         .map(|art| format!("《{}》", art.name))
         .unwrap_or_else(|| format!("《{}》", art_id))
+}
+
+fn martial_name_for_slot(state: &GameState, slot: usize, art_id: &str) -> String {
+    if slot == 0 {
+        martial_name_with_created(art_id, &state.sect.created_martial_arts)
+    } else {
+        martial_name(art_id)
+    }
 }
 
 fn trade(state: &mut GameState, a: &Faction, b: &Faction) -> (String, &'static str) {
@@ -505,7 +564,12 @@ fn trade(state: &mut GameState, a: &Faction, b: &Faction) -> (String, &'static s
     )
 }
 
-fn border_conflict(state: &mut GameState, a: &Faction, b: &Faction) -> (String, &'static str) {
+fn border_conflict(
+    rng: &mut impl Rng,
+    state: &mut GameState,
+    a: &Faction,
+    b: &Faction,
+) -> (String, &'static str) {
     let (strong, weak) = if (a.prestige, a.morality) >= (b.prestige, b.morality) {
         (a, b)
     } else {
@@ -516,8 +580,10 @@ fn border_conflict(state: &mut GameState, a: &Faction, b: &Faction) -> (String, 
     change_relation(state, a, b, -5);
     adjust_countries_once(state, [a.country.as_str(), b.country.as_str()], 0, -1);
     // 弱势一方遭劫掠：堂舍损毁、银两粮秣被掠
-    damage_random_building(state, weak.slot);
-    let loot = (sect_ref(state, weak.slot).attributes.silver / 10).min(25).max(5);
+    damage_random_building(rng, state, weak.slot);
+    let loot = (sect_ref(state, weak.slot).attributes.silver / 10)
+        .min(25)
+        .max(5);
     change_silver(state, weak.slot, -loot);
     change_silver(state, strong.slot, loot);
     if let Some(grain) = sect_ref(state, weak.slot).inventory.get("粮秣").copied() {
@@ -526,7 +592,10 @@ fn border_conflict(state: &mut GameState, a: &Faction, b: &Faction) -> (String, 
         change_inventory(state, strong.slot, "粮秣", stolen);
     }
     (
-        format!("{}仗势侵占{}地界，掠银{}两、毁损堂舍，后者被迫退让。", strong.name, weak.name, loot),
+        format!(
+            "{}仗势侵占{}地界，掠银{}两、毁损堂舍，后者被迫退让。",
+            strong.name, weak.name, loot
+        ),
         "bad",
     )
 }
@@ -568,10 +637,12 @@ fn allied_joint_patrol(
 ) -> Option<(String, &'static str)> {
     let left = choose_sparring_member(rng, state, a.slot)?;
     let right = choose_sparring_member(rng, state, b.slot)?;
-    let left_art = spar_art(&left)?;
-    let right_art = spar_art(&right)?;
-    let allied_score = combat_score(&left)
-        .saturating_add(combat_score(&right))
+    let left_created = created_martial_arts_for_slot(state, a.slot);
+    let right_created = created_martial_arts_for_slot(state, b.slot);
+    let left_art = spar_art_with_created(&left, &left_created)?;
+    let right_art = spar_art_with_created(&right, &right_created)?;
+    let allied_score = combat_score_with_created(&left, &left_created)
+        .saturating_add(combat_score_with_created(&right, &right_created))
         .saturating_add(rng.gen_range(0..=120));
     let threat = 240_i32
         .saturating_add((a.prestige + b.prestige).clamp(0, 400) / 2)
@@ -590,6 +661,7 @@ fn allied_joint_patrol(
         qi_cost,
         personal_reputation,
         left_cap,
+        &left_created,
     )?;
     let applied_right = apply_allied_field_result(
         state,
@@ -600,6 +672,7 @@ fn allied_joint_patrol(
         qi_cost,
         personal_reputation,
         right_cap,
+        &right_created,
     )?;
 
     let (silver_delta, prestige_delta, relation_delta, prosperity_delta, order_delta) = if succeeded
@@ -632,13 +705,13 @@ fn allied_joint_patrol(
             b.name,
             a.name,
             left.name,
-            martial_name(&left_art),
+            martial_name_for_slot(state, a.slot, &left_art),
             b.name,
             right.name,
-            martial_name(&right_art),
-            martial_name(&left_art),
+            martial_name_for_slot(state, b.slot, &right_art),
+            martial_name_for_slot(state, a.slot, &left_art),
             applied_left,
-            martial_name(&right_art),
+            martial_name_for_slot(state, b.slot, &right_art),
             applied_right,
             personal_reputation,
         )
@@ -652,9 +725,9 @@ fn allied_joint_patrol(
             b.name,
             right.name,
             qi_cost,
-            martial_name(&left_art),
+            martial_name_for_slot(state, a.slot, &left_art),
             applied_left,
-            martial_name(&right_art),
+            martial_name_for_slot(state, b.slot, &right_art),
             applied_right,
             a.name,
             left_silver_spent,
@@ -675,6 +748,7 @@ fn apply_allied_field_result(
     qi_cost: i32,
     reputation_gain: i32,
     research_cap: Option<i32>,
+    created_martial_arts: &[MartialArt],
 ) -> Option<i64> {
     let disciple = member_mut(state, slot, disciple_id)?;
     disciple.attributes.qi.current = disciple
@@ -683,7 +757,13 @@ fn apply_allied_field_result(
         .current
         .saturating_sub(qi_cost)
         .max(1);
-    let applied_experience = gain_spar_experience(disciple, art_id, experience, research_cap);
+    let applied_experience = gain_spar_experience_with_created(
+        disciple,
+        art_id,
+        experience,
+        research_cap,
+        created_martial_arts,
+    );
     disciple.attributes.reputation = disciple
         .attributes
         .reputation
@@ -734,6 +814,7 @@ fn allied_rescue(
 }
 
 fn alliance_betrayal(
+    rng: &mut impl Rng,
     state: &mut GameState,
     a: &Faction,
     b: &Faction,
@@ -754,7 +835,7 @@ fn alliance_betrayal(
     change_morale(state, betrayer.slot, -4);
     change_morale(state, victim.slot, -6);
     // 背盟夜袭，受害方堂舍受损、粮秣草药被掠
-    damage_random_building(state, victim.slot);
+    damage_random_building(rng, state, victim.slot);
     for item in ["粮秣", "草药"] {
         if let Some(qty) = sect_ref(state, victim.slot).inventory.get(item).copied() {
             let taken = (qty / 6).min(6).max(1);
@@ -1151,17 +1232,35 @@ fn choose_defector(rng: &mut impl Rng, state: &GameState, slot: usize) -> Option
 }
 
 fn has_sparring_member(state: &GameState, slot: usize) -> bool {
-    faction_members(state, slot)
-        .into_iter()
-        .any(|candidate| disciple::can_act(candidate) && spar_art(candidate).is_some())
+    faction_members(state, slot).into_iter().any(|candidate| {
+        disciple::can_act(candidate) && spar_art_for_slot(state, slot, candidate).is_some()
+    })
 }
 
 fn choose_sparring_member(rng: &mut impl Rng, state: &GameState, slot: usize) -> Option<Disciple> {
     let members = faction_members(state, slot)
         .into_iter()
-        .filter(|candidate| disciple::can_act(candidate) && spar_art(candidate).is_some())
+        .filter(|candidate| {
+            disciple::can_act(candidate) && spar_art_for_slot(state, slot, candidate).is_some()
+        })
         .collect::<Vec<_>>();
     (!members.is_empty()).then(|| members[rng.gen_range(0..members.len())].clone())
+}
+
+fn created_martial_arts_for_slot(state: &GameState, slot: usize) -> Vec<MartialArt> {
+    if slot == 0 {
+        state.sect.created_martial_arts.clone()
+    } else {
+        Vec::new()
+    }
+}
+
+fn spar_art_for_slot(state: &GameState, slot: usize, disciple: &Disciple) -> Option<String> {
+    if slot == 0 {
+        spar_art_with_created(disciple, &state.sect.created_martial_arts)
+    } else {
+        spar_art(disciple)
+    }
 }
 
 fn has_in_transit_member(state: &GameState, slot: usize) -> bool {
@@ -1274,10 +1373,16 @@ fn assign_incoming_rank(state: &GameState, target: &Faction, disciple: &mut Disc
 }
 
 fn combat_score(disciple: &Disciple) -> i32 {
+    combat_score_with_created(disciple, &[])
+}
+
+fn combat_score_with_created(disciple: &Disciple, created_martial_arts: &[MartialArt]) -> i32 {
+    let martial_score = disciple::get_combat_score_with_created(disciple, created_martial_arts);
     (disciple.attributes.attainment / 20).clamp(0, i64::from(i32::MAX)) as i32
         + disciple.talent
         + disciple.attributes.neili.maximum
         + disciple.attributes.reputation
+        + martial_score
 }
 
 fn defection_attraction(source: &Faction, target: &Faction) -> i32 {
@@ -1420,7 +1525,7 @@ fn mutual_relation(state: &GameState, a: &Faction, b: &Faction) -> i32 {
 }
 
 /// 随机对弱势方一处完好度高于 20 的建筑施加 5–15 点损毁。
-fn damage_random_building(state: &mut GameState, slot: usize) {
+fn damage_random_building(rng: &mut impl Rng, state: &mut GameState, slot: usize) {
     let sect = sect_mut(state, slot);
     let candidates: Vec<usize> = sect
         .buildings
@@ -1432,7 +1537,7 @@ fn damage_random_building(state: &mut GameState, slot: usize) {
     if candidates.is_empty() {
         return;
     }
-    let index = candidates[0]; // deterministic by stable iteration order during parallel snapshot
+    let index = candidates[rng.gen_range(0..candidates.len())];
     let building = &mut sect.buildings[index];
     building.condition = (building.condition - 12).max(0);
 }
@@ -1447,11 +1552,21 @@ fn change_inventory(state: &mut GameState, slot: usize, item: &str, delta: i32) 
 /// 抑制一家独大的合纵机制：声望最高的门派若大幅超出均值，
 /// 其他相邻门派会结成临时联盟共同制衡，削弱其声望与物资。
 fn check_hegemony_coalition(state: &mut GameState) -> Option<String> {
-    let factions: Vec<(usize, &str, i32, &str)> = std::iter::once((0, state.sect.id.as_str(), state.sect.attributes.prestige, state.sect.country_id.as_str()))
-        .chain(state.npc_sects.iter().enumerate().map(|(i, s)| {
-            (i + 1, s.id.as_str(), s.attributes.prestige, s.country_id.as_str())
-        }))
-        .collect();
+    let factions: Vec<(usize, &str, i32, &str)> = std::iter::once((
+        0,
+        state.sect.id.as_str(),
+        state.sect.attributes.prestige,
+        state.sect.country_id.as_str(),
+    ))
+    .chain(state.npc_sects.iter().enumerate().map(|(i, s)| {
+        (
+            i + 1,
+            s.id.as_str(),
+            s.attributes.prestige,
+            s.country_id.as_str(),
+        )
+    }))
+    .collect();
     if factions.len() < 3 {
         return None;
     }
@@ -1481,12 +1596,24 @@ fn check_hegemony_coalition(state: &mut GameState) -> Option<String> {
 
     let mut report = format!(
         "{}声望{}已远超诸派均值{}。",
-        if top_slot == 0 { state.sect.name.as_str() } else { state.npc_sects[top_slot - 1].name.as_str() },
-        top.2, avg_prestige
+        if top_slot == 0 {
+            state.sect.name.as_str()
+        } else {
+            state.npc_sects[top_slot - 1].name.as_str()
+        },
+        top.2,
+        avg_prestige
     );
-    let coalition_names: Vec<String> = coalition.iter().map(|slot| {
-        if *slot == 0 { state.sect.name.clone() } else { state.npc_sects[*slot - 1].name.clone() }
-    }).collect();
+    let coalition_names: Vec<String> = coalition
+        .iter()
+        .map(|slot| {
+            if *slot == 0 {
+                state.sect.name.clone()
+            } else {
+                state.npc_sects[*slot - 1].name.clone()
+            }
+        })
+        .collect();
     for (idx, slot) in coalition.iter().enumerate() {
         change_relation_by_slot(state, top_slot, *slot, 10);
         report.push_str(&format!("{}与", coalition_names[idx]));
@@ -1535,10 +1662,7 @@ fn change_relation_by_slot(state: &mut GameState, a: usize, b: usize, delta: i32
         .entry(id_b.clone())
         .or_default();
     *left = (*left + delta).clamp(-100, 100);
-    let right = sect_mut(state, b)
-        .relations
-        .entry(id_a)
-        .or_default();
+    let right = sect_mut(state, b).relations.entry(id_a).or_default();
     *right = (*right + delta).clamp(-100, 100);
 }
 
@@ -1572,6 +1696,7 @@ fn set_relation_minimum(state: &mut GameState, a: &Faction, b: &Faction, minimum
 mod tests {
     use super::*;
     use crate::logic::world::generate_npc_world;
+    use crate::models::martial_art::martial_art_by_id;
     use rand::{rngs::StdRng, SeedableRng};
 
     fn world() -> GameState {
@@ -1637,6 +1762,70 @@ mod tests {
             );
         }
         assert!(observed_war);
+    }
+
+    #[test]
+    fn damage_random_building_uses_the_supplied_rng() {
+        let mut first_state = GameState::default();
+        let mut second_state = first_state.clone();
+        let mut first_rng = StdRng::seed_from_u64(1);
+        let mut second_rng = StdRng::seed_from_u64(2);
+
+        damage_random_building(&mut first_rng, &mut first_state, 0);
+        damage_random_building(&mut second_rng, &mut second_state, 0);
+
+        let first_conditions: Vec<i32> = first_state
+            .sect
+            .buildings
+            .iter()
+            .map(|building| building.condition)
+            .collect();
+        let second_conditions: Vec<i32> = second_state
+            .sect
+            .buildings
+            .iter()
+            .map(|building| building.condition)
+            .collect();
+        assert_ne!(first_conditions, second_conditions);
+        assert_eq!(
+            first_conditions
+                .iter()
+                .filter(|&&condition| condition == 88)
+                .count(),
+            1
+        );
+        assert_eq!(
+            second_conditions
+                .iter()
+                .filter(|&&condition| condition == 88)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn damage_random_building_is_safe_without_candidates() {
+        let mut state = GameState::default();
+        for building in &mut state.sect.buildings {
+            building.condition = 20;
+        }
+        let before: Vec<i32> = state
+            .sect
+            .buildings
+            .iter()
+            .map(|building| building.condition)
+            .collect();
+        let mut rng = StdRng::seed_from_u64(3);
+
+        damage_random_building(&mut rng, &mut state, 0);
+
+        let after: Vec<i32> = state
+            .sect
+            .buildings
+            .iter()
+            .map(|building| building.condition)
+            .collect();
+        assert_eq!(after, before);
     }
 
     #[test]
@@ -1776,7 +1965,8 @@ mod tests {
             "同国贸易只应增加一次繁荣"
         );
 
-        border_conflict(&mut state, &wudang, &huashan);
+        let mut rng = StdRng::seed_from_u64(1785);
+        border_conflict(&mut rng, &mut state, &wudang, &huashan);
         assert_eq!(country::country_values(&state, "song").1, 49);
         joint_bandits(&mut state, &wudang, &huashan);
         assert_eq!(country::country_values(&state, "song").1, 50);
@@ -2457,7 +2647,8 @@ mod tests {
         let wudang = faction(&state, "wudang");
         let silver_before = xingxiu.silver + wudang.silver;
 
-        let (text, mood) = alliance_betrayal(&mut state, &xingxiu, &wudang).unwrap();
+        let mut rng = StdRng::seed_from_u64(2466);
+        let (text, mood) = alliance_betrayal(&mut rng, &mut state, &xingxiu, &wudang).unwrap();
 
         let after_xingxiu = faction(&state, "xingxiu");
         let after_wudang = faction(&state, "wudang");

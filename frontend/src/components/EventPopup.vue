@@ -52,7 +52,7 @@ watch(() => props.open, open => { if (open) nextTick(() => button.value?.focus({
               <b>{{ choice.label }}</b><span>{{ choice.result_text }}</span>
             </button>
           </div>
-          <div class="choice-warning">此事不决，月中诸务暂且搁下。</div>
+          <div class="choice-warning">选择后会结算本月并进入下月。</div>
         </template>
         <template v-else>
           <template v-if="tournament">

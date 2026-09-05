@@ -1,7 +1,7 @@
 use crate::logic::{disciple as disc, sect};
 use crate::models::attributes::DiscipleRank;
 use crate::models::martial_art::{
-    all_martial_arts, knowledge_skill_id, martial_art_by_id, MartialArt, MartialTier,
+    all_martial_arts, knowledge_skill_id, martial_art_by_id_with_created, MartialArt, MartialTier,
 };
 use crate::models::{Disciple, GameEvent, GameState};
 use rand::Rng;
@@ -63,6 +63,7 @@ pub fn execute_decision(
             if effectiveness <= 0 {
                 return events;
             }
+            let created_martial_arts = state.sect.created_martial_arts.clone();
             let training = state
                 .disciples
                 .iter()
@@ -77,6 +78,7 @@ pub fn execute_decision(
                         aptitude,
                         95 + disc::rand_range(rng, 0, 20),
                         effectiveness,
+                        &created_martial_arts,
                     );
                     Some((
                         index,
@@ -93,7 +95,13 @@ pub fn execute_decision(
             }
             for (index, _, art_id, gain, research_cap, loyalty_gain) in &training {
                 let disciple = &mut state.disciples[*index];
-                disc::gain_skill_experience_with_cap(disciple, art_id, *gain, *research_cap);
+                disc::gain_skill_experience_with_cap_with_created(
+                    disciple,
+                    art_id,
+                    *gain,
+                    *research_cap,
+                    &created_martial_arts,
+                );
                 disciple.attributes.sect_loyalty =
                     clamp(disciple.attributes.sect_loyalty + loyalty_gain, 0, 100);
                 disc::sync_legacy_attributes(disciple);
@@ -167,7 +175,16 @@ pub fn execute_decision(
             if effectiveness <= 0 || state.sect.attributes.silver < 30 {
                 return events;
             }
-            let unlearned = all_martial_arts()
+            let created_martial_arts = state.sect.created_martial_arts.clone();
+            let mut player_arts = all_martial_arts();
+            for created in &created_martial_arts {
+                if let Some(index) = player_arts.iter().position(|art| art.id == created.id) {
+                    player_arts[index] = created.clone();
+                } else {
+                    player_arts.push(created.clone());
+                }
+            }
+            let unlearned = player_arts
                 .into_iter()
                 .filter(|art| {
                     art.is_combat
@@ -180,7 +197,7 @@ pub fn execute_decision(
                 .sect
                 .public_books
                 .iter()
-                .filter_map(|id| martial_art_by_id(id))
+                .filter_map(|id| martial_art_by_id_with_created(id, &created_martial_arts))
                 .filter(|art| art.is_combat)
                 .collect::<Vec<_>>();
             if unlearned.is_empty() && existing.is_empty() {
@@ -263,7 +280,8 @@ pub fn execute_decision(
                 skill_level(&state.disciples[session.teacher_index], &session.art_id);
             let teacher_intelligence =
                 disc::effective_intelligence(&state.disciples[session.teacher_index]);
-            let art_name = martial_art_by_id(&session.art_id)
+            let created_martial_arts = state.sect.created_martial_arts.clone();
+            let art_name = martial_art_by_id_with_created(&session.art_id, &created_martial_arts)
                 .map(|art| art.name)
                 .unwrap_or_else(|| session.art_id.clone());
             let mut names = Vec::with_capacity(session.student_indices.len());
@@ -277,9 +295,16 @@ pub fn execute_decision(
                     (teacher_intelligence + student_intelligence) / 2,
                     105 + (teacher_level - student_level).clamp(0, 60),
                     effectiveness,
+                    &created_martial_arts,
                 );
                 let disciple = &mut state.disciples[index];
-                disc::gain_skill_experience_with_cap(disciple, &session.art_id, gain, research_cap);
+                disc::gain_skill_experience_with_cap_with_created(
+                    disciple,
+                    &session.art_id,
+                    gain,
+                    research_cap,
+                    &created_martial_arts,
+                );
                 disciple.attributes.sect_loyalty = clamp(
                     disciple.attributes.sect_loyalty + disc::rand_range(rng, 2, 5),
                     0,
@@ -335,7 +360,7 @@ fn skill_level(disciple: &Disciple, art_id: &str) -> i32 {
 }
 
 fn learning_level_cap(state: &GameState, disciple: &Disciple, art: &MartialArt) -> Option<i32> {
-    disc::skill_level_cap(disciple, &art.id)
+    disc::skill_level_cap_with_created(disciple, &art.id, &state.sect.created_martial_arts)
         .into_iter()
         .chain(sect::martial_research_level_cap(&state.sect, &art.id))
         .min()
@@ -347,7 +372,7 @@ fn trainable_known_art(state: &GameState, disciple: &Disciple) -> Option<String>
         .proficiencies
         .iter()
         .filter_map(|(id, progress)| {
-            let art = martial_art_by_id(id)?;
+            let art = martial_art_by_id_with_created(id, &state.sect.created_martial_arts)?;
             if !art.is_combat
                 || learning_level_cap(state, disciple, &art)
                     .is_some_and(|cap| progress.level >= cap)
@@ -366,10 +391,11 @@ fn training_experience(
     aptitude: i32,
     intensity: i32,
     effectiveness: i32,
+    created_martial_arts: &[MartialArt],
 ) -> i64 {
     let level = skill_level(disciple, art_id).max(1);
     let sessions = 14 + aptitude.max(0) / 2;
-    let difficulty = martial_art_by_id(art_id)
+    let difficulty = martial_art_by_id_with_created(art_id, created_martial_arts)
         .map(|art| art.difficulty)
         .unwrap_or(10)
         .max(5);
@@ -445,7 +471,9 @@ fn select_teaching_session(state: &GameState) -> Option<TeachingSession> {
             if progress.level <= 0 {
                 continue;
             }
-            let Some(art) = martial_art_by_id(art_id) else {
+            let Some(art) =
+                martial_art_by_id_with_created(art_id, &state.sect.created_martial_arts)
+            else {
                 continue;
             };
             let mut students = available

@@ -3,8 +3,8 @@ use crate::models::attributes::{
     SkillProgress,
 };
 use crate::models::martial_art::{
-    base_skill_ids, canonical_skill_id, knowledge_skill_for_art, knowledge_skill_id,
-    martial_art_by_id, sect_combat_arts, sect_ids, MartialTier, SkillCategory,
+    base_skill_ids, canonical_skill_id, knowledge_skill_id, martial_art_by_id, sect_combat_arts,
+    sect_ids, MartialTier, SkillCategory,
 };
 use crate::models::{Disciple, SkillEntry};
 use rand::Rng;
@@ -402,6 +402,14 @@ pub fn sync_legacy_attributes(d: &mut Disciple) {
 
 /// 保留仍合法的手动准备，为缺项选最高等级战斗武学，并自动选择最高知识。
 pub fn normalize_prepared_skills(d: &mut Disciple) {
+    normalize_prepared_skills_with_created(d, &[]);
+}
+
+/// 与 `normalize_prepared_skills` 相同，但允许玩家门派的自创武学参与解析。
+pub fn normalize_prepared_skills_with_created(
+    d: &mut Disciple,
+    created_martial_arts: &[crate::models::martial_art::MartialArt],
+) {
     let known = &d.martial_progress.proficiencies;
     d.prepared_skills.retain(|basic_id, art_id| {
         if basic_id == KNOWLEDGE_PREPARATION_KEY {
@@ -409,16 +417,26 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
         }
         known.contains_key(basic_id)
             && known.contains_key(art_id)
-            && martial_art_by_id(basic_id).is_some_and(|basic| basic.tier == MartialTier::Basic)
-            && martial_art_by_id(art_id)
-                .is_some_and(|art| can_prepare_for_slot(basic_id, &art, known))
+            && crate::models::martial_art::martial_art_by_id_with_created(
+                basic_id,
+                created_martial_arts,
+            )
+            .is_some_and(|basic| basic.tier == MartialTier::Basic)
+            && crate::models::martial_art::martial_art_by_id_with_created(
+                art_id,
+                created_martial_arts,
+            )
+            .is_some_and(|art| can_prepare_for_slot(basic_id, &art, known))
     });
 
     let basic_ids: Vec<String> = d
         .martial_progress
         .proficiencies
         .keys()
-        .filter(|id| martial_art_by_id(id).is_some_and(|art| art.tier == MartialTier::Basic))
+        .filter(|id| {
+            crate::models::martial_art::martial_art_by_id_with_created(id, created_martial_arts)
+                .is_some_and(|art| art.tier == MartialTier::Basic)
+        })
         .cloned()
         .collect();
     for basic_id in basic_ids {
@@ -430,7 +448,7 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
             .proficiencies
             .iter()
             .filter(|(id, _)| {
-                martial_art_by_id(id)
+                crate::models::martial_art::martial_art_by_id_with_created(id, created_martial_arts)
                     .is_some_and(|art| can_prepare_for_slot(&basic_id, &art, known))
             })
             .max_by_key(|(_, progress)| progress.level)
@@ -444,7 +462,8 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
         .proficiencies
         .iter()
         .filter(|(id, _)| {
-            martial_art_by_id(id).is_some_and(|art| art.category == SkillCategory::Knowledge)
+            crate::models::martial_art::martial_art_by_id_with_created(id, created_martial_arts)
+                .is_some_and(|art| art.category == SkillCategory::Knowledge)
         })
         .max_by_key(|(_, progress)| progress.level)
     {
@@ -456,7 +475,10 @@ pub fn normalize_prepared_skills(d: &mut Disciple) {
         .prepared_skills
         .values()
         .filter_map(|id| d.martial_progress.proficiencies.get_key_value(id))
-        .filter(|(id, _)| martial_art_by_id(id).is_some_and(|art| art.is_combat))
+        .filter(|(id, _)| {
+            crate::models::martial_art::martial_art_by_id_with_created(id, created_martial_arts)
+                .is_some_and(|art| art.is_combat)
+        })
         .max_by_key(|(_, progress)| progress.level)
     {
         d.martial_art = art_id.clone();
@@ -482,11 +504,25 @@ fn can_prepare_for_slot(
 }
 
 pub fn prepare_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Result<(), String> {
+    prepare_skill_with_created(d, basic_skill_id, art_id, &[])
+}
+
+pub fn prepare_skill_with_created(
+    d: &mut Disciple,
+    basic_skill_id: &str,
+    art_id: &str,
+    created_martial_arts: &[crate::models::martial_art::MartialArt],
+) -> Result<(), String> {
     let basic_skill_id = canonical_skill_id(basic_skill_id);
     let art_id = canonical_skill_id(art_id);
-    let basic =
-        martial_art_by_id(&basic_skill_id).ok_or_else(|| "并无这门基础武学。".to_string())?;
-    let art = martial_art_by_id(&art_id).ok_or_else(|| "并无这门战斗武学。".to_string())?;
+    let basic = crate::models::martial_art::martial_art_by_id_with_created(
+        &basic_skill_id,
+        created_martial_arts,
+    )
+    .ok_or_else(|| "并无这门基础武学。".to_string())?;
+    let art =
+        crate::models::martial_art::martial_art_by_id_with_created(&art_id, created_martial_arts)
+            .ok_or_else(|| "并无这门战斗武学。".to_string())?;
     if basic.tier != MartialTier::Basic || basic.category == SkillCategory::Knowledge {
         return Err("这门武学不能作为准备槽位。".into());
     }
@@ -502,7 +538,7 @@ pub fn prepare_skill(d: &mut Disciple, basic_skill_id: &str, art_id: &str) -> Re
         return Err("此人尚未掌握所选武学。".into());
     }
     d.prepared_skills.insert(basic_skill_id, art_id);
-    normalize_prepared_skills(d);
+    normalize_prepared_skills_with_created(d, created_martial_arts);
     sync_legacy_attributes(d);
     Ok(())
 }
@@ -553,6 +589,14 @@ pub fn absorb_legacy_attributes(d: &mut Disciple) {
 }
 
 pub fn hydrate_v2_disciple(d: &mut Disciple) {
+    hydrate_v2_disciple_with_created(d, &[]);
+}
+
+/// 载入玩家名册时保留存档中自创武学对应的准备槽。
+pub fn hydrate_v2_disciple_with_created(
+    d: &mut Disciple,
+    created_martial_arts: &[crate::models::martial_art::MartialArt],
+) {
     if d.martial_progress.proficiencies.is_empty() && !d.skills.is_empty() {
         d.martial_progress.proficiencies = d
             .skills
@@ -591,7 +635,7 @@ pub fn hydrate_v2_disciple(d: &mut Disciple) {
         d.attributes.attainment = d.attributes.attainment.max(migrated_attainment);
         d.martial_schema_version = MARTIAL_SCHEMA_VERSION;
     }
-    normalize_prepared_skills(d);
+    normalize_prepared_skills_with_created(d, created_martial_arts);
     recalculate_attribute_maxima(d);
     d.attributes.sect_loyalty = d.loyalty.clamp(0, 100);
     refresh_condition(d);
@@ -737,10 +781,23 @@ pub fn assign_sect_curriculum(d: &mut Disciple, origin: &str, combat_level: i32)
 }
 
 pub fn skill_level_cap(d: &Disciple, art_id: &str) -> Option<i32> {
+    skill_level_cap_with_created(d, art_id, &[])
+}
+
+pub fn skill_level_cap_with_created(
+    d: &Disciple,
+    art_id: &str,
+    created_martial_arts: &[crate::models::martial_art::MartialArt],
+) -> Option<i32> {
     let art_id = canonical_skill_id(art_id);
-    let art = martial_art_by_id(&art_id);
-    let knowledge_cap =
-        knowledge_skill_for_art(&art_id).map(|knowledge_id| skill_level(d, &knowledge_id));
+    let art =
+        crate::models::martial_art::martial_art_by_id_with_created(&art_id, created_martial_arts);
+    let knowledge_cap = art.as_ref().and_then(|art| {
+        (art.is_combat && art.tier != MartialTier::Basic)
+            .then(|| art.sect_id.as_deref().map(knowledge_skill_id))
+            .flatten()
+            .map(|knowledge_id| skill_level(d, &knowledge_id))
+    });
     let basic_cap = art.as_ref().and_then(|art| {
         (art.tier != MartialTier::Basic && !art.basic_skill.is_empty())
             .then(|| skill_level(d, &art.basic_skill))
@@ -770,11 +827,22 @@ pub fn gain_skill_experience_with_cap(
     amount: i64,
     sect_research_cap: Option<i32>,
 ) -> i32 {
+    gain_skill_experience_with_cap_with_created(d, art_id, amount, sect_research_cap, &[])
+}
+
+pub fn gain_skill_experience_with_cap_with_created(
+    d: &mut Disciple,
+    art_id: &str,
+    amount: i64,
+    sect_research_cap: Option<i32>,
+    created_martial_arts: &[crate::models::martial_art::MartialArt],
+) -> i32 {
     let art_id = canonical_skill_id(art_id);
-    let research_cap = martial_art_by_id(&art_id)
-        .filter(|art| art.is_combat)
-        .and(sect_research_cap);
-    let cap = skill_level_cap(d, &art_id)
+    let research_cap =
+        crate::models::martial_art::martial_art_by_id_with_created(&art_id, created_martial_arts)
+            .filter(|art| art.is_combat)
+            .and(sect_research_cap);
+    let cap = skill_level_cap_with_created(d, &art_id, created_martial_arts)
         .into_iter()
         .chain(research_cap)
         .min();
@@ -793,7 +861,7 @@ pub fn gain_skill_experience_with_cap(
         }
     }
     let gained = progress.level - old_level;
-    normalize_prepared_skills(d);
+    normalize_prepared_skills_with_created(d, created_martial_arts);
     recalculate_attribute_maxima(d);
     gained
 }
@@ -839,11 +907,19 @@ pub fn generate_starting_disciples(rng: &mut impl Rng) -> Vec<Disciple> {
 /// 基础伤害 ≈ 武学等级³ / 3，内力加成 ≈ (100 + force_bonus) / 200。
 /// 本函数以 attment（造诣）代替 combat_exp，以 cubic 项体现高等级武学的非线性威力。
 pub fn get_combat_score(d: &Disciple) -> i32 {
+    get_combat_score_with_created(d, &[])
+}
+
+pub fn get_combat_score_with_created(
+    d: &Disciple,
+    created_martial_arts: &[crate::models::martial_art::MartialArt],
+) -> i32 {
     let mut skill_total = 0;
     let mut art_power = 0;
     let mut cubic_base: f64 = 0.0;
     for (basic_id, basic_progress) in d.martial_progress.proficiencies.iter().filter(|(id, _)| {
-        martial_art_by_id(id).is_some_and(|art| art.is_combat && art.tier == MartialTier::Basic)
+        crate::models::martial_art::martial_art_by_id_with_created(id, created_martial_arts)
+            .is_some_and(|art| art.is_combat && art.tier == MartialTier::Basic)
     }) {
         skill_total += basic_progress.level;
         if let Some(art_id) = prepared_skill_id(d, basic_id) {
@@ -851,7 +927,10 @@ pub fn get_combat_score(d: &Disciple) -> i32 {
             skill_total += lvl as i32;
             // MUD 核心：武学等级立方的伤害曲线
             cubic_base += lvl * lvl * lvl / 3.0;
-            if let Some(art) = martial_art_by_id(art_id) {
+            if let Some(art) = crate::models::martial_art::martial_art_by_id_with_created(
+                art_id,
+                created_martial_arts,
+            ) {
                 art_power += art.atk + art.def + art.spd;
             }
         }
