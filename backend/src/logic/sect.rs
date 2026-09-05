@@ -1,11 +1,11 @@
 use crate::logic::disciple;
 use crate::models::attributes::{Department, DiscipleRank};
 use crate::models::game::GameState;
-use crate::models::martial_art::martial_art_by_id;
+use crate::models::martial_art::martial_art_by_id_with_created;
 use crate::models::medicine::{Medicine, LEGACY_WOUND_MEDICINE_NAME};
 use crate::models::sect::{sect_buildings, Building, BuildingKind, SectState};
 use crate::models::Disciple;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// 载入 v2 存档时，以旧顶层字段补齐 v3 门派状态。
 pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
@@ -15,8 +15,9 @@ pub fn hydrate_player_sect(state: &mut GameState, sect_name: &str) {
         state.sect.attributes.silver = state.silver;
         state.sect.attributes.morale = state.morale;
     }
+    let created_martial_arts = state.sect.created_martial_arts.clone();
     for disciple in &mut state.disciples {
-        crate::logic::disciple::hydrate_v2_disciple(disciple);
+        crate::logic::disciple::hydrate_v2_disciple_with_created(disciple, &created_martial_arts);
         // 玩家名册本身就是权威归属。早期存档与开局生成的人物没有
         // `sect_id`，若不在这里补齐，长老有效性、师承与自动药炉会把
         // 同一名册中的旧门人误判为外派人物。
@@ -370,7 +371,7 @@ pub fn order_bonus(sect: &SectState, key: &str) -> i32 {
 /// 藏经阁未曾专门参研的战斗武学默认可修至五十级；参研值本身即门派可授上限。
 /// 知识类不受此限，已有旧人物的更高修为也不会被倒扣。
 pub fn martial_research_level_cap(sect: &SectState, art_id: &str) -> Option<i32> {
-    let art = martial_art_by_id(art_id)?;
+    let art = martial_art_by_id_with_created(art_id, &sect.created_martial_arts)?;
     art.is_combat.then(|| {
         sect.martial_research
             .get(&art.id)
@@ -974,48 +975,155 @@ mod tests {
         assert_eq!(villainous.attributes.prestige, 99);
         assert_eq!(villainous.attributes.silver, neutral.attributes.silver + 10);
     }
+
+    #[test]
+    fn deep_lineage_chain_has_expected_generations() {
+        let depth = 1_000;
+        let mut disciples = Vec::with_capacity(depth);
+        for index in (0..depth).rev() {
+            let master_id = if index == 0 {
+                None
+            } else {
+                Some(format!("disciple-{}", index - 1))
+            };
+            disciples.push(Disciple {
+                id: format!("disciple-{index}"),
+                master_id,
+                ..Disciple::default()
+            });
+        }
+
+        compute_lineage_generations(&mut disciples);
+
+        for (position, disciple) in disciples.iter().enumerate() {
+            assert_eq!(disciple.lineage_generation, (depth - position - 1) as i32);
+        }
+    }
+
+    #[test]
+    fn invalid_lineage_paths_are_zeroed_but_valid_paths_are_preserved() {
+        let make_disciple = |id: &str, master_id: Option<&str>| Disciple {
+            id: id.into(),
+            master_id: master_id.map(str::to_owned),
+            ..Disciple::default()
+        };
+        let mut disciples = vec![
+            make_disciple("root", None),
+            make_disciple("valid-child", Some("root")),
+            make_disciple("missing-master", Some("does-not-exist")),
+            make_disciple("missing-descendant", Some("missing-master")),
+            make_disciple("self-cycle", Some("self-cycle")),
+            make_disciple("cycle-a", Some("cycle-b")),
+            make_disciple("cycle-b", Some("cycle-a")),
+            make_disciple("cycle-descendant", Some("cycle-a")),
+        ];
+
+        compute_lineage_generations(&mut disciples);
+
+        let generation = |id: &str| {
+            disciples
+                .iter()
+                .find(|disciple| disciple.id == id)
+                .map(|disciple| disciple.lineage_generation)
+        };
+        assert_eq!(generation("root"), Some(0));
+        assert_eq!(generation("valid-child"), Some(1));
+        for id in [
+            "missing-master",
+            "missing-descendant",
+            "self-cycle",
+            "cycle-a",
+            "cycle-b",
+            "cycle-descendant",
+        ] {
+            assert_eq!(generation(id), Some(0), "{id} should be zeroed");
+        }
+    }
 }
 
 /// 从弟子名录中计算掌门的辈分链深度。
 /// 无师承的直系同门为初代（generation 0），逐代递增。
 pub fn compute_lineage_generations(disciples: &mut [Disciple]) {
-    // First pass: set all to 0
-    for disciple in disciples.iter_mut() {
-        if disciple.master_id.is_none() {
-            disciple.lineage_generation = 0;
+    let mut index_by_id = HashMap::with_capacity(disciples.len());
+    for (index, disciple) in disciples.iter().enumerate() {
+        // Preserve the old linear `find` behavior when malformed data contains
+        // duplicate IDs: the first matching disciple remains authoritative.
+        index_by_id.entry(disciple.id.clone()).or_insert(index);
+    }
+    let has_master = disciples
+        .iter()
+        .map(|disciple| disciple.master_id.is_some())
+        .collect::<Vec<_>>();
+    let master_indices = disciples
+        .iter()
+        .map(|disciple| {
+            disciple
+                .master_id
+                .as_deref()
+                .and_then(|master_id| index_by_id.get(master_id).copied())
+        })
+        .collect::<Vec<_>>();
+
+    const UNVISITED: u8 = 0;
+    const VISITING: u8 = 1;
+    const RESOLVED: u8 = 2;
+    let mut state = vec![UNVISITED; disciples.len()];
+    let mut generations = vec![0_i32; disciples.len()];
+    let mut valid = vec![false; disciples.len()];
+    let mut path = Vec::new();
+
+    // The master relation is a functional graph. Resolve each path once and
+    // memoize both valid generations and invalid paths, so chains, breaks, and
+    // cycles all take linear time after the ID index is built.
+    for start in 0..disciples.len() {
+        if state[start] != UNVISITED {
+            continue;
+        }
+
+        path.clear();
+        let mut current = start;
+        let first_generation = loop {
+            if state[current] == UNVISITED {
+                state[current] = VISITING;
+                path.push(current);
+
+                if !has_master[current] {
+                    break Some(0);
+                }
+                if let Some(master_index) = master_indices[current] {
+                    current = master_index;
+                } else {
+                    break None;
+                }
+            } else if state[current] == VISITING {
+                // The current path reaches a cycle. Its descendants are
+                // invalid too, matching the old final zeroing behavior.
+                break None;
+            } else if valid[current] {
+                break Some(generations[current].saturating_add(1));
+            } else {
+                break None;
+            }
+        };
+
+        if let Some(mut generation) = first_generation {
+            for &index in path.iter().rev() {
+                generations[index] = generation;
+                valid[index] = true;
+                state[index] = RESOLVED;
+                generation = generation.saturating_add(1);
+            }
         } else {
-            disciple.lineage_generation = -1; // unknown, needs computation
+            for &index in &path {
+                generations[index] = 0;
+                valid[index] = false;
+                state[index] = RESOLVED;
+            }
         }
     }
-    // Iteratively propagate
-    let mut changed = true;
-    while changed {
-        changed = false;
-        let snapshot: Vec<(String, Option<String>, i32)> = disciples
-            .iter()
-            .map(|d| (d.id.clone(), d.master_id.clone(), d.lineage_generation))
-            .collect();
-        for (_idx, disciple) in disciples.iter_mut().enumerate() {
-            if disciple.lineage_generation >= 0 {
-                continue;
-            }
-            if let Some(master_id) = &disciple.master_id {
-                if let Some((_, _, master_gen)) = snapshot.iter().find(|(id, _, _)| id == master_id) {
-                    if *master_gen >= 0 {
-                        disciple.lineage_generation = master_gen + 1;
-                        changed = true;
-                    }
-                }
-            }
-        }
-        // After iterations, any remaining -1 becomes 0
-        if !changed {
-            for disciple in disciples.iter_mut() {
-                if disciple.lineage_generation < 0 {
-                    disciple.lineage_generation = 0;
-                }
-            }
-        }
+
+    for (index, disciple) in disciples.iter_mut().enumerate() {
+        disciple.lineage_generation = if valid[index] { generations[index] } else { 0 };
     }
 }
 

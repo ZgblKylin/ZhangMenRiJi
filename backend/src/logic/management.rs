@@ -2,8 +2,8 @@ use crate::logic::{disciple, sect};
 use crate::models::attributes::{ActionKind, ActionPlan, DiscipleRank};
 use crate::models::management::ManagementRequest;
 use crate::models::martial_art::{
-    all_martial_arts, canonical_skill_id, knowledge_skill_id, martial_art_by_id, MartialArt,
-    MartialTier, SkillCategory,
+    all_martial_arts, canonical_skill_id, knowledge_skill_id, martial_art_by_id_with_created,
+    MartialArt, MartialTier, SkillCategory,
 };
 use crate::models::medicine::{
     pill_recipe, recipe_silver_cost, Medicine, MedicineRate, PillRecipe,
@@ -73,6 +73,7 @@ pub fn execute_management(
                     .find(|other| other.id == id)
                     .map(|other| other.name.clone())
             });
+            let created_martial_arts = state.sect.created_martial_arts.clone();
             let disciple = player_disciple_mut(state, &disciple_id)?;
             if kind == ActionKind::CultivateNeili
                 && disciple.attributes.neili.maximum >= disciple::neili_training_cap(disciple)
@@ -105,9 +106,11 @@ pub fn execute_management(
                 ..ActionPlan::default()
             });
             let detail = match (target_name, martial_art_id.as_deref()) {
-                (Some(target), Some(art)) => format!("与{}同参{}", target, art_name(art)),
+                (Some(target), Some(art)) => {
+                    format!("与{}同参{}", target, art_name(art, &created_martial_arts))
+                }
                 (Some(target), None) => format!("与{}同修", target),
-                (None, Some(art)) => art_name(art),
+                (None, Some(art)) => art_name(art, &created_martial_arts),
                 (None, None) => action_label(&kind).to_string(),
             };
             format!(
@@ -160,12 +163,18 @@ pub fn execute_management(
             basic_skill_id,
             martial_art_id,
         } => {
+            let created_martial_arts = state.sect.created_martial_arts.clone();
             let disciple = player_disciple_mut(state, &disciple_id)?;
-            disciple::prepare_skill(disciple, &basic_skill_id, &martial_art_id)?;
+            disciple::prepare_skill_with_created(
+                disciple,
+                &basic_skill_id,
+                &martial_art_id,
+                &created_martial_arts,
+            )?;
             format!(
                 "{}将{}改作当前运用的武学。",
                 disciple.name,
-                art_name(&martial_art_id)
+                art_name(&martial_art_id, &created_martial_arts)
             )
         }
         ManagementRequest::SetPolicy { policy } => {
@@ -234,21 +243,39 @@ pub fn execute_management(
             if missing <= 0 {
                 return Err("此处完好，无须修缮。".into());
             }
-            let (silver_cost, iron_cost) = repair_building_cost(missing);
-            require_inventory(state, "精铁", iron_cost)?;
-            spend(state, silver_cost)?;
-            consume_inventory(state, "精铁", iron_cost);
-            let building = state
-                .sect
-                .buildings
-                .iter_mut()
-                .find(|building| building.id == building_id)
-                .expect("建筑已验证存在");
-            building.condition = 100;
-            format!(
-                "拨库银{}两、精铁{}份修葺{}，梁柱瓦石焕然一新。",
-                silver_cost, iron_cost, building.name
-            )
+            // 建筑完全损毁时不能让“缺铁/缺银 → 无法修复 → 无法生产”的
+            // 资源闭环把存档锁死。掌门可以先组织一次不耗材料的临时抢修，
+            // 让堂舍恢复到低效但可运转的 25%；后续再按正常费用修复。
+            if building.condition <= 0 {
+                let building_name = building.name.clone();
+                let building = state
+                    .sect
+                    .buildings
+                    .iter_mut()
+                    .find(|building| building.id == building_id)
+                    .ok_or_else(|| "门中并无此处建筑。".to_string())?;
+                building.condition = 25;
+                format!(
+                    "暂无材料可用，掌门亲自组织临时抢修{}，堂舍恢复至25%效力；后续可再按常规费用修缮。",
+                    building_name
+                )
+            } else {
+                let (silver_cost, iron_cost) = repair_building_cost(missing);
+                require_inventory(state, "精铁", iron_cost)?;
+                spend(state, silver_cost)?;
+                consume_inventory(state, "精铁", iron_cost);
+                let building = state
+                    .sect
+                    .buildings
+                    .iter_mut()
+                    .find(|building| building.id == building_id)
+                    .expect("建筑已验证存在");
+                building.condition = 100;
+                format!(
+                    "拨库银{}两、精铁{}份修葺{}，梁柱瓦石焕然一新。",
+                    silver_cost, iron_cost, building.name
+                )
+            }
         }
         ManagementRequest::Recruit => {
             require_building_effectiveness(state, "affairs", "执事堂")?;
@@ -696,7 +723,7 @@ pub fn execute_management(
         }
         ManagementRequest::LibraryAdd { martial_art_id } => {
             let martial_art_id = canonical_skill_id(&martial_art_id);
-            martial_art_by_id(&martial_art_id)
+            martial_art_by_id_with_created(&martial_art_id, &state.sect.created_martial_arts)
                 .ok_or_else(|| "武学谱中并无这册典籍。".to_string())?;
             if state.sect.public_books.contains(&martial_art_id) {
                 return Err("此典籍早已收在藏经阁中。".into());
@@ -726,15 +753,17 @@ pub fn execute_management(
             format!(
                 "{}献出私藏，{}自此列入藏经阁公册。",
                 owner_name,
-                art_name(&martial_art_id)
+                art_name(&martial_art_id, &state.sect.created_martial_arts)
             )
         }
         ManagementRequest::ResearchMartial { martial_art_id } => {
+            let martial_art_id = canonical_skill_id(&martial_art_id);
             if !state.sect.public_books.contains(&martial_art_id) {
                 return Err("藏经阁中并无此门武学典籍。".into());
             }
-            let art = martial_art_by_id(&martial_art_id)
-                .ok_or_else(|| "武学谱中并无这册典籍。".to_string())?;
+            let art =
+                martial_art_by_id_with_created(&martial_art_id, &state.sect.created_martial_arts)
+                    .ok_or_else(|| "武学谱中并无这册典籍。".to_string())?;
             if !art.is_combat {
                 return Err("知识义理不设门派参研等级上限，无须耗银合参。".into());
             }
@@ -750,7 +779,7 @@ pub fn execute_management(
             *research += gain as i64;
             format!(
                 "传功、掌书两房合参{}，门派造诣上限增了{}点。",
-                art_name(&martial_art_id),
+                art_name(&martial_art_id, &state.sect.created_martial_arts),
                 gain
             )
         }
@@ -758,13 +787,20 @@ pub fn execute_management(
         ManagementRequest::SetHeritageArt { martial_art_id } => {
             let canonical = crate::models::martial_art::canonical_skill_id(&martial_art_id);
             sect::toggle_heritage_art(&mut state.sect, &canonical)?
-        },
+        }
         ManagementRequest::CreateMartialArt {
             name,
             category,
             basic_skill,
             weapon_basic,
-        } => create_martial_art(state, rng, &name, category, &basic_skill, weapon_basic.as_deref())?,
+        } => create_martial_art(
+            state,
+            rng,
+            &name,
+            category,
+            &basic_skill,
+            weapon_basic.as_deref(),
+        )?,
         ManagementRequest::Exchange {
             sect_id,
             disciple_id,
@@ -806,18 +842,27 @@ pub fn execute_management(
             require_building_effectiveness(state, "intelligence", "天枢阁")?;
             joint_patrol_with_ally(state, rng, &sect_id)?;
             dispatch_inner_envoy(state, &envoy_id, "天枢阁联巡");
-            format!("本派与{}联手巡行边境，共御匪患。", sect_name(state, &sect_id))
+            format!(
+                "本派与{}联手巡行边境，共御匪患。",
+                sect_name(state, &sect_id)
+            )
         }
         ManagementRequest::CallAid { sect_id } => {
             require_building_effectiveness(state, "intelligence", "天枢阁")?;
             call_ally_aid(state, rng, &sect_id)?
         }
-        ManagementRequest::HostExchange { sect_id, disciple_id } => {
+        ManagementRequest::HostExchange {
+            sect_id,
+            disciple_id,
+        } => {
             let envoy_id = validate_inner_envoy(state, disciple_id.as_deref())?;
             require_building_effectiveness(state, "intelligence", "天枢阁")?;
             host_exchange_with_ally(state, rng, &sect_id)?;
             dispatch_inner_envoy(state, &envoy_id, "天枢阁论道");
-            format!("邀请{}长老来门交流武学心得，双方皆有所获。", sect_name(state, &sect_id))
+            format!(
+                "邀请{}长老来门交流武学心得，双方皆有所获。",
+                sect_name(state, &sect_id)
+            )
         }
         ManagementRequest::TradeWithAlly {
             sect_id,
@@ -856,20 +901,19 @@ pub(crate) fn create_martial_art(
     basic_skill: &str,
     weapon_basic: Option<&str>,
 ) -> Result<String, String> {
-    use crate::models::martial_art::{tier_label_cn, MartialArt, MartialTier, SkillCategory};
     use crate::logic::sect;
+    use crate::models::martial_art::{tier_label_cn, MartialArt, MartialTier, SkillCategory};
 
     let name = name.trim().to_string();
-    if name.is_empty() || name.len() > 8 {
+    if name.is_empty() || name.chars().count() > 8 {
         return Err("武学名称须有一至八个汉字。".into());
     }
     if !category.is_combat_category() {
         return Err("自创武学须为战斗武学（拳脚/轻功/内功/兵器）。".into());
     }
-    let basic_art = crate::models::martial_art::martial_art_by_id(
-        &crate::models::martial_art::canonical_skill_id(basic_skill),
-    )
-    .ok_or_else(|| "所选根基武学谱中无载。".to_string())?;
+    let basic_skill = crate::models::martial_art::canonical_skill_id(basic_skill);
+    let basic_art = crate::models::martial_art::martial_art_by_id(&basic_skill)
+        .ok_or_else(|| "所选根基武学谱中无载。".to_string())?;
     if !basic_art.is_combat || basic_art.tier != MartialTier::Basic {
         return Err("根基须为战斗基础技能。".into());
     }
@@ -897,11 +941,16 @@ pub(crate) fn create_martial_art(
         .find(|building| building.id == "scripture")
         .and_then(|building| {
             building.elder_id.as_deref().and_then(|elder_id| {
-                state.disciples.iter().find(|disciple| disciple.id == elder_id)
+                state
+                    .disciples
+                    .iter()
+                    .find(|disciple| disciple.id == elder_id)
             })
         });
     let elder_wisdom = scripture_elder
-        .map(|disciple| sect::elder_competence_percent(disciple, crate::models::sect::BuildingKind::Scripture))
+        .map(|disciple| {
+            sect::elder_competence_percent(disciple, crate::models::sect::BuildingKind::Scripture)
+        })
         .unwrap_or(85);
     let tier = if knowledge_power >= 260 {
         MartialTier::Inner
@@ -924,7 +973,11 @@ pub(crate) fn create_martial_art(
         SkillCategory::Unarmed => (effective_power + 2, effective_power, effective_power),
         SkillCategory::Dodge => (effective_power, effective_power, effective_power + 2),
         SkillCategory::Force => (effective_power + 1, effective_power + 2, effective_power),
-        SkillCategory::Weapon => (effective_power + 2, effective_power + 1, effective_power + 1),
+        SkillCategory::Weapon => (
+            effective_power + 2,
+            effective_power + 1,
+            effective_power + 1,
+        ),
         _ => unreachable!(),
     };
     let difficulty = match tier {
@@ -953,7 +1006,10 @@ pub(crate) fn create_martial_art(
         category,
         tier,
         is_combat: true,
-        desc: format!("{}自创的{}武学，融汇门中造诣与一己悟性。", state.sect.name, name),
+        desc: format!(
+            "{}自创的{}武学，融汇门中造诣与一己悟性。",
+            state.sect.name, name
+        ),
         atk,
         def,
         spd,
@@ -964,7 +1020,7 @@ pub(crate) fn create_martial_art(
             _ => 15,
         },
         sect_id: Some("player".into()),
-        basic_skill: basic_skill.to_string(),
+        basic_skill,
         difficulty,
         usable_for_parry: false,
     };
@@ -981,8 +1037,15 @@ pub(crate) fn create_martial_art(
     state.sect.created_martial_arts.push(art);
     state.martial_arts_learned.push(art_id.clone());
     state.sect.public_books.push(art_id.clone());
-    let research_cap = 50 + scaled_output(5 + level / 5, sect::building_effectiveness(&state.sect, "scripture"));
-    state.sect.martial_research.insert(art_id, i64::from(research_cap));
+    let research_cap = 50
+        + scaled_output(
+            5 + level / 5,
+            sect::building_effectiveness(&state.sect, "scripture"),
+        );
+    state
+        .sect
+        .martial_research
+        .insert(art_id, i64::from(research_cap));
     state.sect.attributes.prestige = (state.sect.attributes.prestige + 5 + power as i32).min(1000);
     Ok(format!(
         "掌门悟通{}，亲创{}《{}》，本派武学又开新天{}。",
@@ -1015,7 +1078,7 @@ pub(crate) fn research_new_martial(state: &mut GameState) -> Result<String, Stri
     state.sect.attributes.prestige = (state.sect.attributes.prestige + 5).min(1000);
     Ok(format!(
         "群策群力，终于创成{}，本派武学又开一脉。",
-        art_name(&candidate.id)
+        art_name(&candidate.id, &state.sect.created_martial_arts)
     ))
 }
 
@@ -1219,7 +1282,10 @@ fn execute_elder_duty(
                 .sect
                 .public_books
                 .iter()
-                .filter(|book| martial_art_by_id(book).is_some_and(|art| art.is_combat))
+                .filter(|book| {
+                    martial_art_by_id_with_created(book, &state.sect.created_martial_arts)
+                        .is_some_and(|art| art.is_combat)
+                })
                 .cloned()
                 .collect::<Vec<_>>();
             for book in books {
@@ -1238,7 +1304,10 @@ fn execute_elder_duty(
                 .sect
                 .public_books
                 .iter()
-                .find(|book| martial_art_by_id(book).is_some_and(|art| art.is_combat))
+                .find(|book| {
+                    martial_art_by_id_with_created(book, &state.sect.created_martial_arts)
+                        .is_some_and(|art| art.is_combat)
+                })
                 .cloned()
             {
                 *state.sect.martial_research.entry(book).or_insert(50) += gain;
@@ -1663,7 +1732,8 @@ fn validate_action_selection(
     let Some(art_id) = martial_art_id else {
         return Ok(());
     };
-    let art = martial_art_by_id(art_id).ok_or_else(|| "武学谱中并无这门功夫。".to_string())?;
+    let art = martial_art_by_id_with_created(art_id, &state.sect.created_martial_arts)
+        .ok_or_else(|| "武学谱中并无这门功夫。".to_string())?;
     match kind {
         ActionKind::Read => {
             let available = state.sect.public_books.iter().any(|book| book == &art.id)
@@ -1678,7 +1748,7 @@ fn validate_action_selection(
             if !rank_can_receive_tier(&actor.rank, art.tier) {
                 return Err("此人身份未到，不可研读这层武学。".into());
             }
-            validate_learning_foundations(actor, &art)?;
+            validate_learning_foundations(actor, &art, &state.sect.created_martial_arts)?;
             let current_level = actor
                 .martial_progress
                 .proficiencies
@@ -1714,7 +1784,7 @@ fn validate_action_selection(
                 .map(|progress| progress.level)
                 .ok_or_else(|| "授业之人尚未学会所选武学。".to_string())?;
             if let Some(student) = partner {
-                validate_learning_foundations(student, &art)?;
+                validate_learning_foundations(student, &art, &state.sect.created_martial_arts)?;
                 if !rank_can_receive_tier(&student.rank, art.tier) {
                     return Err(format!("{}身份未到，不可得授这层武学。", student.name));
                 }
@@ -1738,7 +1808,11 @@ fn validate_action_selection(
     Ok(())
 }
 
-fn validate_learning_foundations(disciple: &Disciple, art: &MartialArt) -> Result<(), String> {
+fn validate_learning_foundations(
+    disciple: &Disciple,
+    art: &MartialArt,
+    created_martial_arts: &[MartialArt],
+) -> Result<(), String> {
     if !art.is_combat || art.tier == MartialTier::Basic {
         return Ok(());
     }
@@ -1751,7 +1825,7 @@ fn validate_learning_foundations(disciple: &Disciple, art: &MartialArt) -> Resul
     {
         return Err(format!(
             "须先习得{}，方能参悟此门武学。",
-            art_name(&art.basic_skill)
+            art_name(&art.basic_skill, created_martial_arts)
         ));
     }
     if let Some(sect_id) = art.sect_id.as_deref() {
@@ -1764,7 +1838,7 @@ fn validate_learning_foundations(disciple: &Disciple, art: &MartialArt) -> Resul
         {
             return Err(format!(
                 "须先研读{}，方能领会此派武学义理。",
-                art_name(&knowledge_id)
+                art_name(&knowledge_id, created_martial_arts)
             ));
         }
     }
@@ -1772,7 +1846,7 @@ fn validate_learning_foundations(disciple: &Disciple, art: &MartialArt) -> Resul
 }
 
 fn learning_level_cap(state: &GameState, disciple: &Disciple, art: &MartialArt) -> Option<i32> {
-    disciple::skill_level_cap(disciple, &art.id)
+    disciple::skill_level_cap_with_created(disciple, &art.id, &state.sect.created_martial_arts)
         .into_iter()
         .chain(sect::martial_research_level_cap(&state.sect, &art.id))
         .min()
@@ -1950,7 +2024,7 @@ fn request_manual(state: &mut GameState, sect_id: &str, art_id: &str) -> Result<
     state.martial_arts_learned.push(art.id.clone());
     Ok(format!(
         "耗费人情与库银，请得{}抄本一册。",
-        art_name(&art.id)
+        art_name(&art.id, &[])
     ))
 }
 
@@ -1968,10 +2042,8 @@ fn manual_requirements(art: &MartialArt) -> (i32, i32) {
     }
 }
 
-fn art_name(id: &str) -> String {
-    all_martial_arts()
-        .into_iter()
-        .find(|art| art.id == id)
+fn art_name(id: &str, created_martial_arts: &[crate::models::martial_art::MartialArt]) -> String {
+    martial_art_by_id_with_created(id, created_martial_arts)
         .map(|art| format!("《{}》", art.name))
         .unwrap_or_else(|| format!("《{}》", id))
 }
@@ -2543,6 +2615,83 @@ mod tests {
     }
 
     #[test]
+    fn player_created_martial_art_survives_prepare_and_action_validation() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(104);
+
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::CreateMartialArt {
+                name: "归元拳".into(),
+                category: crate::models::martial_art::SkillCategory::Unarmed,
+                basic_skill: "basic_unarmed".into(),
+                weapon_basic: None,
+            },
+        )
+        .unwrap();
+        let created_id = state.sect.created_martial_arts[0].id.clone();
+
+        let mut student = disciple::generate_disciple(&mut rng, 0);
+        student.id = "created-art-student".into();
+        student.sect_id = Some("player".into());
+        student.rank = DiscipleRank::Inner;
+        student.martial_progress.proficiencies.insert(
+            "basic_unarmed".into(),
+            crate::models::attributes::SkillProgress::new(40, 0),
+        );
+        student.martial_progress.proficiencies.insert(
+            "player_knowledge".into(),
+            crate::models::attributes::SkillProgress::new(40, 0),
+        );
+        student.martial_progress.proficiencies.insert(
+            created_id.clone(),
+            crate::models::attributes::SkillProgress::new(1, 0),
+        );
+        disciple::normalize_prepared_skills_with_created(
+            &mut student,
+            &state.sect.created_martial_arts,
+        );
+        disciple::recalculate_attribute_maxima(&mut student);
+        let student_id = student.id.clone();
+        state.disciples.push(student);
+
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::PrepareSkill {
+                disciple_id: student_id.clone(),
+                basic_skill_id: "basic_unarmed".into(),
+                martial_art_id: created_id.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            state.disciples[0].prepared_skills.get("basic_unarmed"),
+            Some(&created_id)
+        );
+
+        execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::AssignAction {
+                disciple_id: student_id,
+                kind: ActionKind::Practice,
+                target_id: None,
+                martial_art_id: Some(created_id.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            state.disciples[0]
+                .action
+                .as_ref()
+                .and_then(|action| action.martial_art_id.as_deref()),
+            Some(created_id.as_str())
+        );
+    }
+
+    #[test]
     fn changing_preparation_is_free_and_preserves_actual_neili() {
         let mut state = GameState::default();
         let mut rng = StdRng::seed_from_u64(11);
@@ -2672,6 +2821,39 @@ mod tests {
         assert_eq!(state.sect.attributes.silver, 202);
         assert_eq!(state.sect.inventory["精铁"], 0);
         assert_eq!(state.sect.buildings[0].condition, 100);
+    }
+
+    #[test]
+    fn completely_destroyed_building_has_a_material_free_recovery_path() {
+        let mut state = GameState::default();
+        let mut rng = StdRng::seed_from_u64(14);
+        state.sect.attributes.silver = 0;
+        state.sect.inventory.insert("精铁".into(), 0);
+        for building in &mut state.sect.buildings {
+            building.condition = 0;
+        }
+
+        let events = execute_management(
+            &mut rng,
+            &mut state,
+            ManagementRequest::RepairBuilding {
+                building_id: "herb_hall".into(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            state
+                .sect
+                .buildings
+                .iter()
+                .find(|building| building.id == "herb_hall")
+                .map(|building| building.condition),
+            Some(25)
+        );
+        assert_eq!(state.sect.attributes.silver, 0);
+        assert_eq!(state.sect.inventory["精铁"], 0);
+        assert!(events[0].text.contains("临时抢修"));
     }
 
     #[test]
@@ -3180,6 +3362,7 @@ fn joint_patrol_with_ally(
     *ally.relations.entry("player".into()).or_default() += gain;
     state.sect.attributes.prestige = (state.sect.attributes.prestige + 2).min(1000);
     // 选择一个在门弟子获得历练经验
+    let created_martial_arts = state.sect.created_martial_arts.clone();
     if let Some(fighter) = state
         .disciples
         .iter_mut()
@@ -3189,7 +3372,7 @@ fn joint_patrol_with_ally(
         let xp = rng.gen_range(30..=60);
         // 给该弟子首项战斗武学加经验
         for (art_id, progress) in &mut fighter.martial_progress.proficiencies {
-            let art = crate::models::martial_art::martial_art_by_id(art_id);
+            let art = martial_art_by_id_with_created(art_id, &created_martial_arts);
             if art.map_or(false, |a| a.is_combat) {
                 progress.experience += xp;
                 break;
@@ -3229,7 +3412,11 @@ fn call_ally_aid(
         "{}遣精锐弟子{}{}来援，自此列入本派门墙。",
         ally.name,
         name,
-        if gain >= 8 { "，两派情谊愈加深厚" } else { "" }
+        if gain >= 8 {
+            "，两派情谊愈加深厚"
+        } else {
+            ""
+        }
     ))
 }
 
@@ -3257,12 +3444,16 @@ fn host_exchange_with_ally(
         .public_books
         .iter()
         .filter_map(|id| {
-            let art = crate::models::martial_art::martial_art_by_id(id)?;
+            let art = martial_art_by_id_with_created(id, &state.sect.created_martial_arts)?;
             art.is_combat.then_some(id.clone())
         })
         .next()
     {
-        *state.sect.martial_research.entry(first_combat).or_insert(50) += research_gain;
+        *state
+            .sect
+            .martial_research
+            .entry(first_combat)
+            .or_insert(50) += research_gain;
     }
     Ok(())
 }

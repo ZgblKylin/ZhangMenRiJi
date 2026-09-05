@@ -1070,8 +1070,7 @@ pub fn run_npc_ai(rng: &mut impl Rng, state: &mut GameState) -> Vec<GameEvent> {
             state.npc_sects[sect_index].attributes.silver -= 35;
             let recruit_id = next_npc_recruit_id(state, &sect_id);
             let prestige_bonus = state.npc_sects[sect_index].attributes.prestige / 15;
-            let mut recruit =
-                generate_disciple(rng, prestige_bonus.max(2));
+            let mut recruit = generate_disciple(rng, prestige_bonus.max(2));
             // 通用弟子生成器的临时 ID 带墙钟时间；NPC 月结须改为存档内可复现的序号。
             recruit.id = recruit_id;
             recruit.sect_id = Some(sect_id.clone());
@@ -1280,39 +1279,56 @@ fn deepen_npc_sect_management(rng: &mut impl Rng, state: &mut GameState) {
         iron: i32,
         building_conditions: Vec<(usize, i32)>, // (index, condition)
     }
-    let snapshots: Vec<SectBuildSnapshot> = state.npc_sects.iter().map(|sect| {
-        let has_scripture_elder = sect.buildings.iter()
-            .any(|b| b.id == "scripture" && b.elder_id.is_some() && b.condition > 0);
-        let has_herb_elder = sect.buildings.iter()
-            .any(|b| b.id == "herb_hall" && b.elder_id.is_some() && b.condition > 0);
-        let herbs = *sect.inventory.get("草药").unwrap_or(&0);
-        let scripture_eff = crate::logic::sect::building_effectiveness(sect, "scripture");
-        let first_combat_art = sect.public_books.iter()
-            .filter_map(|id| {
-                let art = crate::models::martial_art::martial_art_by_id(id)?;
-                art.is_combat.then_some(id.clone())
-            })
-            .next();
-        let silver = sect.attributes.silver;
-        let iron = *sect.inventory.get("精铁").unwrap_or(&0);
-        let building_conditions = sect.buildings.iter()
-            .enumerate()
-            .map(|(i, b)| (i, b.condition))
-            .collect();
-        SectBuildSnapshot {
-            has_scripture_elder, has_herb_elder, herbs, scripture_eff,
-            first_combat_art, silver, iron, building_conditions,
-        }
-    }).collect();
+    let snapshots: Vec<SectBuildSnapshot> = state
+        .npc_sects
+        .iter()
+        .map(|sect| {
+            let has_scripture_elder = sect
+                .buildings
+                .iter()
+                .any(|b| b.id == "scripture" && b.elder_id.is_some() && b.condition > 0);
+            let has_herb_elder = sect
+                .buildings
+                .iter()
+                .any(|b| b.id == "herb_hall" && b.elder_id.is_some() && b.condition > 0);
+            let herbs = *sect.inventory.get("草药").unwrap_or(&0);
+            let scripture_eff = crate::logic::sect::building_effectiveness(sect, "scripture");
+            let first_combat_art = sect
+                .public_books
+                .iter()
+                .filter_map(|id| {
+                    let art = crate::models::martial_art::martial_art_by_id(id)?;
+                    art.is_combat.then_some(id.clone())
+                })
+                .next();
+            let silver = sect.attributes.silver;
+            let iron = *sect.inventory.get("精铁").unwrap_or(&0);
+            let building_conditions = sect
+                .buildings
+                .iter()
+                .enumerate()
+                .map(|(i, b)| (i, b.condition))
+                .collect();
+            SectBuildSnapshot {
+                has_scripture_elder,
+                has_herb_elder,
+                herbs,
+                scripture_eff,
+                first_combat_art,
+                silver,
+                iron,
+                building_conditions,
+            }
+        })
+        .collect();
 
     // 再根据快照执行修改
     for (sect_index, snap) in snapshots.iter().enumerate() {
         // 经文研究
         if snap.has_scripture_elder && snap.scripture_eff > 0 {
             if let Some(ref art_id) = snap.first_combat_art {
-                let gain = 1_i64
-                    + (snap.scripture_eff / 30).max(0) as i64
-                    + i64::from(rng.gen_bool(0.3));
+                let gain =
+                    1_i64 + (snap.scripture_eff / 30).max(0) as i64 + i64::from(rng.gen_bool(0.3));
                 *state.npc_sects[sect_index]
                     .martial_research
                     .entry(art_id.clone())
@@ -1321,14 +1337,20 @@ fn deepen_npc_sect_management(rng: &mut impl Rng, state: &mut GameState) {
         }
 
         // 丹药炼制：有丹房长老时每月至少炼一炉；草药充裕时可炼多炉。
-        let herb_stock = *state.npc_sects[sect_index].inventory.get("草药").unwrap_or(&0);
+        let herb_stock = *state.npc_sects[sect_index]
+            .inventory
+            .get("草药")
+            .unwrap_or(&0);
         let brew_count = if snap.has_herb_elder && herb_stock >= 8 {
             ((herb_stock / 16) + 1).clamp(1, ((herb_stock / 8).min(3)) as i32)
         } else {
             0
         };
         for _ in 0..brew_count {
-            let current = *state.npc_sects[sect_index].inventory.get("草药").unwrap_or(&0);
+            let current = *state.npc_sects[sect_index]
+                .inventory
+                .get("草药")
+                .unwrap_or(&0);
             if current < 8 {
                 break;
             }
@@ -1348,19 +1370,28 @@ fn deepen_npc_sect_management(rng: &mut impl Rng, state: &mut GameState) {
         }
 
         // 建筑修缮与磨损：先预判每栋建筑的修缮操作
-        let repairs: Vec<(usize, bool, bool, i32)> = snap.building_conditions.iter().map(
-            |&(b_idx, condition)| {
-                let can_repair = condition < 50 && snap.silver >= 15
-                    && snap.iron >= (100 - condition + 24) / 25;
+        let repairs: Vec<(usize, bool, bool, i32)> = snap
+            .building_conditions
+            .iter()
+            .map(|&(b_idx, condition)| {
+                let can_repair =
+                    condition < 50 && snap.silver >= 15 && snap.iron >= (100 - condition + 24) / 25;
                 let will_wear = condition > 0 && rng.gen_bool(0.3);
-                let iron_cost = if can_repair { (100 - condition + 24) / 25 } else { 0 };
+                let iron_cost = if can_repair {
+                    (100 - condition + 24) / 25
+                } else {
+                    0
+                };
                 (b_idx, can_repair, will_wear, iron_cost)
-            }
-        ).collect();
+            })
+            .collect();
 
         for (b_idx, can_repair, will_wear, iron_cost) in repairs {
             if can_repair {
-                *state.npc_sects[sect_index].inventory.entry("精铁".into()).or_default() -= iron_cost;
+                *state.npc_sects[sect_index]
+                    .inventory
+                    .entry("精铁".into())
+                    .or_default() -= iron_cost;
                 state.npc_sects[sect_index].attributes.silver -= 15;
                 state.npc_sects[sect_index].buildings[b_idx].condition = 100;
             }

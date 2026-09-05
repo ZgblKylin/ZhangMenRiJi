@@ -597,5 +597,5 @@ DELETE FROM save_group_heads WHERE save_group_id = $1;
 
 ---
 
-> 文档版本：v3.1（按当前 SQLite 实现核对）
+> 文档版本：v3.2（按当前 SQLite 实现核对）
 > 最后核对：2026-07-19

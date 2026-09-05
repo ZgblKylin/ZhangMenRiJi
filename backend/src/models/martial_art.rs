@@ -19,9 +19,11 @@ impl SkillCategory {
 
     /// 不含招架与知识的战斗门类。
     pub fn is_combat_category(self) -> bool {
-        matches!(self, Self::Unarmed | Self::Dodge | Self::Force | Self::Weapon)
+        matches!(
+            self,
+            Self::Unarmed | Self::Dodge | Self::Force | Self::Weapon
+        )
     }
-
 
     pub const fn slug(self) -> &'static str {
         match self {
@@ -626,6 +628,22 @@ pub fn martial_art_by_id(id: &str) -> Option<MartialArt> {
         .iter()
         .find(|art| art.id == canonical)
         .cloned()
+}
+
+/// 解析玩家门派存档中的自创武学，并回退到全局静态武学表。
+///
+/// 自创武学只属于当前玩家存档，不能写入全局 registry，否则 NPC 会错误地
+/// 看到玩家门派的武学。调用方应仅在玩家上下文传入该门派的自创列表。
+pub fn martial_art_by_id_with_created(
+    id: &str,
+    created_martial_arts: &[MartialArt],
+) -> Option<MartialArt> {
+    let canonical = canonical_skill_id(id);
+    created_martial_arts
+        .iter()
+        .find(|art| art.id == canonical)
+        .cloned()
+        .or_else(|| martial_art_by_id(&canonical))
 }
 
 pub fn knowledge_skill_id(sect_id: &str) -> String {

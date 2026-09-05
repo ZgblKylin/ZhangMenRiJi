@@ -7,11 +7,13 @@ import AdvanceSection from './AdvanceSection.vue'
 import TournamentPanel from './TournamentPanel.vue'
 import ChroniclesBar from './ChroniclesBar.vue'
 import SectManagementPanel from './SectManagementPanel.vue'
+import { mergeMartialArts } from '../skillDisplay'
 
 const props = defineProps<{ game: GameState; decisions: Decision[]; arts: MartialArt[]; used: string[] }>()
 defineEmits<{ save: []; load: []; restart: []; decide: [id: string]; advance: []; manage: [command: ManagementRequest]; expel: [disciple: Disciple] }>()
 const section = ref<BuildingKind>('practice')
 const managementPanel = ref<InstanceType<typeof SectManagementPanel> | null>(null)
+const gameArts = computed(() => mergeMartialArts(props.arts, props.game.sect.created_martial_arts || []))
 watch(section, () => managementPanel.value?.closeNpcSect())
 const alive = computed(() => props.game.disciples?.filter(d => d.alive) || [])
 const sectChronicles = computed(() => (props.game.event_log || []).filter(event => event.category !== 'world'))
@@ -30,7 +32,7 @@ const sections = [
   <TitleBar :game="game" @save="$emit('save')" @load="$emit('load')" @restart="$emit('restart')" />
   <div class="book-layout">
     <div class="left-page">
-      <DiscipleList :disciples="alive" :arts="arts" :buildings="game.sect.buildings" :inventory="game.sect.inventory" :public-books="game.sect.public_books" :martial-research="game.sect.martial_research" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" @expel="$emit('expel', $event)" />
+      <DiscipleList :disciples="alive" :arts="gameArts" :buildings="game.sect.buildings" :inventory="game.sect.inventory" :public-books="game.sect.public_books" :martial-research="game.sect.martial_research" :disabled="game.decisions_used >= game.max_decisions || !!game.pending_event" @manage="$emit('manage', $event)" @expel="$emit('expel', $event)" />
     </div>
     <div class="center-page">
       <nav class="section-tabs" aria-label="中栏内容切换">
@@ -41,7 +43,7 @@ const sections = [
         </div>
       </nav>
       <TournamentPanel v-if="game.month === 12" :tournament="lastTournament" />
-      <SectManagementPanel ref="managementPanel" :game="game" :arts="arts" :decisions="decisions" :used="used" :view="section" @decide="$emit('decide', $event)" @manage="$emit('manage', $event)" />
+      <SectManagementPanel ref="managementPanel" :game="game" :arts="gameArts" :decisions="decisions" :used="used" :view="section" @decide="$emit('decide', $event)" @manage="$emit('manage', $event)" />
     </div>
     <ChroniclesBar :sect-entries="sectChronicles" :world-entries="worldChronicles" />
   </div>

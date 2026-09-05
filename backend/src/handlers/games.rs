@@ -36,7 +36,7 @@ pub async fn create_game(
         let mut rng = rand::thread_rng();
         game_state.disciples = generate_starting_disciples(&mut rng);
         game_state.martial_arts_learned = vec!["player_knowledge".into(), "hunyuan".into()];
-    game_state.event_log.push(crate::models::GameEvent {
+        game_state.event_log.push(crate::models::GameEvent {
         text: format!("掌门{}于{}新立山门，聚得二徒，草创基业。江湖险恶，万里之行始于此。左栏可检视弟子并安排行止，中栏各堂为门派经营总枢，右栏此卷为江湖纪事。每月限行三次定夺，右下按钮推演下月。", game_state.sect.name, game_state.sect.landmark),
         mood: "good".into(),
         year: 1,

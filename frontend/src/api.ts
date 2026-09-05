@@ -1,7 +1,8 @@
 import type { AdvanceResponse, Decision, DeleteGameResponse, GameResponse, ManageResponse, ManagementRequest, MartialArt, SaveGroup } from './types'
 
-// Tauri 桌面端内嵌的后端固定监听本机 3000 端口。
-export const API_BASE = 'http://127.0.0.1:3000/api'
+// 浏览器开发环境通过 Vite proxy 访问后端；桌面端/生产构建保留本机后端兼容。
+export const API_BASE = import.meta.env.VITE_API_BASE
+  || (import.meta.env.DEV ? '/api' : 'http://127.0.0.1:3000/api')
 
 export interface ApiErrorBody {
   code?: string

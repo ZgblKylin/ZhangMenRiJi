@@ -124,13 +124,17 @@ impl NamedNpcTemplate {
         let qi = (20_i32)
             .saturating_add(effective.constitution.saturating_mul(4))
             .saturating_add(neili / 2)
-            .saturating_add(age_qi_modifier(self.age))
+            .saturating_add(crate::logic::disciple::age_qi_modifier_extended(
+                self.age, neili,
+            ))
             .saturating_add(self.attribute_bonuses.qi)
             .max(1);
         let spirit = (20_i32)
             .saturating_add(effective.intelligence.saturating_mul(4))
             .saturating_add(energy / 2)
-            .saturating_add(age_spirit_modifier(self.age))
+            .saturating_add(crate::logic::disciple::age_spirit_modifier_extended(
+                self.age, energy,
+            ))
             .saturating_add(self.attribute_bonuses.spirit)
             .max(1);
         let loyalty = if self.sect_id.is_some() { 85 } else { 50 };
@@ -228,22 +232,6 @@ fn effective_aptitudes(aptitudes: &Aptitudes, skills: &[SkillEntry]) -> Aptitude
         skill_level(skills, "basic_force"),
         skill_level(skills, "basic_dodge"),
     )
-}
-
-fn age_qi_modifier(age: i32) -> i32 {
-    if age <= 35 {
-        (age - 14).max(0) * 3
-    } else {
-        63 - (age - 35) * 4
-    }
-}
-
-fn age_spirit_modifier(age: i32) -> i32 {
-    if age <= 35 {
-        (age - 14).max(0) * 2
-    } else {
-        42 - (age - 35) * 3
-    }
 }
 
 fn strongest_combat_skill(skills: &[SkillEntry]) -> Option<String> {
